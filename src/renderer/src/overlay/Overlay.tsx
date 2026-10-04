@@ -16,7 +16,8 @@ import { sampleColors } from '../lib/colors'
 import { langBase, ReplyComposer } from './ReplyComposer'
 import { Toolbar } from './Toolbar'
 
-type Stage = 'hidden' | 'idle' | 'drawing' | 'selected'
+/** quick：连按两次快捷键，不框选，直接输入一句话翻译 */
+type Stage = 'hidden' | 'idle' | 'drawing' | 'selected' | 'quick'
 type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 type Drag =
   | { kind: 'pending'; x0: number; y0: number }
@@ -79,6 +80,9 @@ export function Overlay() {
   const [replyAssist, setReplyAssist] = useState(true)
   const [replyTone, setReplyTone] = useState<Settings['replyTone']>('auto')
   const replyDraft = useRef('')
+  const quickDraft = useRef('')
+  /** 快速输入：本屏是否显示输入框（多显示器时只在鼠标所在的屏显示） */
+  const [quickHere, setQuickHere] = useState(false)
   /** 用户手动收起过：这次框选里不再自动弹出 */
   const replyDismissed = useRef(false)
   const replyRef = useRef<HTMLDivElement>(null)
@@ -130,6 +134,13 @@ export function Overlay() {
       setReplyTone(f.replyTone)
       setVw(window.innerWidth)
       setVh(window.innerHeight)
+      quickDraft.current = ''
+      if (f.quick) {
+        setStage('quick')
+        setQuickHere(!!f.cursor)
+        setTimeout(() => window.lens.frameReady(), 0)
+        return
+      }
       setStage('idle')
       if (f.cursor) {
         const s = f.scale
@@ -148,6 +159,15 @@ export function Overlay() {
         })
       )
     })
+    const offQuick = window.lens.onQuick((here) => {
+      reqId.current++
+      window.lens.cancel()
+      setSel(null)
+      setSnap(null)
+      setReplyOpen(false)
+      setStage('quick')
+      setQuickHere(here)
+    })
     const offReset = window.lens.onReset(() => {
       reset()
       pixels.current = null
@@ -160,6 +180,7 @@ export function Overlay() {
     return () => {
       offFrame()
       offShown()
+      offQuick()
       offReset()
     }
   }, [reset])
@@ -267,7 +288,7 @@ export function Overlay() {
   }, [])
 
   const onMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0 || stage === 'hidden') return
+    if (e.button !== 0 || stage === 'hidden' || stage === 'quick') return
     const p = pointAt(e)
     const t = e.target as HTMLElement
     const edge = t.closest<HTMLElement>('[data-edge]')?.dataset.edge as Edge | undefined
@@ -811,6 +832,29 @@ export function Overlay() {
         )}
       </AnimatePresence>
 
+      {/* 快速输入翻译 */}
+      <AnimatePresence>
+        {stage === 'quick' && quickHere && shown && (
+          <ReplyComposer
+            key="quick"
+            quick
+            style={{ left: Math.max(8, (vw - Math.min(560, vw - 16)) / 2), top: Math.round(vh * 0.26), width: Math.min(560, vw - 16) }}
+            menuUp={false}
+            userLang={target}
+            peer={null}
+            context=""
+            tone={replyTone}
+            draft={quickDraft}
+            onTone={changeTone}
+            onCollapse={() => window.lens.close()}
+            onExit={() => window.lens.close()}
+            onCopied={(close) => {
+              if (close) window.lens.close()
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* 回复助手 */}
       <AnimatePresence>
         {showReply && (
@@ -851,6 +895,10 @@ export function Overlay() {
             <span>拖动框选要翻译的区域</span>
             <span className="hint-dot" />
             <span>单击选中窗口</span>
+            <span className="hint-dot" />
+            <span>
+              连按两次 <kbd>{hotkey.replace(/\+/g, ' + ')}</kbd> 输入文字翻译
+            </span>
             <span className="hint-dot" />
             <span>
               <kbd>Esc</kbd> 退出

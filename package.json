@@ -1,7 +1,7 @@
 {
   "name": "lavatranslate",
   "productName": "LavaTranslate",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "截图翻译：框选屏幕任意区域，译文按原排版就地显示；还能用自己的语言回复外语聊天",
   "main": "./out/main/index.js",
   "author": "chengcczzjj",
@@ -15,7 +15,6 @@
     "release": "node scripts/release.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.131.0",
     "electron-updater": "^6.8.9",
     "node-screenshots": "^0.2.8",
     "onnxruntime-node": "^1.30.0",

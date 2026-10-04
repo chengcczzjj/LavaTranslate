@@ -74,6 +74,8 @@ export interface ProviderConfig {
   key: string
   baseUrl: string
   model: string
+  /** 界面显示用（ChatGPT 登录的账号邮箱） */
+  label?: string
 }
 
 export interface Settings {
@@ -94,6 +96,8 @@ export interface Settings {
   /** 翻译风格补充说明 */
   styleHint: string
   firstRunDone: boolean
+  /** 本机安装的标识（ChatGPT 登录要求每台设备一个固定的 ext_agent_host_id） */
+  installId: string
 }
 
 /** 更新设置用：providers 可以只改某个服务的部分字段 */
@@ -112,7 +116,8 @@ export const DEFAULT_SETTINGS: Settings = {
   launchAtLogin: false,
   displayMode: 'overlay',
   styleHint: '',
-  firstRunDone: false
+  firstRunDone: false,
+  installId: ''
 }
 
 /** 在本机找到的 OpenAI 兼容凭据（Codex 配置 / CC Switch） */
@@ -134,6 +139,8 @@ export interface ReplyStartMsg {
   tone: 'auto' | 'formal' | 'casual'
   /** 屏幕上的对话文本，供模型把握语气和称呼 */
   context: string
+  /** 快速输入模式：输入的已经是目标语言时，改为译成用户自己的语言 */
+  quick?: boolean
 }
 
 export type ReplyEvent = { type: 'delta'; text: string } | { type: 'done'; ms: number } | { type: 'error'; message: string }
@@ -176,6 +183,8 @@ export interface CaptureFrame {
   hotkey: string
   replyAssist: boolean
   replyTone: Settings['replyTone']
+  /** 连按两次快捷键：不框选，直接输入一句话翻译 */
+  quick: boolean
 }
 
 export interface PinPayload {

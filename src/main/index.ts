@@ -18,6 +18,7 @@ import {
 } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import {
   LANGUAGES,
   providerInfo,
@@ -38,12 +39,13 @@ import {
   type TranslateRequestMsg
 } from '../shared/types'
 import { captureAll, cropRgba, rgbaToBgra, type DisplayCapture } from './capture'
-import { findOpenAISources, resolveProvider } from './credentials'
+import { chatgptSession, detectProvider, findOpenAISources, resolveProvider } from './credentials'
 import { PaddleOcr } from './ocr'
 import { refreshPrices, sortByPrice } from './pricing'
 import { check as checkUpdate, initUpdater, installNow, setAutoUpdate, updateState } from './updater'
 import { settings } from './settings'
-import { ApiEngine, OpenAIEngine, TranslateError, type Engine } from './translator'
+import { OpenAIEngine, TranslateError, type Engine } from './translator'
+import { cancelSignIn, listPlanModels, refresh as refreshChatGPT, signIn as signInChatGPT } from './chatgpt'
 import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runReview } from './devtest'
 import { EventEmitter } from 'node:events'
 
@@ -56,7 +58,7 @@ const mockEngine = fixtureEngine ?? (process.env.LENS_MOCK ? new MockEngine() : 
 const pipeline = new EventEmitter()
 
 // 自测用独立的数据目录：不读写用户配置，也不和已安装、正在运行的版本抢单实例锁
-if (AUTOTEST || process.env.LENS_ENGINE_TEST) app.setPath('userData', join(app.getPath('temp'), 'lens-autotest'))
+if (AUTOTEST || process.env.LENS_ENGINE_TEST || process.env.LENS_DETECT_TEST) app.setPath('userData', join(app.getPath('temp'), 'lens-autotest'))
 // LENS_AUTOTEST_SEED=<settings.json>：自测前放一份指定的设置（检查旧格式迁移等）
 if (AUTOTEST && process.env.LENS_AUTOTEST_SEED) {
   mkdirSync(app.getPath('userData'), { recursive: true })
@@ -105,15 +107,33 @@ function buildEngine(s: Settings): Engine | null {
 function engineFor(s: Settings, id = s.provider): Engine | null {
   const r = resolveProvider(s, id)
   if (!r || !r.model) return null
-  if (r.info.protocol === 'anthropic') return new ApiEngine({ baseURL: r.baseURL, apiKey: r.apiKey }, r.model)
   return new OpenAIEngine({ baseURL: r.baseURL, apiKey: r.apiKey }, r.model, { api: r.info.api, chatExtra: r.info.chatExtra })
+}
+
+/** ChatGPT 登录：令牌快过期时先刷新再用 */
+async function ensureFreshToken() {
+  const s = settings.get()
+  if (s.provider !== 'chatgpt') return
+  const sess = chatgptSession(s)
+  if (!sess || sess.expiresAt - Date.now() > 120_000) return
+  try {
+    const next = await refreshChatGPT(sess)
+    settings.update({ providers: { chatgpt: { key: JSON.stringify(next) } } })
+  } catch (e) {
+    logError('chatgpt refresh', e)
+  }
 }
 
 function engineStatus(): EngineStatus {
   const s = settings.get()
   const info = providerInfo(s.provider)
   const r = resolveProvider(s)
-  if (!r) return { provider: info.id, ok: false, detail: info.id === 'custom' && s.providers.custom?.key ? '还没有填写接口地址' : `${info.name} · 还没有填写 API Key` }
+  if (!r)
+    return {
+      provider: info.id,
+      ok: false,
+      detail: info.id === 'chatgpt' ? '还没有登录 ChatGPT' : info.id === 'custom' && s.providers.custom?.key ? '还没有填写接口地址' : '还没有填写 API Key'
+    }
   if (!r.model) return { provider: info.id, ok: false, detail: `${info.name} · 请选择一个模型` }
   let where = info.name
   if (info.id === 'custom' || s.providers[info.id]?.baseUrl) {
@@ -123,6 +143,7 @@ function engineStatus(): EngineStatus {
       where = r.baseURL
     }
   }
+  if (info.id === 'chatgpt') where = `ChatGPT 会员 · ${s.providers.chatgpt?.label ?? '已登录'}`
   return { provider: info.id, ok: true, detail: `${r.model} · ${where}` }
 }
 
@@ -194,12 +215,49 @@ function overlayOf(wc: WebContents): Overlay | undefined {
 }
 
 let tHotkey = 0
+/** 连按两次快捷键的间隔上限；比键盘自动重复的延迟（约 500ms）短，按住不放不会误触发 */
+const DOUBLE_PRESS_MS = 400
+let lastHotkey = 0
+/** 截图还没显示出来时就连按了第二次：显示时直接进入输入翻译 */
+let quickPending = false
+let framesShown = false
+let hiding: Promise<void> | null = null
+
+function onHotkey() {
+  const now = Date.now()
+  const double = now - lastHotkey < DOUBLE_PRESS_MS
+  lastHotkey = double ? 0 : now
+  if (double) startQuick()
+  else void startCapture()
+}
+
+/** 直接输入一句话翻译（不框选） */
+function startQuick() {
+  if (overlayActive && framesShown) {
+    // 输入框显示在鼠标所在的屏；那块屏没有截图时用第一块
+    const cursor = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id
+    const here = captures.has(cursor) ? cursor : [...captures.keys()][0]
+    for (const o of overlays.values()) {
+      if (!captures.has(o.displayId)) continue
+      o.win.webContents.send('overlay:quick', o.displayId === here)
+      if (o.displayId === here && o.win.isVisible()) {
+        o.win.focus()
+        o.win.webContents.focus()
+      }
+    }
+    return
+  }
+  quickPending = true
+  if (!overlayActive) void startCapture()
+}
+
 async function startCapture() {
   tHotkey = Date.now()
   if (overlayActive) {
     hideOverlays()
     return
   }
+  if (hiding) await hiding
   overlayActive = true
   if (releaseTimer) clearTimeout(releaseTimer)
   // 预热失败不能挡住截图：翻译时还会再报一次，届时在工具条上提示
@@ -243,10 +301,13 @@ function presentCaptures(caps: DisplayCapture[]) {
       displayMode: s.displayMode,
       hotkey: s.hotkey,
       replyAssist: s.replyAssist,
-      replyTone: s.replyTone
+      replyTone: s.replyTone,
+      quick: quickPending
     }
     o.win.webContents.send('overlay:frame', frame)
   }
+  quickPending = false
+  framesShown = true
 }
 
 /** 渲染进程画好截图后才显示窗口，避免闪出上一帧 */
@@ -299,9 +360,15 @@ function fadeOut(win: BrowserWindow, ms: number) {
   })
 }
 
-async function hideOverlays(immediate = false) {
-  if (!overlayActive) return
+function hideOverlays(immediate = false) {
+  if (!overlayActive) return hiding ?? Promise.resolve()
   overlayActive = false
+  framesShown = false
+  hiding = doHide(immediate).finally(() => (hiding = null))
+  return hiding
+}
+
+async function doHide(immediate: boolean) {
   for (const ctl of translations.values()) ctl.abort()
   translations.clear()
   const visible = [...overlays.values()].filter((o) => o.win.isVisible())
@@ -354,7 +421,8 @@ ipcMain.on('translate:start', async (e, msg: TranslateRequestMsg) => {
   send({ type: 'ocr', lines, ms: Date.now() - t0 })
   if (!lines.length) return send({ type: 'error', message: '没有识别到文字', code: 'no-text' })
 
-  // 2. Claude
+  // 2. 模型
+  await ensureFreshToken()
   const s = settings.get()
   const eng = engine ?? buildEngine(s)
   if (!eng) return send({ type: 'error', message: engineStatus().detail, code: 'config' })
@@ -400,6 +468,7 @@ ipcMain.on('reply:start', async (e, msg: ReplyStartMsg) => {
   replies.get(sender.id)?.abort()
   const ctl = new AbortController()
   replies.set(sender.id, ctl)
+  await ensureFreshToken()
   const s = settings.get()
   const eng = engine ?? buildEngine(s)
   if (!eng) return send({ type: 'error', message: engineStatus().detail })
@@ -411,7 +480,8 @@ ipcMain.on('reply:start', async (e, msg: ReplyStartMsg) => {
         from: langFor(s.targetLang),
         to: langFor(msg.to, msg.toName),
         context: msg.context,
-        tone: msg.tone
+        tone: msg.tone,
+        quick: msg.quick
       },
       (d) => send({ type: 'delta', text: d }),
       ctl.signal
@@ -633,20 +703,46 @@ ipcMain.on('shell:open', (_e, url: string) => {
 })
 /** 拉取服务端模型列表，按一次翻译的估算费用从低到高排序（价格来自 models.dev） */
 ipcMain.handle('models:list', async (_e, id?: ProviderId): Promise<{ ok: boolean; models: ModelInfo[]; message?: string }> => {
+  await ensureFreshToken()
   const s = settings.get()
   const r = resolveProvider(s, id ?? s.provider)
-  if (!r) return { ok: false, models: [], message: '请先填写 API Key' }
+  if (!r) return { ok: false, models: [], message: id === 'chatgpt' ? '请先登录 ChatGPT' : '请先填写 API Key' }
   const bundled = join(resources, 'model-prices.json')
   try {
     // 价格库在后台刷新，不拖慢列表；这次先用缓存或安装包内置的价格
     void refreshPrices(bundled)
-    const creds = { baseURL: r.baseURL, apiKey: r.apiKey }
-    const ids = r.info.protocol === 'anthropic' ? await new ApiEngine(creds, 'x').listModels() : await new OpenAIEngine(creds, 'x').listModels()
+    if (r.info.id === 'chatgpt') {
+      // 会员额度内使用，不按 token 计费：不显示价格
+      const ids = await listPlanModels(r.apiKey)
+      return { ok: true, models: ids.map((m) => ({ id: m, input: null, output: null, vision: null, perCall: null })) }
+    }
+    const ids = await new OpenAIEngine({ baseURL: r.baseURL, apiKey: r.apiKey }, 'x').listModels()
     return { ok: true, models: sortByPrice(ids, bundled) }
   } catch (e) {
     return { ok: false, models: [], message: e instanceof Error ? e.message : String(e) }
   }
 })
+/** 识别 Key 属于哪家服务 */
+ipcMain.handle('key:detect', (_e, key: string) => detectProvider(key))
+
+/** 用 ChatGPT 账号登录：打开浏览器，等待回调 */
+ipcMain.handle('chatgpt:signin', async (): Promise<{ ok: boolean; message?: string }> => {
+  try {
+    const s = settings.get()
+    const sess = await signInChatGPT(s.installId, chatgptSession(s))
+    if (settingsWin && !settingsWin.isDestroyed()) settingsWin.focus()
+    settings.update({ provider: 'chatgpt', providers: { chatgpt: { key: JSON.stringify(sess), label: sess.email ?? '', baseUrl: '' } } })
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) }
+  }
+})
+ipcMain.on('chatgpt:cancel', () => cancelSignIn())
+ipcMain.handle('chatgpt:signout', () => {
+  settings.update({ providers: { chatgpt: { key: '', label: '' } } })
+  return settings.public()
+})
+
 ipcMain.handle('app:info', () => ({ version: app.getVersion() }))
 ipcMain.handle('update:state', () => updateState())
 ipcMain.handle('update:check', () => checkUpdate())
@@ -665,6 +761,7 @@ ipcMain.on('settings:open', () => {
 })
 
 ipcMain.handle('engine:test', async () => {
+  await ensureFreshToken()
   const s = settings.get()
   const eng = engine ?? buildEngine(s)
   if (!eng) return { ok: false, message: engineStatus().detail }
@@ -699,7 +796,7 @@ function registerHotkey(hotkey: string): boolean {
   if (registeredHotkey) globalShortcut.unregister(registeredHotkey)
   registeredHotkey = ''
   try {
-    if (globalShortcut.register(hotkey, () => void startCapture())) {
+    if (globalShortcut.register(hotkey, onHotkey)) {
       registeredHotkey = hotkey
       return true
     }
@@ -729,17 +826,23 @@ ipcMain.handle('hotkey:suspend', (_e, on: boolean) => {
 function updateTray() {
   if (!tray) return
   const s = settings.get()
+  const u = updateState()
+  const upd: Electron.MenuItemConstructorOptions =
+    u.state === 'ready'
+      ? { label: `重启并更新到 v${u.next}`, click: () => ((quitting = true), installNow()) }
+      : u.state === 'downloading' || u.state === 'available'
+        ? { label: `正在下载 v${u.next}（${u.percent}%）`, enabled: false }
+        : { label: u.state === 'checking' ? '正在检查更新…' : `检查更新（当前 v${u.version}）`, enabled: u.state !== 'checking' && u.state !== 'disabled', click: () => void checkUpdate() }
   tray.setToolTip(`LavaTranslate · ${s.hotkey.replace(/\+/g, ' + ')}`)
   tray.setContextMenu(
     Menu.buildFromTemplate([
       // 快捷键用 accelerator 显示（右对齐）；不在这里注册，全局热键另有 globalShortcut。
       // 菜单里不放勾选项：有勾选项时 Windows 会在左侧预留一整列空白（开机启动在设置里）
       { label: '截图翻译', accelerator: s.hotkey, registerAccelerator: false, click: () => void startCapture() },
+      { label: '输入文字翻译（连按两次快捷键）', click: () => startQuick() },
       { type: 'separator' },
-      ...(updateState().state === 'ready'
-        ? [{ label: `重启并更新到 v${(updateState() as { next: string }).next}`, click: () => ((quitting = true), installNow()) }, { type: 'separator' as const }]
-        : []),
       { label: '设置…（双击图标）', click: openSettings },
+      upd,
       { type: 'separator' },
       { label: '退出', click: () => app.quit() }
     ])
@@ -777,7 +880,8 @@ function migrateLegacy() {
 
 app.whenReady().then(async () => {
   migrateLegacy()
-  const s = settings.load()
+  let s = settings.load()
+  if (!s.installId) s = settings.update({ installId: `urn:uuid:${randomUUID()}` })
   buildEngine(s)
   void ocr.init()
   syncOverlays()
@@ -810,8 +914,8 @@ app.whenReady().then(async () => {
     enabled: () => settings.get().autoUpdate,
     onChange: (st) => {
       if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('update:state', st)
+      updateTray()
       if (st.state === 'ready') {
-        updateTray()
         notify('新版本已就绪', `v${st.next} 已下载完成，退出时自动安装；也可以在托盘菜单里立即重启更新`)
       }
     }
@@ -837,6 +941,12 @@ app.whenReady().then(async () => {
     ] as [number, () => void][])
       setTimeout(fn, at)
     return
+  }
+
+  // LENS_DETECT_TEST=<Key1,Key2…>：只测识别 Key 属于哪家（不打印 Key 本身）
+  if (process.env.LENS_DETECT_TEST) {
+    for (const k of process.env.LENS_DETECT_TEST.split(',')) console.log('[detect]', k.slice(0, 7) + '…', JSON.stringify(await detectProvider(k)))
+    return app.quit()
   }
 
   if (process.env.LENS_ENGINE_TEST) {
@@ -918,6 +1028,7 @@ app.whenReady().then(async () => {
         setSettings: (p) => {
           settings.update(p)
         },
+        quick: () => startQuick(),
         overlayWin: () => overlays.get(display.id)!.win,
         inject: async (cap) => {
           syncOverlays()

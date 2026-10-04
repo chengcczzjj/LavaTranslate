@@ -46,22 +46,26 @@
 
 <br clear="right">
 
+## 输入文字翻译
+
+**连按两次快捷键**（<kbd>Alt</kbd>+<kbd>Q</kbd> <kbd>Q</kbd>）不截图，直接输入一句话。等你停下来（约 1.4 秒，或按 <kbd>Enter</kbd>）再翻译，不会边打边翻；默认译成上一次回复时用的语言，输入的本来就是那种语言时，则改译成你自己的语言。<kbd>Enter</kbd> 复制并关闭。
+
+<img src="docs/images/quick.png" width="520" alt="输入文字翻译">
+
 ## 下载安装
 
 1. 在 [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest) 下载 **`LavaTranslate-Setup-x.y.z.exe`**（Windows 10/11 x64）；
 2. 运行安装程序。如果 Windows SmartScreen 提示「未知发布者」，点 **更多信息 → 仍要运行**；
 3. 装好后 LavaTranslate 常驻在系统托盘，之后的新版本会在后台自动下载（见[自动更新](#自动更新)）。
 
-## 配置：填写你自己的 API Key
+## 配置：用 ChatGPT 登录，或填任意一家的 API Key
 
-软件不内置任何 Key，用你自己的；翻译多少，就按服务商的价格付多少。
+软件不内置任何 Key。双击托盘图标打开 **设置** → **翻译服务**：
 
-1. 双击托盘图标打开 **设置** → **翻译服务**，选一个服务商；
-2. 按「**如何获取 API Key**」里的步骤操作，点按钮直接打开服务商的 Key 页面；把 Key 粘贴进来，点「**保存并获取模型**」；
-3. 选一个模型。列表按「每千次截图约多少钱」从低到高排序，并标出「推荐」「快」「仅文字」；
-4. 点「**测试翻译**」，然后在任意地方按 <kbd>Alt</kbd>+<kbd>Q</kbd>，拖动框选文字即可。
+- **ChatGPT Plus / Pro 会员**：点「**用 ChatGPT 登录**」，翻译消耗会员额度，不需要 API Key。这是 OpenAI 为开源软件提供的官方「使用 ChatGPT 会员额度」登录方式；
+- **任意一家的 API Key**：粘贴进来点「**识别并保存**」。软件先按 Key 的格式识别（`AIza…` 是 Gemini、`sk-ant-…` 是 Claude、`sk-or-…` 是 OpenRouter、`sk-proj-…` 是 OpenAI，智谱、豆包也有固定格式），格式相同的几家（DeepSeek、OpenAI、通义、Kimi）会实际连一下来确认，还识别不出来就让你选。中转站、本地模型再填一下接口地址。
 
-每个服务商分别保存自己的 Key 和模型，来回切换不用重新填写。
+然后选一个模型（按每千次截图的估算费用从低到高排），点「**测试翻译**」即可。填过的服务都会保存，以小标签列出，点一下就能切换；页面底部有各家获取 Key 的步骤和直达链接。
 
 <img src="docs/images/settings-service.png" width="560" alt="翻译服务设置">
 
@@ -69,6 +73,7 @@
 
 | 服务商 | 获取 Key | 推荐的快模型 | 说明 |
 | --- | --- | --- | --- |
+| ChatGPT 会员 | 登录即可，不需要 Key | `gpt-6-luna` | 消耗 Plus / Pro 会员额度 |
 | Gemini | [Google AI Studio](https://aistudio.google.com/apikey) | `gemini-3.5-flash-lite` | 有免费额度，免费额度内的数据可能被 Google 使用；国内需要代理 |
 | OpenAI | [OpenAI Platform](https://platform.openai.com/api-keys) | `gpt-6-luna`、`gpt-5-mini` | ChatGPT 会员不包含 API 额度 |
 | DeepSeek | [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) | `deepseek-flash` | 能看图，首字约 1 秒，非高峰时段半价，国内直连 |
@@ -76,7 +81,7 @@
 | 智谱 GLM | [智谱开放平台](https://bigmodel.cn/usercenter/proj-mgmt/apikeys) | `glm-4.6v-flash` | 免费且能看图（同一时间只处理一个请求） |
 | Kimi | [Kimi 开放平台](https://platform.kimi.com/console/api-keys) | | 国内直连 |
 | 豆包 | [火山方舟](https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey) | `doubao-seed-2.0-mini` | 新用户有免费额度，国内直连 |
-| Claude | [Claude Console](https://platform.claude.com/settings/keys) | `claude-haiku-4-5` | 只能用 API Key：Anthropic 不允许第三方软件使用 Claude Pro / Max 会员登录 |
+| Claude | [Claude Console](https://platform.claude.com/settings/keys) | `claude-haiku-4-5` | 只能用 API Key：Anthropic 不允许第三方软件使用 Claude Pro / Max 会员登录；通过 Anthropic 提供的 OpenAI 兼容接口调用 |
 | OpenRouter | [OpenRouter](https://openrouter.ai/settings/keys) | | 一个 Key 用遍各家模型 |
 | 自定义 | — | | 任何兼容 OpenAI 接口的服务：中转站、Ollama、LM Studio 等 |
 
@@ -87,6 +92,7 @@
 | 按键 | 作用 |
 | --- | --- |
 | <kbd>Alt</kbd>+<kbd>Q</kbd>（可改）或单击托盘图标 | 开始截图翻译 |
+| 连按两次快捷键 | 输入一句话翻译 |
 | 双击托盘图标 | 打开设置 |
 | 拖动 / 单击 | 框选区域 / 选中鼠标下的窗口 |
 | 拖动选区、拖动手柄 | 移动、调整选区，松开后自动重新翻译 |
@@ -104,16 +110,19 @@
 
 - 文字识别（OCR）**在本机完成**；
 - 只有你框选的区域（图片和识别出的文字）以及你写的回复，会发给**你自己配置的服务**，不经过我们的服务器，也不保存任何记录；
-- API Key 用 Windows DPAPI 加密保存在本机，设置页只显示末 4 位。
+- API Key 和 ChatGPT 登录令牌都用 Windows DPAPI 加密保存在本机，设置页只显示末 4 位。
 
 ## 自动更新
 
-软件每 4 小时检查一次本仓库的 Releases，只下载安装包里有变化的部分。下载完成后，托盘菜单和「关于」页会出现「**重启并更新**」；不点的话，下次退出软件时自动安装。可以在 设置 → 关于 里关闭自动更新。
+- 软件**启动 20 秒后检查一次，之后每 4 小时检查一次**本仓库的 Releases；也可以随时手动检查：托盘菜单 →「**检查更新**」，或 设置 →「**关于**」→「**检查更新**」；
+- 发现新版本会在后台下载，只下载安装包里有变化的部分；
+- 下载完成后弹出通知，托盘菜单和「关于」页出现「**重启并更新到 vX**」，点一下立即更新；不点的话，下次退出软件时自动安装；
+- 设置窗口左下角显示当前版本和更新状态，点它直接跳到「关于」页；在「关于」页可以关闭自动更新。
 
 ## 常见问题
 
 **能用 ChatGPT / Codex 会员吗？**
-不能。ChatGPT 账号登录没有 API Key，需要 OpenAI 或其他服务商的 API Key。
+ChatGPT Plus / Pro 可以：设置 → 翻译服务 →「**用 ChatGPT 登录**」，翻译消耗会员额度。Claude Pro / Max 不行——Anthropic 不允许第三方软件使用 claude.ai 登录，Claude 需要 API Key。
 
 **翻译比较慢？**
 换一个标着「快」的小模型。推理型模型写之前要先思考好几秒。

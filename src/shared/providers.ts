@@ -1,14 +1,16 @@
-// 翻译服务目录：每家的接口地址、获取 Key 的网页与步骤、推荐模型
-// 除 Claude 外都走 OpenAI 兼容接口；api 表示优先用哪种接口（auto：先试 Responses，没有再用 Chat Completions）
+// 翻译服务目录：每家的接口地址、获取 Key 的网页与步骤、推荐模型、识别 Key 的规则
+// 全部走 OpenAI 兼容接口（Claude 用 Anthropic 提供的兼容接口）；api 表示优先用哪种接口（auto：先试 Responses，没有再用 Chat Completions）
+// chatgpt 不用 Key：用 ChatGPT 账号登录，消耗 Plus / Pro 会员额度
 
-export type ProviderId = 'gemini' | 'openai' | 'deepseek' | 'claude' | 'qwen' | 'zhipu' | 'kimi' | 'doubao' | 'openrouter' | 'custom'
+export type ProviderId = 'chatgpt' | 'gemini' | 'openai' | 'deepseek' | 'claude' | 'qwen' | 'zhipu' | 'kimi' | 'doubao' | 'openrouter' | 'custom'
 
 export interface ProviderInfo {
   id: ProviderId
   name: string
   /** 卡片上的一句话 */
   blurb: string
-  protocol: 'openai' | 'anthropic'
+  /** Key 的格式（用来自动识别是哪家）；格式一样的几家（sk- 开头）靠请求模型列表来区分 */
+  keyPattern?: RegExp
   api: 'responses' | 'chat' | 'auto'
   /** 默认接口地址；custom 为空，需要用户填写 */
   baseUrl: string
@@ -35,17 +37,31 @@ export interface ProviderInfo {
 
 export const PROVIDERS: ProviderInfo[] = [
   {
+    id: 'chatgpt',
+    name: 'ChatGPT',
+    blurb: '用 Plus / Pro 会员额度',
+    api: 'responses',
+    baseUrl: 'https://api.openai.com/v1',
+    keyUrl: '',
+    keyUrlLabel: '',
+    steps: [],
+    tip: '用 ChatGPT 账号登录后，翻译消耗你 Plus / Pro 会员的额度，不需要 API Key。这是 OpenAI 为开源软件提供的官方方式。',
+    suggest: ['gpt-6-luna', 'gpt-5-mini'],
+    tags: [],
+    color: '#10a37f'
+  },
+  {
     id: 'gemini',
     name: 'Gemini',
     blurb: 'Google · Flash 系列又快又便宜',
-    protocol: 'openai',
     api: 'chat',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     keyUrl: 'https://aistudio.google.com/apikey',
     keyUrlLabel: '打开 Google AI Studio',
-    steps: ['用 Google 账号登录 AI Studio', '点击「Create API key」', '复制以 AIza 开头的 Key，粘贴到下面'],
+    steps: ['用 Google 账号登录 AI Studio', '点击「Create API key」', '复制以 AIza 开头的 Key，粘贴到上面的 API Key 框'],
     tip: '有免费额度，不用绑卡；免费额度内的数据可能被 Google 用于改进产品。国内网络需要代理。',
     keyHint: 'AIza',
+    keyPattern: /^AIza[0-9A-Za-z_-]{30,}$/,
     suggest: ['gemini-3.5-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.1-flash-lite'],
     tags: ['免费额度', '需要代理'],
     color: '#4f8df7'
@@ -54,7 +70,6 @@ export const PROVIDERS: ProviderInfo[] = [
     id: 'openai',
     name: 'OpenAI',
     blurb: 'GPT · nano / mini 小模型',
-    protocol: 'openai',
     api: 'responses',
     baseUrl: 'https://api.openai.com/v1',
     keyUrl: 'https://platform.openai.com/api-keys',
@@ -62,6 +77,7 @@ export const PROVIDERS: ProviderInfo[] = [
     steps: ['登录 OpenAI Platform 并在 Billing 里充值', '在 API keys 页面点「Create new secret key」', '复制以 sk- 开头的 Key'],
     tip: 'ChatGPT 会员不包含 API 额度，需要单独充值。国内网络需要代理。',
     keyHint: 'sk-',
+    keyPattern: /^sk-(proj|svcacct|admin)-/,
     suggest: ['gpt-6-luna', 'gpt-5-nano', 'gpt-5-mini'],
     tags: ['需要代理'],
     color: '#10a37f'
@@ -70,7 +86,6 @@ export const PROVIDERS: ProviderInfo[] = [
     id: 'deepseek',
     name: 'DeepSeek',
     blurb: '深度求索 · 便宜，国内直连',
-    protocol: 'openai',
     api: 'chat',
     baseUrl: 'https://api.deepseek.com',
     keyUrl: 'https://platform.deepseek.com/api_keys',
@@ -87,7 +102,6 @@ export const PROVIDERS: ProviderInfo[] = [
     id: 'qwen',
     name: '通义千问',
     blurb: '阿里云百炼 · VL 视觉模型',
-    protocol: 'openai',
     api: 'chat',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     keyUrl: 'https://bailian.console.aliyun.com/?tab=model#/api-key',
@@ -104,13 +118,13 @@ export const PROVIDERS: ProviderInfo[] = [
     id: 'zhipu',
     name: '智谱 GLM',
     blurb: '智谱开放平台 · Flash 免费模型',
-    protocol: 'openai',
     api: 'chat',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     keyUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
     keyUrlLabel: '打开智谱开放平台',
-    steps: ['登录智谱开放平台（bigmodel.cn）', '在「API Keys」页面添加新的 Key', '复制 Key 粘贴到下面'],
+    steps: ['登录智谱开放平台（bigmodel.cn）', '在「API Keys」页面添加新的 Key', '复制 Key，粘贴到上面的 API Key 框'],
     tip: 'glm-4.6v-flash 免费且能看图，但同一时间只处理一个请求，高峰期可能排队。',
+    keyPattern: /^[0-9a-f]{32}\.[0-9A-Za-z]{16}$/,
     suggest: ['glm-4.6v-flash', 'glm-5.3-flash'],
     chatExtra: { thinking: { type: 'disabled' } },
     tags: ['免费额度', '国内直连'],
@@ -120,7 +134,6 @@ export const PROVIDERS: ProviderInfo[] = [
     id: 'kimi',
     name: 'Kimi',
     blurb: '月之暗面 · 国内直连',
-    protocol: 'openai',
     api: 'chat',
     baseUrl: 'https://api.moonshot.cn/v1',
     keyUrl: 'https://platform.kimi.com/console/api-keys',
@@ -135,7 +148,6 @@ export const PROVIDERS: ProviderInfo[] = [
     id: 'doubao',
     name: '豆包',
     blurb: '火山方舟 · Seed 视觉模型',
-    protocol: 'openai',
     api: 'chat',
     baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
     keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
@@ -143,6 +155,7 @@ export const PROVIDERS: ProviderInfo[] = [
     steps: ['登录火山引擎，进入方舟控制台并开通模型', '在「API Key 管理」页面创建 Key', '复制 Key；模型名在「开通管理」里查看'],
     tip: '新用户有免费额度。模型列表拿不到时，可以在搜索框里直接输入模型名后回车。',
     suggest: ['doubao-seed-2.0-mini'],
+    keyPattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     chatExtra: { thinking: { type: 'disabled' } },
     tags: ['免费额度', '国内直连'],
     color: '#2f6bff'
@@ -151,15 +164,16 @@ export const PROVIDERS: ProviderInfo[] = [
     id: 'claude',
     name: 'Claude',
     blurb: 'Anthropic · Haiku 快且准',
-    protocol: 'anthropic',
-    api: 'responses',
-    baseUrl: '',
+    api: 'chat',
+    baseUrl: 'https://api.anthropic.com/v1',
     keyUrl: 'https://platform.claude.com/settings/keys',
     keyUrlLabel: '打开 Claude Console',
     steps: ['登录 Claude Console 并在 Billing 里充值', '在 API Keys 页面点「Create Key」', '复制以 sk-ant- 开头的 Key'],
     tip: 'Claude Pro / Max 会员不包含 API 额度，按 Anthropic 的规定也不能用于第三方软件，需要单独充值的 API Key。国内网络需要代理。',
     keyHint: 'sk-ant-',
+    keyPattern: /^sk-ant-/,
     suggest: ['claude-haiku-4-5'],
+    chatExtra: { thinking: { type: 'disabled' } },
     tags: ['需要代理'],
     color: '#d97757'
   },
@@ -167,7 +181,6 @@ export const PROVIDERS: ProviderInfo[] = [
     id: 'openrouter',
     name: 'OpenRouter',
     blurb: '一个 Key 用遍各家模型',
-    protocol: 'openai',
     api: 'chat',
     baseUrl: 'https://openrouter.ai/api/v1',
     keyUrl: 'https://openrouter.ai/settings/keys',
@@ -175,6 +188,7 @@ export const PROVIDERS: ProviderInfo[] = [
     steps: ['登录 OpenRouter 并充值（Credits）', '在 Keys 页面点「Create Key」', '复制以 sk-or- 开头的 Key'],
     tip: '模型名带厂商前缀，例如 google/gemini-flash-lite-latest。',
     keyHint: 'sk-or-',
+    keyPattern: /^sk-or-/,
     suggest: [],
     tags: ['聚合'],
     color: '#6467f2'
@@ -183,7 +197,6 @@ export const PROVIDERS: ProviderInfo[] = [
     id: 'custom',
     name: '自定义',
     blurb: '中转或其他兼容服务',
-    protocol: 'openai',
     api: 'auto',
     baseUrl: '',
     keyUrl: '',
@@ -197,6 +210,17 @@ export const PROVIDERS: ProviderInfo[] = [
 ]
 
 export const providerInfo = (id: string) => PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[PROVIDERS.length - 1]
+
+/** 填 API Key 的服务（不含 ChatGPT 登录和自定义） */
+export const KEY_PROVIDERS = PROVIDERS.filter((p) => p.id !== 'chatgpt' && p.id !== 'custom')
+
+/** 只看格式就能确定的服务商；sk- 开头的几家要请求一下才知道 */
+export function providerByKeyFormat(key: string): ProviderId | null {
+  return KEY_PROVIDERS.find((p) => p.keyPattern?.test(key.trim()))?.id ?? null
+}
+
+/** sk- 开头、格式相同的几家：依次请求模型列表，能通过的就是 */
+export const AMBIGUOUS_KEY_PROVIDERS: ProviderId[] = ['deepseek', 'openai', 'qwen', 'kimi']
 
 /** 由接口地址猜服务商（迁移旧配置用） */
 export function providerForUrl(url: string): ProviderId {

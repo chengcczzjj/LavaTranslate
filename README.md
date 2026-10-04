@@ -46,6 +46,12 @@ You can read the other person's message now — LavaTranslate also helps you ans
 
 <br clear="right">
 
+## Type to translate
+
+Press the hotkey **twice** (<kbd>Alt</kbd>+<kbd>Q</kbd> <kbd>Q</kbd>) to skip the screenshot and just type. LavaTranslate waits until you pause (about 1.4 s, or press <kbd>Enter</kbd>), then translates into the language you last translated a reply into. If what you typed is already in that language, it translates it into yours instead. <kbd>Enter</kbd> copies and closes.
+
+<img src="docs/images/quick.png" width="520" alt="Type to translate">
+
 ## Download and install
 
 1. Download **`LavaTranslate-Setup-x.y.z.exe`** from [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest). It runs on Windows 10/11 x64.
@@ -54,16 +60,14 @@ You can read the other person's message now — LavaTranslate also helps you ans
 
 > The interface is currently in Simplified Chinese. You can translate between any languages the model supports.
 
-## Setup: bring your own API key
+## Setup: sign in with ChatGPT, or bring any API key
 
-LavaTranslate does not ship with a key. You use your own, and you only pay your provider for what you translate.
+LavaTranslate does not ship with a key. Open **Settings** (double-click the tray icon) → **翻译服务 (Translation service)**:
 
-1. Open **Settings** (double-click the tray icon) → **翻译服务 (Translation service)** and pick a provider.
-2. Follow the built-in steps under **如何获取 API Key (How to get an API key)** — the button opens the provider's key page. Paste the key and click **保存并获取模型 (Save & fetch models)**.
-3. Pick a model. The list is sorted by estimated cost per 1,000 screenshots and marks the recommended, fast and text-only models.
-4. Click **测试翻译 (Test)**, then press <kbd>Alt</kbd>+<kbd>Q</kbd> anywhere and drag over some text.
+- **ChatGPT Plus / Pro** — click **用 ChatGPT 登录 (Sign in with ChatGPT)**. Translations use your plan's usage instead of an API key. This is OpenAI's official "use your ChatGPT plan" sign-in for open-source apps.
+- **Any API key** — paste it and click **识别并保存 (Detect & save)**. LavaTranslate recognizes the provider from the key's format (`AIza…` Gemini, `sk-ant-…` Claude, `sk-or-…` OpenRouter, `sk-proj-…` OpenAI, Zhipu and Doubao formats), or by trying it against DeepSeek, OpenAI, Qwen and Kimi. If it still can't tell, it asks you to pick. For relays and local servers, also fill in the endpoint URL.
 
-Each provider keeps its own key and model, so you can switch back and forth without re-entering anything.
+Then pick a model (sorted by estimated cost per 1,000 screenshots) and click **测试翻译 (Test)**. Every key you add is kept, and the saved services appear as chips you can switch between. Each provider has step-by-step instructions and a link to its key page at the bottom of the page.
 
 <img src="docs/images/settings-service.png" width="560" alt="Translation service settings">
 
@@ -71,6 +75,7 @@ Each provider keeps its own key and model, so you can switch back and forth with
 
 | Provider | Get a key | Good fast models | Notes |
 | --- | --- | --- | --- |
+| ChatGPT Plus / Pro | Sign in — no key | `gpt-6-luna` | Uses your plan's usage. |
 | Gemini | [Google AI Studio](https://aistudio.google.com/apikey) | `gemini-3.5-flash-lite` | Free tier; free-tier data may be used by Google. Needs a proxy in mainland China. |
 | OpenAI | [OpenAI Platform](https://platform.openai.com/api-keys) | `gpt-6-luna`, `gpt-5-mini` | ChatGPT plans don't include API credit. |
 | DeepSeek | [DeepSeek Platform](https://platform.deepseek.com/api_keys) | `deepseek-flash` | Reads images, ~1 s to first token, half price off-peak. |
@@ -78,7 +83,7 @@ Each provider keeps its own key and model, so you can switch back and forth with
 | Zhipu GLM | [BigModel](https://bigmodel.cn/usercenter/proj-mgmt/apikeys) | `glm-4.6v-flash` | Free vision model (one request at a time). |
 | Kimi | [Kimi Platform](https://platform.kimi.com/console/api-keys) | | |
 | Doubao (Volcano Engine) | [Ark console](https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey) | `doubao-seed-2.0-mini` | Free quota for new users. |
-| Claude | [Claude Console](https://platform.claude.com/settings/keys) | `claude-haiku-4-5` | API key only — Anthropic doesn't allow third-party apps to use Claude Pro/Max logins. |
+| Claude | [Claude Console](https://platform.claude.com/settings/keys) | `claude-haiku-4-5` | API key only — Anthropic doesn't allow third-party apps to use Claude Pro/Max logins. Called through Anthropic's OpenAI-compatible endpoint. |
 | OpenRouter | [OpenRouter](https://openrouter.ai/settings/keys) | | One key for many vendors. |
 | Custom | — | | Any OpenAI-compatible endpoint: relays, Ollama, LM Studio… |
 
@@ -89,6 +94,7 @@ LavaTranslate asks every model to skip "thinking" (each provider's own switch, f
 | Key | Action |
 | --- | --- |
 | <kbd>Alt</kbd>+<kbd>Q</kbd> (configurable) or click the tray icon | Start a capture |
+| Press the hotkey twice | Type a sentence to translate |
 | Double-click the tray icon | Open Settings |
 | Drag / click | Select a region / select the window under the cursor |
 | Drag the selection or its handles | Move / resize — it translates again when you let go |
@@ -106,16 +112,19 @@ LavaTranslate asks every model to skip "thinking" (each provider's own switch, f
 
 - Text recognition (OCR) runs **locally** on your PC.
 - Only the region you select (image + recognized text), plus any reply you type, is sent to **the service you configured**. Nothing goes to us. LavaTranslate keeps no history.
-- Your API key is encrypted with Windows DPAPI and stays on your PC. The settings page only ever shows its last 4 characters.
+- Your API keys and ChatGPT sign-in tokens are encrypted with Windows DPAPI and stay on your PC. The settings page only ever shows its last 4 characters.
 
 ## Updates
 
-LavaTranslate checks this repository's Releases every 4 hours and downloads only the parts of the installer that changed. When an update is ready, **重启并更新 (Restart & update)** appears in the tray menu and on the About page. If you don't restart, it installs the next time you quit. You can turn this off in Settings → 关于 (About).
+- LavaTranslate checks this repository's Releases **20 seconds after it starts and then every 4 hours**. You can also check any time: tray menu → **检查更新 (Check for updates)**, or Settings → **关于 (About)** → **检查更新**.
+- A new version downloads in the background. Only the parts of the installer that changed are downloaded.
+- When it's ready you get a notification, and **重启并更新到 vX (Restart & update)** appears in the tray menu and on the About page. If you don't restart, it installs the next time you quit.
+- The version and update status are also shown at the bottom of the Settings sidebar; click them to open the About page. Turn automatic updates off in Settings → 关于.
 
 ## FAQ
 
 **Can I use my ChatGPT / Codex subscription?**
-No. A ChatGPT login doesn't come with an API key. You need an API key from OpenAI or another provider.
+Yes, with ChatGPT Plus or Pro: Settings → 翻译服务 → **用 ChatGPT 登录**. Translations count against your plan's usage. Claude Pro/Max can't be used this way — Anthropic doesn't allow third-party apps to use claude.ai logins — so Claude needs an API key.
 
 **The translation is slow.**
 Choose a smaller model (marked 快 / fast). Reasoning-heavy models spend seconds thinking before they write.

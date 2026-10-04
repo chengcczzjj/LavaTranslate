@@ -1,8 +1,5 @@
-// 模型翻译：两种引擎共用同一套提示词与 JSONL 流式解析
-//  - ApiEngine：Claude（Anthropic Messages API，官方 Key 或中转）
-//  - OpenAIEngine：其余所有服务（OpenAI 兼容接口：Responses 或 Chat Completions）
-// 都走 Chromium 网络栈（系统代理、HTTP/2），截图界面一打开就预连接
-import Anthropic from '@anthropic-ai/sdk'
+// 模型翻译：所有服务（含 Claude、ChatGPT 会员）都走 OpenAI 兼容接口（Responses 或 Chat Completions），
+// 共用同一套提示词与 JSONL 流式解析；走 Chromium 网络栈（系统代理、HTTP/2），截图界面一打开就预连接
 import OpenAI from 'openai'
 import { net, session } from 'electron'
 import type { ErrorCode, Language, OcrLine, TranslatedBlock, TranslateEvent } from '../shared/types'
@@ -45,6 +42,8 @@ export interface ReplyRequest {
   /** 屏幕上的对话（OCR 文本） */
   context: string
   tone: 'auto' | 'formal' | 'casual'
+  /** 快速输入模式：输入的已经是目标语言时，改译成用户自己的语言 */
+  quick?: boolean
 }
 
 export interface Engine {
@@ -63,7 +62,7 @@ const SYSTEM_PROMPT = `You are the translation engine of a desktop screenshot tr
 How to work:
 1. Read the image. Use it to correct OCR mistakes (wrong characters, lost accents, merged or split words). Lines shown as ⟨?⟩ could not be read by OCR — read them from the image at their box.
 2. Group lines into blocks. Lines that are one sentence or paragraph wrapped across several lines form one block. Headings, buttons, menu items, labels, list items, table cells, metadata lines and code lines stay separate blocks. Never merge lines that are visually separate elements. OCR numbers lines top-to-bottom across the whole image, so a paragraph beside an image or sidebar can have non-consecutive ids — group by visual element, not by id order.
-3. Translate each block into the target language the way a native speaker would phrase it in this context (UI, article, chat, game, code comment…). Keep it concise so it fits the original space: buttons and menu items short, same tone. Leave untranslated: code, commands, file paths, URLs, emails, @handles, numbers with units, version strings, and brand/product names; in mixed lines translate the prose around them. Feature, menu, tab and button names inside a product (e.g. "Pull requests", "Issues", "Settings", "Inbox") are not brand names — translate them the way that product's localized UI would.
+3. Translate each block into the target language the way a native speaker would phrase it in this context (UI, article, chat, game, code comment…). Keep it concise so it fits the original space: buttons and menu items short, same tone. Leave untranslated: code, commands, file paths, URLs, emails, @handles, numbers with units, version strings, and names of products, apps, websites, companies, projects, games and people — even when the name is made of ordinary words ("Apple Pass Designer", "Muse Gadgets") — in mixed lines translate only the prose around them. Feature, menu, tab and button names inside a product (e.g. "Pull requests", "Issues", "Settings", "Inbox") are not brand names — translate them the way that product's localized UI would.
 4. If a block is already in the target language, or has nothing translatable (pure code, numbers, symbols), add "keep":true and copy the corrected source as the translation.
 5. If one OCR line holds several separate UI items (e.g. a menu bar "Home   Products   About"), translate each item and keep the separators/spacing between them.
 6. OCR often reads icons as characters (▲ ☆ ① <> 田, a stray letter or digit next to an icon). Leave such icon glyphs out of both src and dst, and likewise leading list numbers and bullets ("1.", "•") — they stay visible as they are. Text that is part of a logo or stylized artwork gets "keep":true.
@@ -90,13 +89,6 @@ export function userText(req: TranslateRequest) {
     .join('\n')
 }
 
-function userContent(req: TranslateRequest): Anthropic.ContentBlockParam[] {
-  return [
-    { type: 'image', source: { type: 'base64', media_type: req.image.mediaType, data: req.image.base64 } },
-    { type: 'text', text: userText(req) }
-  ]
-}
-
 // ------------------------------------------------------------------ 回复助手提示词
 export const BACK_MARK = '⟲'
 
@@ -119,6 +111,7 @@ export function replyText(r: ReplyRequest) {
     ctx ? `Conversation on screen (OCR, may contain errors):\n<<<\n${ctx}\n>>>` : '',
     `Target language: ${r.to.native} (${r.to.code}). User's language: ${r.from.native} (${r.from.code}).`,
     `Tone: ${TONE_TEXT[r.tone]}.`,
+    r.quick ? `If the message is already written in the target language, translate it into the user's language (${r.from.native}) instead, and back-translate into the original language.` : '',
     `Message to translate:\n<<<\n${r.text}\n>>>`
   ]
     .filter(Boolean)
@@ -194,107 +187,20 @@ export class BlockParser {
     const ids = o.ids.map(Number).filter((id: number) => this.valid.has(id) && !this.seen.has(id))
     if (!ids.length) return
     ids.forEach((id: number) => this.seen.add(id))
+    const source = typeof o.src === 'string' ? o.src : ''
+    // 译文和原文一样（文件名、品牌、已是目标语言…）就保留原图像素，不再盖一层重绘的文字；
+    // 不依赖模型自己标 keep——关掉思考后模型常常照抄原文却忘了标
+    const same = !!source && o.dst.replace(/\s+/g, ' ').trim() === source.replace(/\s+/g, ' ').trim()
     const block: TranslatedBlock = {
       key: `b${++this.n}`,
       lineIds: ids,
-      source: typeof o.src === 'string' ? o.src : '',
+      source,
       translation: o.dst,
-      keep: o.keep === true || undefined,
+      keep: o.keep === true || same || undefined,
       role: o.role
     }
     this.emit({ type: 'block', block })
   }
-}
-
-// ------------------------------------------------------------------ API 引擎
-export class ApiEngine implements Engine {
-  readonly name: string
-  private client: Anthropic
-
-  constructor(
-    private creds: EngineCredentials,
-    private model: string
-  ) {
-    this.name = model
-    // 官方 Key 走 x-api-key；第三方中转通常两种头都认，一并带上
-    const official = creds.apiKey.startsWith('sk-ant-')
-    this.client = new Anthropic({
-      baseURL: creds.baseURL || undefined,
-      apiKey: creds.apiKey,
-      authToken: official ? null : creds.apiKey,
-      maxRetries: 1,
-      timeout: 60_000,
-      // Chromium 网络栈：自动使用系统代理，支持 HTTP/2 与连接复用
-      fetch: ((input: any, init?: any) => net.fetch(input, init)) as any
-    })
-  }
-
-  warm() {
-    const url = this.creds.baseURL || 'https://api.anthropic.com'
-    try {
-      session.defaultSession.preconnect({ url, numSockets: 2 })
-    } catch {
-      /* 忽略 */
-    }
-  }
-
-  async translate(req: TranslateRequest, emit: Emit, signal: AbortSignal): Promise<TranslateResult> {
-    const t0 = Date.now()
-    const parser = new BlockParser(req.lines, emit)
-    let firstTokenMs: number | undefined
-    try {
-      const stream = this.client.messages.stream(
-        {
-          model: this.model,
-          max_tokens: 8192,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: userContent(req) }]
-        },
-        { signal }
-      )
-      stream.on('text', (delta) => {
-        if (firstTokenMs === undefined) firstTokenMs = Date.now() - t0
-        parser.push(delta)
-      })
-      const msg = await stream.finalMessage()
-      parser.end()
-      if (!parser.blockCount) throw new TranslateError('Claude 没有返回可用的译文，请重试', 'unknown')
-      return { firstTokenMs, usage: { input: msg.usage.input_tokens, output: msg.usage.output_tokens } }
-    } catch (e) {
-      if (signal.aborted) throw new TranslateError('已取消', 'unknown')
-      if (e instanceof TranslateError) throw e
-      if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError)
-        throw new TranslateError('API Key 无效或已停用', 'auth')
-      if (e instanceof Anthropic.RateLimitError) throw new TranslateError('请求过于频繁或额度不足', 'rate-limit')
-      if (e instanceof Anthropic.APIConnectionError) throw new TranslateError('无法连接到 API 服务', 'network')
-      if (e instanceof Anthropic.APIError) throw new TranslateError(`API 错误 ${e.status ?? ''}：${e.message}`, 'unknown')
-      throw new TranslateError(e instanceof Error ? e.message : String(e), 'unknown')
-    }
-  }
-
-  async reply(req: ReplyRequest, onText: (d: string) => void, signal: AbortSignal): Promise<void> {
-    try {
-      const stream = this.client.messages.stream(
-        { model: this.model, max_tokens: 4096, system: REPLY_PROMPT, messages: [{ role: 'user', content: replyText(req) }] },
-        { signal }
-      )
-      stream.on('text', onText)
-      await stream.finalMessage()
-    } catch (e) {
-      if (signal.aborted) throw new TranslateError('已取消', 'unknown')
-      if (e instanceof Anthropic.AuthenticationError) throw new TranslateError('API Key 无效或已停用', 'auth')
-      if (e instanceof Anthropic.APIConnectionError) throw new TranslateError('无法连接到 API 服务', 'network')
-      throw new TranslateError(e instanceof Error ? e.message : String(e), 'unknown')
-    }
-  }
-
-  async listModels(): Promise<string[]> {
-    const ids: string[] = []
-    for await (const m of this.client.models.list()) ids.push(m.id)
-    return ids
-  }
-
-  dispose() {}
 }
 
 // ------------------------------------------------------------------ OpenAI 兼容引擎（OpenAI 官方 / Codex 中转 / DeepSeek、通义等）
@@ -423,7 +329,13 @@ export class OpenAIEngine implements Engine {
       else if (ev.type === 'response.completed') {
         const u = ev.response.usage
         if (u) usage = { input: u.input_tokens, output: u.output_tokens }
-      } else if (ev.type === 'response.failed') throw new TranslateError(ev.response.error?.message ?? '模型返回失败', 'unknown')
+      } else if (ev.type === 'response.failed') {
+        // ChatGPT 会员额度：用完 / 暂不可用
+        const code = String(ev.response.error?.code ?? '')
+        if (code === 'subscription_sharing_usage_limit_exceeded') throw new TranslateError('ChatGPT 会员额度已用完，过一阵再试，或改用 API Key', 'rate-limit')
+        if (code === 'subscription_sharing_usage_unavailable') throw new TranslateError('ChatGPT 会员额度暂时不可用，稍后再试', 'rate-limit')
+        throw new TranslateError(ev.response.error?.message ?? '模型返回失败', 'unknown')
+      } else if (ev.type === 'response.incomplete') throw new TranslateError('模型没有完整返回，请重试', 'unknown')
       else if (ev.type === 'error') throw new TranslateError(ev.message ?? '模型返回错误', 'unknown')
     }
     return usage
@@ -532,6 +444,13 @@ export class OpenAIEngine implements Engine {
       const json = (await res.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[]; error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`)
       return (json.models ?? []).filter((m) => m.supportedGenerationMethods?.includes('generateContent')).map((m) => m.name.replace(/^models\//, ''))
+    }
+    // Claude 的兼容接口只覆盖对话，模型列表用 Anthropic 原生接口（x-api-key）
+    if (url.host === 'api.anthropic.com') {
+      const res = await net.fetch(`${url.origin}/v1/models?limit=1000`, { headers: { 'x-api-key': this.creds.apiKey, 'anthropic-version': '2023-06-01' } })
+      const json = (await res.json()) as { data?: { id: string }[]; error?: { message: string } }
+      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`)
+      return (json.data ?? []).map((m) => m.id)
     }
     const ids: string[] = []
     for await (const m of this.client.models.list()) ids.push(m.id.replace(/^models\//, ''))

@@ -1,10 +1,11 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowRight, Check, ChevronDown, Copy, CornerDownLeft, MessageSquareReply, RotateCcw, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, Copy, CornerDownLeft, Languages, MessageSquareReply, RotateCcw, X } from 'lucide-react'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { LANGUAGES, type Settings } from '@shared/types'
 import './reply.css'
 
-// 回复助手：看懂对方的消息后，直接用自己的语言写回复，实时译成对方的语言，一键复制去发送
+// 回复助手：看懂对方的消息后，直接用自己的语言写回复，译成对方的语言，一键复制去发送
+// 快速输入（quick）：连按两次快捷键打开，不框选，直接输入一句话翻译成上次的目标语言
 
 type Tone = Settings['replyTone']
 type Status = 'idle' | 'streaming' | 'done' | 'error'
@@ -22,6 +23,8 @@ export interface ReplyProps {
   draft: React.MutableRefObject<string>
   /** 语言菜单向上展开（回复框贴着屏幕底部时） */
   menuUp: boolean
+  /** 快速输入模式 */
+  quick?: boolean
   onTone: (t: Tone) => void
   /** 收起回复框 */
   onCollapse: () => void
@@ -40,7 +43,8 @@ const TONES: { id: Tone; label: string; tip: string }[] = [
 const MARK = '⟲'
 const HISTORY_KEY = 'lens.reply.history'
 const LAST_TO_KEY = 'lens.reply.lastTo'
-const DEBOUNCE = 480
+/** 停顿多久才开始翻译：不追求实时，等一句话写完再翻（Enter 立即翻译） */
+const DEBOUNCE = { reply: 1100, quick: 1400 }
 let seq = 0
 
 export function langBase(code: string) {
@@ -126,7 +130,7 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
     setRaw('')
     setShownKey(keyOf(t, l, tone))
     const name = findLang(l)?.name ?? (p.peer && langBase(p.peer.code) === langBase(l) ? p.peer.name : undefined)
-    window.lens.replyStart({ requestId: id, text: t.trim(), to: l, toName: name, tone, context: p.context })
+    window.lens.replyStart({ requestId: id, text: t.trim(), to: l, toName: name, tone, context: p.context, quick: p.quick })
   }
 
   const copy = (close: boolean) => {
@@ -193,7 +197,7 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
     window.clearTimeout(timer.current)
     if (!v.trim()) return translate('')
     if (keyOf(v, to, p.tone) === shownKey && status !== 'error') return
-    timer.current = window.setTimeout(() => translate(v), DEBOUNCE)
+    timer.current = window.setTimeout(() => translate(v), p.quick ? DEBOUNCE.quick : DEBOUNCE.reply)
   }
 
   const submit = (mode: 'close' | 'stay') => {
@@ -306,8 +310,8 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
     >
       <div className="rp-head">
         <span className="rp-title">
-          <MessageSquareReply size={15} />
-          回复
+          {p.quick ? <Languages size={15} /> : <MessageSquareReply size={15} />}
+          {p.quick ? '翻译' : '回复'}
         </span>
         <div className="rp-route">
           <span className="rp-from">{userName}</span>
@@ -368,7 +372,7 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
         value={text}
         rows={1}
         spellCheck={false}
-        placeholder={`用${userName}写下你想回复的话，自动译成${toName}`}
+        placeholder={p.quick ? `输入要翻译的文字，停顿片刻自动译成${toName}` : `用${userName}写下你想回复的话，停顿片刻自动译成${toName}`}
         onChange={(e) => edit(e.target.value)}
         onKeyDown={onKeyDown}
         onCompositionStart={() => (composing.current = true)}
@@ -448,7 +452,7 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
                   <i />
                 </>
               )}
-              <kbd>Esc</kbd> 退出截图
+              <kbd>Esc</kbd> {p.quick ? '退出' : '退出截图'}
             </>
           )}
         </span>

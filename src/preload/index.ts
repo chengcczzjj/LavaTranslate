@@ -29,6 +29,8 @@ const api = {
   onFrame: (cb: (f: CaptureFrame) => void) => on('overlay:frame', cb),
   onShown: (cb: () => void) => on('overlay:shown', cb),
   onReset: (cb: () => void) => on('overlay:reset', cb),
+  /** 连按两次快捷键：进入输入翻译（show：本屏显示输入框） */
+  onQuick: (cb: (show: boolean) => void) => on('overlay:quick', cb),
   frameReady: () => ipcRenderer.send('overlay:frame-ready'),
   visible: () => ipcRenderer.send('overlay:visible'),
   focusOverlay: () => ipcRenderer.send('overlay:focus'),
@@ -68,6 +70,11 @@ const api = {
   openaiImport: (id: string): Promise<Settings> => ipcRenderer.invoke('openai:import', id),
   listModels: (provider?: ProviderId): Promise<{ ok: boolean; models: ModelInfo[]; message?: string }> => ipcRenderer.invoke('models:list', provider),
   openExternal: (url: string) => ipcRenderer.send('shell:open', url),
+  detectKey: (key: string): Promise<{ provider: ProviderId; by: 'format' | 'probe' } | { provider: null; tried: ProviderId[] }> =>
+    ipcRenderer.invoke('key:detect', key),
+  chatgptSignIn: (): Promise<{ ok: boolean; message?: string }> => ipcRenderer.invoke('chatgpt:signin'),
+  chatgptCancel: () => ipcRenderer.send('chatgpt:cancel'),
+  chatgptSignOut: (): Promise<Settings> => ipcRenderer.invoke('chatgpt:signout'),
 
   // 更新
   updateState: (): Promise<UpdateState> => ipcRenderer.invoke('update:state'),

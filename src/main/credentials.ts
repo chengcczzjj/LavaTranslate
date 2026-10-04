@@ -1,8 +1,10 @@
-// 凭据：当前翻译服务的接口地址、Key（解密后）、模型；另可从本机 Codex / CC Switch 导入现成的 Key
+// 凭据：当前翻译服务的接口地址、Key（解密后）、模型；识别 Key 属于哪家；从本机 Codex / CC Switch 导入现成的 Key
+import { net } from 'electron'
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { providerInfo, type ProviderInfo, type Settings } from '../shared/types'
+import { AMBIGUOUS_KEY_PROVIDERS, providerByKeyFormat, providerInfo, type ProviderId, type ProviderInfo, type Settings } from '../shared/types'
+import type { ChatGPTSession } from './chatgpt'
 import { decryptSecret } from './secrets'
 
 function readJson(path: string): any {
@@ -20,14 +22,48 @@ export interface ResolvedProvider {
   model: string
 }
 
+/** ChatGPT 登录信息（加密存放在 providers.chatgpt.key 里） */
+export function chatgptSession(s: Settings): ChatGPTSession | null {
+  try {
+    const raw = decryptSecret(s.providers.chatgpt?.key ?? '')
+    return raw ? (JSON.parse(raw) as ChatGPTSession) : null
+  } catch {
+    return null
+  }
+}
+
 /** 当前服务的可用凭据；没填 Key（或自定义服务没填地址）时返回 null */
 export function resolveProvider(s: Settings, id = s.provider): ResolvedProvider | null {
   const info = providerInfo(id)
   const c = s.providers[info.id]
-  const apiKey = decryptSecret(c?.key ?? '').trim()
+  const apiKey = info.id === 'chatgpt' ? (chatgptSession(s)?.accessToken ?? '') : decryptSecret(c?.key ?? '').trim()
   const baseURL = (c?.baseUrl || info.baseUrl).trim().replace(/\/+$/, '')
-  if (!apiKey || (info.protocol === 'openai' && !baseURL)) return null
+  if (!apiKey || !baseURL) return null
   return { info, baseURL, apiKey, model: c?.model ?? '' }
+}
+
+export type KeyDetection = { provider: ProviderId; by: 'format' | 'probe' } | { provider: null; tried: ProviderId[] }
+
+/**
+ * 识别 Key 属于哪家：先看格式（AIza → Gemini、sk-ant- → Claude…）；
+ * sk- 开头的几家格式一样，就依次请求它们的模型列表，能通过的就是
+ */
+export async function detectProvider(key: string): Promise<KeyDetection> {
+  const k = key.trim()
+  const byFormat = providerByKeyFormat(k)
+  if (byFormat) return { provider: byFormat, by: 'format' }
+  const tries = await Promise.all(
+    AMBIGUOUS_KEY_PROVIDERS.map(async (id) => {
+      try {
+        const res = await net.fetch(`${providerInfo(id).baseUrl}/models`, { headers: { authorization: `Bearer ${k}` }, signal: AbortSignal.timeout(8000) })
+        return res.ok ? id : null
+      } catch {
+        return null
+      }
+    })
+  )
+  const hit = tries.find(Boolean)
+  return hit ? { provider: hit, by: 'probe' } : { provider: null, tried: AMBIGUOUS_KEY_PROVIDERS }
 }
 
 // ------------------------------------------------------------------ OpenAI 兼容（Codex）

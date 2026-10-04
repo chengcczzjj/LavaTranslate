@@ -127,6 +127,8 @@ interface Hooks {
   display: Electron.Display
   mock: MockEngine | null
   setSettings: (p: SettingsPatch) => void
+  /** 连按两次快捷键：进入输入翻译 */
+  quick?: () => void
 }
 
 /**
@@ -273,6 +275,20 @@ export async function runAutotest(h: Hooks) {
     await shot('reply-5-tall')
   }
 
+  // 输入翻译：连按两次快捷键，不框选，直接输入（停顿约 1.4 秒后才翻译）
+  if (h.quick) {
+    await h.inject(fakeCapture(h.display, join(root, '.scratch', 'chat.png'), { x: 380, y: 160 }))
+    await sleep(500)
+    h.quick()
+    await sleep(700)
+    await shot('quick-1-open')
+    wc().insertText('谢谢！明天可以，下午三点见')
+    await sleep(600)
+    await shot('quick-2-typing')
+    await sleep(3600)
+    await shot('quick-3-result')
+  }
+
   // 设置窗口各页
   console.log('[autotest] open settings')
   const sw = h.openSettings()
@@ -304,14 +320,12 @@ export async function runAutotest(h: Hooks) {
   await sleep(400)
   await sshot('settings-engine-models-2')
   fake.close()
-  // 没填 Key 的服务：展开获取 Key 的引导
-  for (const name of ['Gemini', 'DeepSeek']) {
-    await sw.webContents.executeJavaScript(`[...document.querySelectorAll('.prov')].find(b => b.textContent.includes(${JSON.stringify(name)}))?.click()`)
-    await sleep(900)
-    await sw.webContents.executeJavaScript(`document.querySelector('.content').scrollTop = 250`)
-    await sleep(400)
-    await sshot(`settings-provider-${name.toLowerCase()}`)
-  }
+  // 各家获取 Key 的引导：展开 Gemini 一行
+  await sw.webContents.executeJavaScript(`[...document.querySelectorAll('.guide-row-head')].find(b => b.textContent.includes('Gemini'))?.click()`)
+  await sleep(700)
+  await sw.webContents.executeJavaScript(`[...document.querySelectorAll('.guide-row-head')].find(b => b.textContent.includes('Gemini'))?.scrollIntoView({ block: 'center' })`)
+  await sleep(400)
+  await sshot('settings-guides')
   console.log('[autotest] done')
   app.quit()
 }

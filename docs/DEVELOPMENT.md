@@ -40,11 +40,16 @@
 其余用 `reasoning_effort` 从 none 逐档尝试）。设置按服务商分别保存 `providers[id] = { key, baseUrl, model }`，Key 用 safeStorage 加密
 （密文绑定数据目录的 Local State，不能跨目录复制）；旧版的 `engine / openaiKey / apiKey` 在 `settings.load()` 里自动转换。
 
-- 除 Claude（`@anthropic-ai/sdk`）外都走 `openai` SDK：先用 Responses API，服务商没有该接口（404）时改用 Chat Completions 并记住；
+- 全部走 `openai` SDK（Claude 用 Anthropic 的 OpenAI 兼容接口 `https://api.anthropic.com/v1`，模型列表用原生 `/v1/models`）：先用 Responses API，服务商没有该接口（404）时改用 Chat Completions 并记住；
   模型不能看图时只发 OCR 文本；Key 无效（401，Gemini 是 400）统一提示「API Key 无效」。
 - Gemini 的模型列表用原生接口 `/v1beta/models` 获取（OpenAI 兼容接口未必提供）。
 - 价格来自 [models.dev](https://models.dev)，3 天刷新一次，离线时用安装包内置的快照。
 - 不提供「Claude 账号」登录：Anthropic 不允许第三方软件使用 claude.ai 登录或订阅额度（见 Agent SDK 文档）。
+- **识别 Key**（`credentials.ts` 的 `detectProvider`）：先按格式（`providers.ts` 里各家的 `keyPattern`），sk- 开头格式相同的几家并发请求 `/models`，通过的就是；都不行界面上让用户选。
+- **ChatGPT 登录**（`src/main/chatgpt.ts`）：OpenAI 给开源软件的「使用 ChatGPT 会员额度」——动态注册（首次 `client_id=dynamic_agent_client`，回调带回 `oaiapp_…`）、PKCE、本机回调 `http://127.0.0.1:<端口>/callback`、每台设备固定的 `ext_agent_host_id`（`settings.installId`）；
+  ID Token 用 `https://auth.openai.com/.well-known/jwks.json` 校验签名、iss、aud、exp、nonce，并要求授予 `chatgpt.tokens.use.direct`；令牌加密存在 `providers.chatgpt.key`，调用前快过期就刷新；
+  请求必须 `store:false`、`stream:true`，不能带 `max_output_tokens` 等参数（见 preview limitations）。
+- **思考对排版的影响**：同一批真实网页开 / 关思考对比，分块、语言、是否对话一致；关思考后模型常把照抄的原文漏标 keep，现由 `BlockParser` 在译文与原文相同时自动保留原图。
 
 ## 自动更新
 
@@ -98,6 +103,7 @@ npm run dist     # 打包 NSIS 安装程序到 dist/
 - 可加 `LENS_ENGINE_IMAGE=chat.png`（换测试图）、`LENS_REPLY_TEST="要回复的话"`（同时测回复助手）、
   `LENS_OPENAI_EFFORT=default`（不关思考，对照用）、`LENS_OPENAI_FAKE=1`（本地假服务，检查接口回退）。
 - 旧格式设置迁移：`LENS_AUTOTEST=1 LENS_MOCK=1 LENS_AUTOTEST_SEED=<旧 settings.json> npx electron .`
+- 识别 Key：`LENS_DETECT_TEST=<Key1,Key2…> npx electron .`（只打印识别结果，不打印 Key）
 
 ## 说明
 
