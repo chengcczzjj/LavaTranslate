@@ -52,6 +52,8 @@ import { EventEmitter } from 'node:events'
 const isDev = !app.isPackaged
 const resources = isDev ? join(__dirname, '../../resources') : process.resourcesPath
 const preload = join(__dirname, '../preload/index.js')
+/** 窗口图标：.ico 含 16~256 多种尺寸，任务栏、Alt+Tab 都清晰 */
+const appIcon = join(resources, process.platform === 'win32' ? 'icon.ico' : 'icon.png')
 const AUTOTEST = !!process.env.LENS_AUTOTEST || !!process.env.LENS_REVIEW
 const fixtureEngine = process.env.LENS_REVIEW ? new FixtureEngine() : null
 const mockEngine = fixtureEngine ?? (process.env.LENS_MOCK ? new MockEngine() : null)
@@ -79,7 +81,8 @@ const logError = (kind: string, e: unknown) => {
 }
 process.on('uncaughtException', (e) => logError('uncaughtException', e))
 process.on('unhandledRejection', (e) => logError('unhandledRejection', e))
-app.setAppUserModelId('com.lavatranslate.app')
+// 开发 / 测试运行用另一个 ID：同一个 ID 会和已安装的版本归成一组，任务栏就可能显示 electron.exe 的图标
+app.setAppUserModelId(app.isPackaged ? 'com.lavatranslate.app' : 'com.lavatranslate.app.dev')
 // 隐藏的遮罩窗口也要及时绘制新截图
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
@@ -174,6 +177,7 @@ function createOverlay(display: Display): Overlay {
     maximizable: false,
     fullscreenable: false,
     skipTaskbar: true,
+    icon: appIcon,
     alwaysOnTop: true,
     hasShadow: false,
     enableLargerThanScreen: true,
@@ -584,6 +588,7 @@ ipcMain.on('pin:create', (e, payload: PinPayload) => {
     transparent: true,
     resizable: false,
     skipTaskbar: true,
+    icon: appIcon,
     alwaysOnTop: true,
     hasShadow: false,
     minimizable: false,
@@ -668,7 +673,7 @@ function openSettings() {
     titleBarOverlay: { color: '#00000000', symbolColor: nativeTheme.shouldUseDarkColors ? '#e8e8ee' : '#3a3a44', height: 48 },
     backgroundMaterial: 'mica',
     backgroundColor: '#00000000',
-    icon: join(resources, 'icon.png'),
+    icon: appIcon,
     webPreferences: { preload, sandbox: false, spellcheck: false }
   })
   settingsWin.setMenu(null)
@@ -850,6 +855,8 @@ function updateTray() {
 }
 
 function notify(title: string, body: string) {
+  // 未打包时 Electron 发通知会在开始菜单自动建一个指向 electron.exe 的 Electron.lnk，测试时不发
+  if (!app.isPackaged) return console.log('[notify]', title, body)
   if (Notification.isSupported()) new Notification({ title, body, icon: join(resources, 'icon.png') }).show()
 }
 

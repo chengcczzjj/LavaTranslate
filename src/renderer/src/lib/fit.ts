@@ -65,21 +65,7 @@ export function scriptRatio(srcCjk: boolean, cjk: boolean) {
   return cjk && !srcCjk ? 0.92 : !cjk && srcCjk ? 1.06 : 1
 }
 
-// ------------------------------------------------------------------ 单行
-/**
- * 单行译文：先用基准字号；超出槽位时先占用旁边的空白（avail），仍放不下再缩小字号（最低 minFs）。
- * 返回字号与实际宽度（可能大于槽位）。
- */
-export function fitLine(text: string, slotW: number, avail: number, base: number, minFs: number, family: string, weight: number) {
-  const tw = measure(fontOf(weight, base, family), text)
-  let fs = base
-  if (tw > avail) fs = Math.max(minFs, (base * avail) / tw)
-  return { fontSize: fs, width: Math.max(slotW, (tw * fs) / base) }
-}
-
-// ------------------------------------------------------------------ 多行：按原文的行"槽位"流式排版
-// 原文每一行是一个槽位（位置、宽度各不相同：绕图、首行缩进、居中段落…），译文依次填进这些槽位，
-// 放不下就整体缩小字号；最小字号仍放不下时在最后一行下方追加行。
+// ------------------------------------------------------------------ 折行
 const NO_START = /^[，。、；：？！）」』”’》〉】〕…—,.;:!?)\]}%·]/
 const NO_END = /[（「『“‘《〈【〔([{]$/
 
@@ -102,62 +88,58 @@ export interface Slot {
   h: number
 }
 
-export interface FlowResult {
-  fontSize: number
-  /** 与槽位一一对应的文本行（可能比槽位多：溢出追加的行） */
-  lines: string[]
-  /** 追加的溢出槽位 */
-  extra: Slot[]
-}
+/** 一个排版单元比当前行还宽时怎么办：按字符硬断 / 拉丁单词加连字符断开 / 空出本行放到下一行 / 放弃这种排法 */
+export type Wide = 'break' | 'hyphen' | 'skip' | 'fail'
 
-export function flowText(text: string, slots: Slot[], family: string, weight: number, base: number, minFs: number): FlowResult {
-  const units = tokenize(text.replace(/\s*\n\s*/g, ' '))
-  const last = slots[slots.length - 1]
-  const pitch = slots.length > 1 ? (last.y - slots[0].y) / (slots.length - 1) : last.h * 1.25
-  const maxW = Math.max(...slots.map((s) => s.w))
-  const place = (fs: number, allowExtra: boolean): FlowResult | null => {
-    const us = [...units]
-    const font = fontOf(weight, fs, family)
-    const lines: string[] = []
-    const extra: Slot[] = []
-    let i = 0
-    let si = 0
+/** 长网址、路径这类很长的单元：只有它们才允许按字符硬断，普通单词宁可缩小字号 */
+export const longUnit = (u: string) => u.trim().length >= 16
+
+/** 把排版单元依次排进各行，第 k 行宽 widthOf(k)，最多 maxLines 行；放不下返回 null */
+export function breakLines(
+  units: string[],
+  font: string,
+  widthOf: (k: number) => number,
+  maxLines: number,
+  wide: (unit: string, k: number) => Wide = () => 'break'
+): string[] | null {
+  const us = [...units]
+  const lines: string[] = []
+  let i = 0
+  while (i < us.length) {
+    const k = lines.length
+    if (k >= maxLines) return null
+    const w = widthOf(k)
+    let line = ''
     while (i < us.length) {
-      let slot = slots[si]
-      if (!slot) {
-        if (!allowExtra) return null
-        slot = { x: last.x, y: last.y + pitch * (extra.length + 1), w: maxW, h: last.h }
-        extra.push(slot)
+      const next = line + us[i]
+      if (measure(font, next.trimEnd()) <= w + 0.5) {
+        line = next
+        i++
+        continue
       }
-      let line = ''
-      while (i < us.length) {
-        const next = line + us[i]
-        if (measure(font, next.trimEnd()) <= slot.w + 0.5) {
-          line = next
-          i++
-        } else if (!line) {
-          // 单个单元就比槽位宽（长网址等）：按字符硬断
-          let cut = ''
-          for (const ch of us[i]) {
-            if (measure(font, cut + ch) > slot.w && cut) break
-            cut += ch
-          }
-          line = cut
-          us[i] = us[i].slice(cut.length)
-          if (!us[i]) i++
-          break
-        } else break
+      if (line) break
+      const how = wide(us[i], k)
+      if (how === 'fail') return null
+      const word = us[i].trimEnd()
+      if (how === 'hyphen' && /^[A-Za-zÀ-ɏ]{6,}$/.test(word)) {
+        // 两侧各至少留 3 个字母
+        let n = 3
+        while (n < word.length - 3 && measure(font, word.slice(0, n + 1) + '-') <= w) n++
+        line = word.slice(0, n) + '-'
+        us[i] = us[i].slice(n)
+      } else if (how === 'break' || how === 'hyphen') {
+        let cut = ''
+        for (const ch of us[i]) {
+          if (cut && measure(font, cut + ch) > w) break
+          cut += ch
+        }
+        line = cut
+        us[i] = us[i].slice(cut.length)
+        if (!us[i]) i++
       }
-      lines.push(line.trimEnd())
-      si++
+      break
     }
-    while (lines.length < slots.length) lines.push('')
-    return { fontSize: fs, lines, extra }
+    lines.push(line.trimEnd())
   }
-  // 从基准字号开始逐步缩小，直到放进原有槽位
-  for (let fs = base; fs >= minFs; fs *= 0.95) {
-    const r = place(fs, false)
-    if (r) return r
-  }
-  return place(minFs, true)!
+  return lines
 }
