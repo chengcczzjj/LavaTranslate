@@ -1,0 +1,358 @@
+/* ---------------------------------------------------------------- 引擎：大类切换 */
+.fam-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+  background: var(--line);
+}
+.fam-tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 9px 14px 10px;
+  border-radius: 11px;
+  text-align: left;
+}
+.fam-pill {
+  position: absolute;
+  inset: 0;
+  border-radius: 11px;
+  background: var(--card-hover);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    0 0 0 1px var(--card-border);
+}
+.fam-title,
+.fam-sub {
+  position: relative;
+}
+.fam-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.fam-sub {
+  font-size: 11.5px;
+  color: var(--fg-3);
+}
+.fam-badge {
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 17px;
+  color: #fff;
+  background: linear-gradient(135deg, #6d63ff, #a855f2);
+}
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 8px 10px 8px 16px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow);
+}
+.status-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- 连接配置 */
+.card.conn {
+  gap: 14px;
+}
+.conn-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-2);
+}
+.key-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 500;
+  color: #1fa86d;
+}
+.input.mono:not(:placeholder-shown) {
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  letter-spacing: 0.3px;
+}
+.conn-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.import {
+  position: relative;
+}
+.import .chev {
+  color: var(--fg-3);
+  transition: transform 0.2s var(--ease);
+}
+.import .chev.up {
+  transform: rotate(180deg);
+}
+.import-pop {
+  left: 0;
+  right: auto;
+  width: 300px;
+  z-index: 30;
+}
+.import-pop .select-item {
+  height: auto;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+.import-pop .select-item .muted {
+  margin-left: auto;
+  font-size: 12px;
+}
+.import-pop .select-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.pop-label {
+  padding: 4px 10px 6px;
+  font-size: 11.5px;
+  color: var(--fg-3);
+}
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.link:disabled {
+  opacity: 0.5;
+}
+.link.danger {
+  color: #e8603c;
+}
+.link.inline {
+  margin-left: 6px;
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------- 模型价格表 */
+.h3 .search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--input);
+  border: 1px solid var(--card-border);
+  color: var(--fg-3);
+  font-weight: 400;
+}
+.h3 .search input {
+  width: 130px;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+.h3 .search + .link {
+  margin-left: 4px;
+}
+
+.empty-models {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 22px 18px;
+  border-radius: 14px;
+  border: 1.5px dashed var(--card-border);
+  color: var(--fg-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.price-list {
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--card-border);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.price-head,
+.price-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 150px 92px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
+.price-head {
+  height: 34px;
+  font-size: 11.5px;
+  color: var(--fg-3);
+  border-bottom: 1px solid var(--line);
+}
+.r {
+  text-align: right;
+  justify-self: end;
+}
+.price-body {
+  max-height: 330px;
+  overflow-y: auto;
+}
+.price-body::-webkit-scrollbar {
+  width: 8px;
+}
+.price-body::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  background-color: var(--line);
+}
+.price-body::-webkit-scrollbar-thumb:hover {
+  background-color: var(--fg-3);
+}
+.price-row {
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+  border-top: 1px solid var(--line);
+  transition: background 0.15s;
+}
+.price-row:first-child {
+  border-top: 0;
+}
+.price-row:hover {
+  background: var(--card-hover);
+}
+.price-row.on {
+  background: rgba(124, 108, 255, 0.08);
+}
+.price-row.on .radio {
+  border-color: #7c6cff;
+}
+.pm-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pm-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.tag {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.tag.rec {
+  color: #fff;
+  background: linear-gradient(135deg, #6d63ff, #a855f2);
+}
+.tag.fast {
+  color: #c97a00;
+  background: rgba(255, 176, 32, 0.16);
+}
+.tag.text {
+  color: var(--fg-3);
+  background: var(--line);
+  cursor: help;
+}
+.pm-io {
+  font-size: 12px;
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pm-call {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.empty-row {
+  padding: 18px;
+  text-align: center;
+  color: var(--fg-3);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- 更新 */
+.update-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 72px;
+  padding: 14px 16px 14px 18px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow);
+}
+.update-icon {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: #7b6dff;
+  background: rgba(124, 108, 255, 0.12);
+}
+.update-card.ready .update-icon,
+.update-card.latest .update-icon {
+  color: #1fa86d;
+  background: rgba(47, 207, 135, 0.14);
+}
+.update-card.error .update-icon {
+  color: #e8603c;
+  background: rgba(255, 120, 80, 0.12);
+}
+.update-bar {
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 4px;
+  background: var(--line);
+  overflow: hidden;
+}
+.update-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #6d63ff, #a855f2);
+}

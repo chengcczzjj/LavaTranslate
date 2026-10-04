@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+*.log
+*.tsbuildinfo
+
+# OCR 模型由 npm run models 下载（约 30 MB）
+resources/models/
+
+# 本地测试草稿、截图、回放数据
+.scratch/

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="images/icon.png" width="112" alt="LavaTranslate">
+  <img src="docs/images/icon.png" width="112" alt="LavaTranslate">
 </p>
 
 <h1 align="center">LavaTranslate</h1>
@@ -19,7 +19,7 @@
 
 ---
 
-![Original page (left) and LavaTranslate's in-place translation (right)](images/compare-wiki.png)
+![Original page (left) and LavaTranslate's in-place translation (right)](docs/images/compare-wiki.png)
 
 ## Why LavaTranslate
 
@@ -30,13 +30,13 @@ Most screenshot translators show a list of sentences in a separate window, so yo
 - **The model looks at the screenshot itself.** OCR runs locally; a vision model then fixes recognition errors, merges wrapped lines into paragraphs, and leaves code, commands, URLs, @handles and brand names untranslated.
 - **Fast.** The capture overlay appears in about 0.2 s, local OCR takes 0.1–0.3 s on the GPU, and translations stream in block by block. A small model finishes a typical screenshot in 2–5 s.
 
-![Before and after on GitHub](images/compare-github.png)
+![Before and after on GitHub](docs/images/compare-github.png)
 
 ## Reply assistant
 
 You can read the other person's message now — LavaTranslate also helps you answer it.
 
-<img src="images/reply.png" width="520" align="right" alt="Reply assistant">
+<img src="docs/images/reply.png" width="520" align="right" alt="Reply assistant">
 
 - When the screenshot is a **chat, DM, comment thread or email**, a reply box opens under the toolbar after the translation finishes. Press <kbd>R</kbd> to open it anytime.
 - Type in your own language. It starts translating after a short pause, into the language detected on screen (you can change it).
@@ -63,7 +63,7 @@ LavaTranslate does not ship with a key. You use your own, and you only pay your 
 3. Pick a model. The list is sorted by estimated cost per 1,000 screenshots and marks the recommended, fast, and text-only models. Small vision models such as `gpt-5-nano`, `gpt-5-mini` or `deepseek-v4-flash` are quick and cost well under **$1 per 1,000 screenshots**.
 4. Click **测试翻译 (Test)**, then press <kbd>Alt</kbd>+<kbd>Q</kbd> anywhere and drag over some text.
 
-<img src="images/settings-models.png" width="560" alt="Model list sorted by price">
+<img src="docs/images/settings-models.png" width="560" alt="Model list sorted by price">
 
 **Supported services**
 
@@ -120,6 +120,25 @@ The local OCR reads Chinese, Japanese, English and other Latin-script languages,
 **How do I uninstall?**
 Go to Windows Settings → Apps → LavaTranslate → Uninstall.
 
+## Build from source
+
+Requirements: Windows 10/11 x64, Node.js 22+, and Python 3 with `onnx` (optional, used to patch the OCR model for speed).
+
+```bash
+npm install
+npm run models   # download the PP-OCRv6 models (~30 MB)
+npm run dev      # run in development mode
+npm run dist     # build the NSIS installer into dist/
+```
+
+Architecture, the layout engine and the test harnesses are described in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) (Chinese).
+
+Built with Electron, React, Motion, [PaddleOCR PP-OCRv6](https://github.com/PaddlePaddle/PaddleOCR) models run by ONNX Runtime (DirectML), and the OpenAI / Anthropic SDKs.
+
+## License
+
+[MIT](LICENSE) © 2026 chengcczzjj
+
 ---
 
-<p align="center">© 2026 chengcczzjj · Bug reports and ideas: <a href="https://github.com/chengcczzjj/LavaTranslate/issues">Issues</a></p>
+<p align="center">Bug reports and ideas: <a href="https://github.com/chengcczzjj/LavaTranslate/issues">Issues</a></p>

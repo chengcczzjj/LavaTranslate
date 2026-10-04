@@ -1,0 +1,89 @@
+html,
+body,
+#root {
+  background: transparent;
+}
+
+.pin-root {
+  position: fixed;
+  inset: 0;
+}
+
+.pin-card {
+  position: absolute;
+  overflow: hidden;
+  border-radius: 4px;
+  cursor: grab;
+  background: #000;
+  transform-origin: 50% 50%;
+}
+
+.pin-card:active {
+  cursor: grabbing;
+}
+
+.pin-inner {
+  position: relative;
+  transform-origin: 0 0;
+}
+
+.pin-inner img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  user-select: none;
+}
+
+.pin-tools {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: rgba(18, 18, 26, 0.78);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  z-index: 5;
+}
+
+.pin-tools button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.85);
+  transition: background 0.15s;
+}
+
+.pin-tools button:hover,
+.pin-tools button.on {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.pin-zoom,
+.pin-toast {
+  position: absolute;
+  bottom: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(18, 18, 26, 0.8);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.pin-zoom {
+  left: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pin-toast {
+  left: 50%;
+}

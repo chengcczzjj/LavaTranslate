@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="images/icon.png" width="112" alt="LavaTranslate">
+  <img src="docs/images/icon.png" width="112" alt="LavaTranslate">
 </p>
 
 <h1 align="center">LavaTranslate</h1>
@@ -19,7 +19,7 @@
 
 ---
 
-![左：原网页；右：LavaTranslate 原位翻译](images/compare-wiki.png)
+![左：原网页；右：LavaTranslate 原位翻译](docs/images/compare-wiki.png)
 
 ## 有什么不一样
 
@@ -30,13 +30,13 @@
 - **模型会看截图**：文字识别在本地完成，再由支持看图的模型纠正识别错误、把折行的句子合成段落，代码、命令、网址、@用户名、品牌名保持原样不翻；
 - **快**：按下快捷键约 0.2 秒出现截图界面，本地 OCR 用 GPU 0.1–0.3 秒，译文逐段流式出现，小模型翻完一张截图通常 2–5 秒。
 
-![GitHub 页面翻译前后](images/compare-github.png)
+![GitHub 页面翻译前后](docs/images/compare-github.png)
 
 ## 回复助手
 
 看懂了对方的消息，接下来就是回复。
 
-<img src="images/reply.png" width="520" align="right" alt="回复助手">
+<img src="docs/images/reply.png" width="520" align="right" alt="回复助手">
 
 - 截图是**聊天、私信、评论、邮件**这类对话时，翻译完成后工具条下方会自动出现回复框；任何时候按 <kbd>R</kbd> 也能打开；
 - 用自己的语言输入，停顿片刻就开始翻译，默认译成截图里识别出的对方语言（可以改）；
@@ -61,7 +61,7 @@
 3. 选一个模型。列表按「每千次截图约多少钱」从低到高排序，并标出「推荐」「快」「仅文字」。`gpt-5-nano`、`gpt-5-mini`、`deepseek-v4-flash` 这类能看图的小模型又快又便宜，每千次截图通常**不到 1 美元**；
 4. 点「**测试翻译**」，然后在任意地方按 <kbd>Alt</kbd>+<kbd>Q</kbd>，拖动框选文字即可。
 
-<img src="images/settings-models.png" width="560" alt="按价格排序的模型列表">
+<img src="docs/images/settings-models.png" width="560" alt="按价格排序的模型列表">
 
 **支持的服务**
 
@@ -118,6 +118,25 @@
 **怎么卸载？**
 Windows 设置 → 应用 → LavaTranslate → 卸载。
 
+## 从源码构建
+
+需要 Windows 10/11 x64、Node.js 22 以上；有 Python 3 和 `onnx` 时会顺便给 OCR 模型打加速补丁（可选）。
+
+```bash
+npm install
+npm run models   # 下载 PP-OCRv6 模型（约 30 MB）
+npm run dev      # 开发模式运行
+npm run dist     # 打包 NSIS 安装程序到 dist/
+```
+
+架构、排版引擎和自动测试的说明见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+
+技术栈：Electron、React、Motion，[PaddleOCR PP-OCRv6](https://github.com/PaddlePaddle/PaddleOCR) 模型由 ONNX Runtime（DirectML）运行，OpenAI / Anthropic SDK。
+
+## 许可证
+
+[MIT](LICENSE) © 2026 chengcczzjj
+
 ---
 
-<p align="center">© 2026 chengcczzjj · 问题和建议欢迎提 <a href="https://github.com/chengcczzjj/LavaTranslate/issues">Issues</a></p>
+<p align="center">问题和建议欢迎提 <a href="https://github.com/chengcczzjj/LavaTranslate/issues">Issues</a></p>
