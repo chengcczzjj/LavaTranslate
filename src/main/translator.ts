@@ -64,7 +64,7 @@ const SYSTEM_PROMPT = `You are the translation engine of a desktop screenshot tr
 How to work:
 1. Read the image. Use it to correct OCR mistakes (wrong characters, lost accents, merged or split words). Lines shown as ⟨?⟩ could not be read by OCR — read them from the image at their box.
 2. Group lines into blocks. Lines that are one sentence or paragraph wrapped across several lines form one block. Headings, buttons, menu items, labels, list items, table cells, metadata lines and code lines stay separate blocks. Never merge lines that are visually separate elements. OCR numbers lines top-to-bottom across the whole image, so a paragraph beside an image or sidebar can have non-consecutive ids — group by visual element, not by id order.
-3. Translate each block into the target language the way a native speaker would phrase it in this context (UI, article, chat, game, code comment…). Keep it concise so it fits the original space: buttons and menu items short, same tone. Leave untranslated: code, commands, file paths, URLs, emails, @handles, numbers with units, version strings, and brand/product names; in mixed lines translate the prose around them.
+3. Translate each block into the target language the way a native speaker would phrase it in this context (UI, article, chat, game, code comment…). Keep it concise so it fits the original space: buttons and menu items short, same tone. Leave untranslated: code, commands, file paths, URLs, emails, @handles, numbers with units, version strings, and brand/product names; in mixed lines translate the prose around them. Feature, menu, tab and button names inside a product (e.g. "Pull requests", "Issues", "Settings", "Inbox") are not brand names — translate them the way that product's localized UI would.
 4. If a block is already in the target language, or has nothing translatable (pure code, numbers, symbols), add "keep":true and copy the corrected source as the translation.
 5. If one OCR line holds several separate UI items (e.g. a menu bar "Home   Products   About"), translate each item and keep the separators/spacing between them.
 6. OCR often reads icons as characters (▲ ☆ ① <> 田, a stray letter or digit next to an icon). Leave such icon glyphs out of both src and dst, and likewise leading list numbers and bullets ("1.", "•") — they stay visible as they are. Text that is part of a logo or stylized artwork gets "keep":true.
@@ -566,10 +566,14 @@ export class ApiEngine implements Engine {
 }
 
 // ------------------------------------------------------------------ OpenAI 兼容引擎（OpenAI 官方 / Codex 中转 / DeepSeek、通义等）
-/** 推理强度依次尝试；模型不支持该参数时退到下一档，最后不带 reasoning */
-function effortsFor(model: string): (string | null)[] {
-  if (/^(gpt-5|gpt-6|o\d)/i.test(model)) return ['none', 'minimal', 'low', null]
-  return [null]
+/**
+ * 推理强度依次尝试；模型不支持该档时退到下一档，最后不带 reasoning。
+ * 翻译不需要深度思考：DeepSeek V4、GLM 等默认会先思考几百个 token，关掉后首字快 2–4 倍
+ */
+function effortsFor(_model: string): (string | null)[] {
+  // 自测对照用：LENS_OPENAI_EFFORT=default 不传推理参数（模型默认会思考）
+  if (process.env.LENS_OPENAI_EFFORT === 'default') return [null]
+  return ['none', 'minimal', 'low', null]
 }
 
 type Part = { type: 'text'; text: string } | { type: 'image'; url: string }
@@ -627,8 +631,9 @@ export class OpenAIEngine implements Engine {
       try {
         return await call(effort)
       } catch (e) {
-        if (e instanceof OpenAI.BadRequestError && effort && /reason|effort/i.test(e.message) && this.effortIdx < efforts.length - 1) {
-          this.effortIdx++
+        if (e instanceof OpenAI.BadRequestError && effort) {
+          // 明确是这一档不支持：试下一档；其他 400（可能根本不认 reasoning 参数）：直接不带它重试
+          this.effortIdx = /reason|effort/i.test(e.message) ? this.effortIdx + 1 : efforts.length - 1
           continue
         }
         throw e
