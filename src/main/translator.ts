@@ -1,22 +1,22 @@
-// Claude 翻译：两种引擎共用同一套提示词与 JSONL 流式解析
-//  - ClaudeCodeEngine：通过 Agent SDK 使用本机 Claude Code 登录（订阅额度），预热备用进程隐藏启动耗时
-//  - ApiEngine：直接调用 Messages API（官方 Key 或中转），走 Chromium 网络栈并预连接
+// 模型翻译：两种引擎共用同一套提示词与 JSONL 流式解析
+//  - ApiEngine：Claude（Anthropic Messages API，官方 Key 或中转）
+//  - OpenAIEngine：其余所有服务（OpenAI 兼容接口：Responses 或 Chat Completions）
+// 都走 Chromium 网络栈（系统代理、HTTP/2），截图界面一打开就预连接
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
-import { query, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import { app, net, session } from 'electron'
-import { existsSync, mkdirSync, readdirSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { net, session } from 'electron'
 import type { ErrorCode, Language, OcrLine, TranslatedBlock, TranslateEvent } from '../shared/types'
-import type { ApiCredentials, OpenAICredentials } from './credentials'
+
+export interface EngineCredentials {
+  baseURL: string
+  apiKey: string
+}
 
 export interface TranslateRequest {
   image: { base64: string; mediaType: 'image/png' | 'image/jpeg'; width: number; height: number }
   lines: OcrLine[]
   target: Language
   styleHint: string
-  model: string
 }
 
 export interface TranslateResult {
@@ -45,13 +45,12 @@ export interface ReplyRequest {
   /** 屏幕上的对话（OCR 文本） */
   context: string
   tone: 'auto' | 'formal' | 'casual'
-  model: string
 }
 
 export interface Engine {
   readonly name: string
-  /** 截图界面一打开就调用：提前建立连接 / 启动进程 */
-  warm(model: string): void
+  /** 截图界面一打开就调用：提前建立连接 */
+  warm(): void
   translate(req: TranslateRequest, emit: Emit, signal: AbortSignal): Promise<TranslateResult>
   /** 流式输出：译文，一行 ⟲，再是回译 */
   reply(req: ReplyRequest, onText: (delta: string) => void, signal: AbortSignal): Promise<void>
@@ -207,295 +206,22 @@ export class BlockParser {
   }
 }
 
-// ------------------------------------------------------------------ Claude Code 引擎
-const SPARE_TTL_MS = 5 * 60_000
-const FIRST_TOKEN_TIMEOUT_MS = 30_000
-
-/**
- * Claude Code 可执行文件：安装包不再内置（约 240MB），依次查找
- *  1. 随依赖安装的 SDK 平台包（开发环境）
- *  2. Claude 桌面版自带的 Claude Code（%APPDATA%\Claude\claude-code\<版本>\claude.exe，取最新版本）
- */
-export function claudeExecutable(): string | undefined {
-  const exe = process.platform === 'win32' ? 'claude.exe' : 'claude'
-  try {
-    const req = createRequire(__filename)
-    const pkg = req.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`)
-    const p = join(dirname(pkg), exe).replace('app.asar', 'app.asar.unpacked')
-    if (existsSync(p)) return p
-  } catch {
-    /* 未安装平台包 */
-  }
-  const root = join(app.getPath('appData'), 'Claude', 'claude-code')
-  try {
-    const versions = readdirSync(root)
-      .filter((v) => existsSync(join(root, v, exe)))
-      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
-    if (versions.length) return join(root, versions[0], exe)
-  } catch {
-    /* 没装 Claude 桌面版 */
-  }
-  return undefined
-}
-
-/** 给 Claude Code 子进程的环境：去掉 API 相关变量，强制使用账号登录 */
-function cleanEnv(): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = {}
-  for (const [k, v] of Object.entries(process.env)) {
-    if (/^ANTHROPIC_/.test(k) || /^CLAUDE_CODE_/.test(k) || k === 'CLAUDECODE' || /^CLAUDE_AGENT_SDK/.test(k)) continue
-    env[k] = v
-  }
-  env.CLAUDE_AGENT_SDK_CLIENT_APP = `lavatranslate/${app.getVersion()}`
-  env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
-  return env
-}
-
-/** 一个已启动、等待首条消息的 Claude Code 进程 */
-class Spare {
-  readonly createdAt = Date.now()
-  private send!: (m: SDKUserMessage) => void
-  private abort = new AbortController()
-  private queue: SDKMessage[] = []
-  private listener: ((m: SDKMessage) => void) | null = null
-  private finished: Promise<void>
-  private failure: unknown = null
-  used = false
-  closed = false
-  readonly q: Query
-
-  constructor(
-    readonly model: string,
-    cwd: string
-  ) {
-    const first = new Promise<SDKUserMessage>((resolve) => (this.send = resolve))
-    const signal = this.abort.signal
-    async function* input() {
-      const msg = await Promise.race([first, new Promise<never>((_, rej) => signal.addEventListener('abort', () => rej(new Error('closed'))))])
-      yield msg
-    }
-    const q = query({
-      prompt: input(),
-      options: {
-        model,
-        cwd,
-        systemPrompt: SYSTEM_PROMPT,
-        tools: [],
-        settingSources: [],
-        persistSession: false,
-        includePartialMessages: true,
-        maxTurns: 1,
-        thinking: { type: 'disabled' },
-        env: cleanEnv(),
-        pathToClaudeCodeExecutable: claudeExecutable(),
-        abortController: this.abort
-      }
-    })
-    this.q = q
-    this.finished = (async () => {
-      try {
-        for await (const m of q) {
-          if (this.listener) this.listener(m)
-          else this.queue.push(m)
-        }
-      } catch (e) {
-        this.failure = e
-      } finally {
-        this.closed = true
-      }
-    })()
-  }
-
-  run(msg: SDKUserMessage, onMessage: (m: SDKMessage) => void) {
-    this.used = true
-    for (const m of this.queue.splice(0)) onMessage(m)
-    this.listener = onMessage
-    this.send(msg)
-    return this.finished.then(() => {
-      if (this.failure && !this.abort.signal.aborted) throw this.failure
-    })
-  }
-
-  close() {
-    if (this.closed && this.abort.signal.aborted) return
-    this.abort.abort()
-    try {
-      this.q.close()
-    } catch {
-      /* 进程可能已退出 */
-    }
-  }
-}
-
-export class ClaudeCodeEngine implements Engine {
-  readonly name = 'Claude 账号'
-  private spare: Spare | null = null
-  private lastUse = 0
-  private ttlTimer: NodeJS.Timeout | null = null
-  private cwd: string
-
-  constructor() {
-    this.cwd = join(app.getPath('userData'), 'claude-workdir')
-    mkdirSync(this.cwd, { recursive: true })
-  }
-
-  warm(model: string) {
-    if (this.spare && (this.spare.model !== model || this.spare.closed || this.spare.used)) {
-      this.spare.close()
-      this.spare = null
-    }
-    if (!this.spare) this.spare = new Spare(model, this.cwd)
-    this.armTtl()
-  }
-
-  private armTtl() {
-    if (this.ttlTimer) clearTimeout(this.ttlTimer)
-    this.ttlTimer = setTimeout(() => {
-      if (Date.now() - this.lastUse >= SPARE_TTL_MS - 1000 && this.spare && !this.spare.used) {
-        this.spare.close()
-        this.spare = null
-      }
-    }, SPARE_TTL_MS)
-  }
-
-  async translate(req: TranslateRequest, emit: Emit, signal: AbortSignal): Promise<TranslateResult> {
-    this.warm(req.model)
-    const spare = this.spare!
-    this.spare = null
-    this.lastUse = Date.now()
-    const t0 = Date.now()
-    const parser = new BlockParser(req.lines, emit)
-    let firstTokenMs: number | undefined
-    let usage: TranslateResult['usage']
-    let error: TranslateError | null = null
-
-    const fail = (e: TranslateError) => {
-      if (!error) error = e
-      spare.close()
-    }
-    const onAbort = () => spare.close()
-    signal.addEventListener('abort', onAbort)
-    const timer = setTimeout(() => {
-      if (firstTokenMs === undefined) fail(new TranslateError('Claude 响应超时，请检查网络或代理设置', 'network'))
-    }, FIRST_TOKEN_TIMEOUT_MS)
-
-    const msg: SDKUserMessage = {
-      type: 'user',
-      message: { role: 'user', content: userContent(req) },
-      parent_tool_use_id: null,
-      session_id: ''
-    }
-    try {
-      await spare.run(msg, (m) => {
-        switch (m.type) {
-          case 'stream_event': {
-            const ev = m.event
-            if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') {
-              if (firstTokenMs === undefined) firstTokenMs = Date.now() - t0
-              parser.push(ev.delta.text)
-            }
-            break
-          }
-          case 'system':
-            if (m.subtype === 'api_retry') {
-              const st = m.error_status
-              if (st === 401 || st === 403) fail(new TranslateError('Claude 账号登录已失效，请重新登录', 'auth'))
-              else if (st === 429) fail(new TranslateError('账号额度已达上限，请稍后再试', 'rate-limit'))
-              else if (m.attempt >= 2) fail(new TranslateError(`连接 Claude 失败${st ? `（HTTP ${st}）` : ''}`, 'network'))
-            }
-            break
-          case 'auth_status':
-            if (m.error) fail(new TranslateError(`Claude 账号认证失败：${m.error}`, 'auth'))
-            break
-          case 'assistant':
-            if (m.error) {
-              const code: ErrorCode = m.error === 'authentication_failed' ? 'auth' : m.error === 'rate_limit' ? 'rate-limit' : 'unknown'
-              fail(new TranslateError(code === 'auth' ? 'Claude 账号登录已失效，请重新登录' : `Claude 返回错误：${m.error}`, code))
-            }
-            break
-          case 'result':
-            usage = { input: m.usage.input_tokens + (m.usage.cache_read_input_tokens ?? 0), output: m.usage.output_tokens }
-            if (m.subtype !== 'success' && !error) {
-              const text = 'errors' in m && m.errors?.length ? m.errors.join('; ') : m.subtype
-              fail(new TranslateError(/auth|login|401|oauth/i.test(text) ? 'Claude 账号登录已失效，请重新登录' : text, /auth|login|401|oauth/i.test(text) ? 'auth' : 'unknown'))
-            } else if (m.subtype === 'success' && m.is_error && !error) {
-              const text = m.result || '未知错误'
-              const auth = /auth|login|401|oauth|expired/i.test(text)
-              fail(new TranslateError(auth ? 'Claude 账号登录已失效，请重新登录' : text, auth ? 'auth' : 'unknown'))
-            }
-            break
-        }
-      })
-    } catch (e) {
-      if (!error && !signal.aborted) {
-        const text = e instanceof Error ? e.message : String(e)
-        error = new TranslateError(/ENOENT|spawn/i.test(text) ? '找不到 Claude Code 可执行文件' : text, 'unknown')
-      }
-    } finally {
-      clearTimeout(timer)
-      signal.removeEventListener('abort', onAbort)
-      // 为下一次截图准备好新的备用进程
-      if (!error || error.code !== 'auth') this.warm(req.model)
-    }
-    if (signal.aborted) throw new TranslateError('已取消', 'unknown')
-    if (error) throw error
-    parser.end()
-    if (!parser.blockCount) throw new TranslateError('Claude 没有返回可用的译文，请重试', 'unknown')
-    return { firstTokenMs, usage }
-  }
-
-  async reply(req: ReplyRequest, onText: (d: string) => void, signal: AbortSignal): Promise<void> {
-    const abort = new AbortController()
-    signal.addEventListener('abort', () => abort.abort())
-    let error: TranslateError | null = null
-    const q = query({
-      prompt: replyText(req),
-      options: {
-        model: req.model,
-        cwd: this.cwd,
-        systemPrompt: REPLY_PROMPT,
-        tools: [],
-        settingSources: [],
-        persistSession: false,
-        includePartialMessages: true,
-        maxTurns: 1,
-        thinking: { type: 'disabled' },
-        env: cleanEnv(),
-        pathToClaudeCodeExecutable: claudeExecutable(),
-        abortController: abort
-      }
-    })
-    try {
-      for await (const m of q) {
-        if (m.type === 'stream_event' && m.event.type === 'content_block_delta' && m.event.delta.type === 'text_delta') onText(m.event.delta.text)
-        else if (m.type === 'system' && m.subtype === 'api_retry' && (m.error_status === 401 || m.error_status === 403)) {
-          error = new TranslateError('Claude 账号登录已失效，请重新登录', 'auth')
-          abort.abort()
-        }
-      }
-    } catch (e) {
-      if (!error && !signal.aborted) error = new TranslateError(e instanceof Error ? e.message : String(e), 'unknown')
-    }
-    if (signal.aborted) throw new TranslateError('已取消', 'unknown')
-    if (error) throw error
-  }
-
-  dispose() {
-    if (this.ttlTimer) clearTimeout(this.ttlTimer)
-    this.spare?.close()
-    this.spare = null
-  }
-}
-
 // ------------------------------------------------------------------ API 引擎
 export class ApiEngine implements Engine {
-  readonly name = 'API'
+  readonly name: string
   private client: Anthropic
 
-  constructor(private creds: ApiCredentials) {
+  constructor(
+    private creds: EngineCredentials,
+    private model: string
+  ) {
+    this.name = model
+    // 官方 Key 走 x-api-key；第三方中转通常两种头都认，一并带上
+    const official = creds.apiKey.startsWith('sk-ant-')
     this.client = new Anthropic({
-      baseURL: creds.baseURL,
-      apiKey: creds.apiKey ?? null,
-      authToken: creds.authToken ?? null,
+      baseURL: creds.baseURL || undefined,
+      apiKey: creds.apiKey,
+      authToken: official ? null : creds.apiKey,
       maxRetries: 1,
       timeout: 60_000,
       // Chromium 网络栈：自动使用系统代理，支持 HTTP/2 与连接复用
@@ -519,7 +245,7 @@ export class ApiEngine implements Engine {
     try {
       const stream = this.client.messages.stream(
         {
-          model: req.model,
+          model: this.model,
           max_tokens: 8192,
           system: SYSTEM_PROMPT,
           messages: [{ role: 'user', content: userContent(req) }]
@@ -549,7 +275,7 @@ export class ApiEngine implements Engine {
   async reply(req: ReplyRequest, onText: (d: string) => void, signal: AbortSignal): Promise<void> {
     try {
       const stream = this.client.messages.stream(
-        { model: req.model, max_tokens: 4096, system: REPLY_PROMPT, messages: [{ role: 'user', content: replyText(req) }] },
+        { model: this.model, max_tokens: 4096, system: REPLY_PROMPT, messages: [{ role: 'user', content: replyText(req) }] },
         { signal }
       )
       stream.on('text', onText)
@@ -560,6 +286,12 @@ export class ApiEngine implements Engine {
       if (e instanceof Anthropic.APIConnectionError) throw new TranslateError('无法连接到 API 服务', 'network')
       throw new TranslateError(e instanceof Error ? e.message : String(e), 'unknown')
     }
+  }
+
+  async listModels(): Promise<string[]> {
+    const ids: string[] = []
+    for await (const m of this.client.models.list()) ids.push(m.id)
+    return ids
   }
 
   dispose() {}
@@ -586,6 +318,11 @@ function missingEndpoint(e: unknown) {
   return e.status === 400 && /(responses|endpoint|not supported|unsupported).*(api|path|url|endpoint|route)|invalid url|unknown url/i.test(e.message)
 }
 
+/** Key 无效：多数服务返回 401，Gemini 返回 400 */
+function badKey(e: unknown) {
+  return e instanceof OpenAI.BadRequestError && /api[ _-]?key|API_KEY_INVALID/i.test(e.message)
+}
+
 /** 模型不能看图 */
 function imageUnsupported(e: unknown) {
   return e instanceof OpenAI.APIError && /image|vision|multimodal|modalit|unsupported.*(content|type)|content.*type|unknown variant/i.test(e.message)
@@ -599,13 +336,18 @@ export class OpenAIEngine implements Engine {
   /** 模型不支持看图：只发 OCR 文本 */
   private textOnly = false
   /** 先用 Responses（与 Codex 相同），服务商没有这个接口时改用 Chat Completions 并记住 */
-  private api: 'responses' | 'chat' = 'responses'
+  private api: 'responses' | 'chat'
+  /** Chat Completions 里关掉思考的参数（各家写法不同）；服务商不认时去掉并记住 */
+  private extra: Record<string, unknown> | null
 
   constructor(
-    private creds: OpenAICredentials,
-    private model: string
+    private creds: EngineCredentials,
+    private model: string,
+    opts: { api?: 'responses' | 'chat' | 'auto'; chatExtra?: Record<string, unknown> } = {}
   ) {
     this.name = model
+    this.api = opts.api === 'chat' || process.env.LENS_OPENAI_API === 'chat' ? 'chat' : 'responses'
+    this.extra = process.env.LENS_OPENAI_EFFORT === 'default' ? null : (opts.chatExtra ?? null)
     this.client = new OpenAI({
       apiKey: creds.apiKey,
       baseURL: creds.baseURL,
@@ -631,7 +373,7 @@ export class OpenAIEngine implements Engine {
       try {
         return await call(effort)
       } catch (e) {
-        if (e instanceof OpenAI.BadRequestError && effort) {
+        if (e instanceof OpenAI.BadRequestError && effort && !badKey(e)) {
           // 明确是这一档不支持：试下一档；其他 400（可能根本不认 reasoning 参数）：直接不带它重试
           this.effortIdx = /reason|effort/i.test(e.message) ? this.effortIdx + 1 : efforts.length - 1
           continue
@@ -692,29 +434,35 @@ export class OpenAIEngine implements Engine {
       parts.length === 1 && parts[0].type === 'text'
         ? parts[0].text
         : parts.map((p) => (p.type === 'text' ? { type: 'text' as const, text: p.text } : { type: 'image_url' as const, image_url: { url: p.url, detail: 'high' as const } }))
-    const open = (usage: boolean) =>
-      this.withEffort((effort) =>
-        this.client.chat.completions.create(
-          {
-            model: this.model,
-            messages: [
-              { role: 'system', content: instructions },
-              { role: 'user', content }
-            ],
-            stream: true,
-            ...(usage ? { stream_options: { include_usage: true } } : {}),
-            ...(effort ? { reasoning_effort: effort as OpenAI.ReasoningEffort } : {})
-          },
-          { signal }
-        )
+    const create = (usage: boolean, more: Record<string, unknown>) =>
+      this.client.chat.completions.create(
+        {
+          model: this.model,
+          messages: [
+            { role: 'system', content: instructions },
+            { role: 'user', content }
+          ],
+          stream: true,
+          ...(usage ? { stream_options: { include_usage: true } } : {}),
+          ...more
+        } as OpenAI.ChatCompletionCreateParamsStreaming,
+        { signal }
       )
+    // 有服务商专用的"关闭思考"参数就用它，否则用 reasoning_effort 逐档尝试
+    const open = (usage: boolean) =>
+      this.extra ? create(usage, this.extra) : this.withEffort((effort) => create(usage, effort ? { reasoning_effort: effort } : {}))
     let stream
-    try {
-      stream = await open(true)
-    } catch (e) {
-      // 少数服务不认 stream_options
-      if (!(e instanceof OpenAI.BadRequestError) || !/stream_options|include_usage/i.test(e.message)) throw e
-      stream = await open(false)
+    for (let usage = true; ; ) {
+      try {
+        stream = await open(usage)
+        break
+      } catch (e) {
+        if (!(e instanceof OpenAI.BadRequestError)) throw e
+        // 少数服务不认 stream_options
+        if (usage && /stream_options|include_usage/i.test(e.message)) usage = false
+        else if (this.extra && !badKey(e)) this.extra = null
+        else throw e
+      }
     }
     let usage: TranslateResult['usage']
     for await (const ch of stream) {
@@ -728,7 +476,7 @@ export class OpenAIEngine implements Engine {
   private fail(e: unknown, signal: AbortSignal): never {
     if (signal.aborted) throw new TranslateError('已取消', 'unknown')
     if (e instanceof TranslateError) throw e
-    if (e instanceof OpenAI.AuthenticationError || e instanceof OpenAI.PermissionDeniedError) throw new TranslateError('API Key 无效或已停用', 'auth')
+    if (e instanceof OpenAI.AuthenticationError || e instanceof OpenAI.PermissionDeniedError || badKey(e)) throw new TranslateError('API Key 无效或已停用', 'auth')
     if (e instanceof OpenAI.RateLimitError) throw new TranslateError('请求过于频繁或额度不足', 'rate-limit')
     if (e instanceof OpenAI.APIConnectionError) throw new TranslateError('无法连接到 API 服务', 'network')
     if (e instanceof OpenAI.APIError) {
@@ -777,8 +525,16 @@ export class OpenAIEngine implements Engine {
   }
 
   async listModels(): Promise<string[]> {
+    const url = new URL(this.creds.baseURL)
+    // Gemini 的 OpenAI 兼容接口不一定提供模型列表，改用原生接口，只保留能生成内容的模型
+    if (url.host === 'generativelanguage.googleapis.com') {
+      const res = await net.fetch(`${url.origin}/v1beta/models?pageSize=1000`, { headers: { 'x-goog-api-key': this.creds.apiKey } })
+      const json = (await res.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[]; error?: { message: string } }
+      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`)
+      return (json.models ?? []).filter((m) => m.supportedGenerationMethods?.includes('generateContent')).map((m) => m.name.replace(/^models\//, ''))
+    }
     const ids: string[] = []
-    for await (const m of this.client.models.list()) ids.push(m.id)
+    for await (const m of this.client.models.list()) ids.push(m.id.replace(/^models\//, ''))
     return ids
   }
 

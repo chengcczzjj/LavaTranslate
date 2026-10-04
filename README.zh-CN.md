@@ -56,32 +56,38 @@
 
 软件不内置任何 Key，用你自己的；翻译多少，就按服务商的价格付多少。
 
-1. 打开 **设置**（托盘图标 → 设置）→ **引擎与模型** → **OpenAI 兼容**；
-2. 填写**接口地址**（OpenAI 官方留空即可）和 **API Key**，点「**获取模型列表**」；
-3. 选一个模型。列表按「每千次截图约多少钱」从低到高排序，并标出「推荐」「快」「仅文字」。`gpt-5-nano`、`gpt-5-mini`、`deepseek-v4-flash` 这类能看图的小模型又快又便宜，每千次截图通常**不到 1 美元**；
+1. 双击托盘图标打开 **设置** → **翻译服务**，选一个服务商；
+2. 按「**如何获取 API Key**」里的步骤操作，点按钮直接打开服务商的 Key 页面；把 Key 粘贴进来，点「**保存并获取模型**」；
+3. 选一个模型。列表按「每千次截图约多少钱」从低到高排序，并标出「推荐」「快」「仅文字」；
 4. 点「**测试翻译**」，然后在任意地方按 <kbd>Alt</kbd>+<kbd>Q</kbd>，拖动框选文字即可。
 
-<img src="docs/images/settings-models.png" width="560" alt="按价格排序的模型列表">
+每个服务商分别保存自己的 Key 和模型，来回切换不用重新填写。
 
-**支持的服务**
+<img src="docs/images/settings-service.png" width="560" alt="翻译服务设置">
 
-| 服务 | 说明 |
-| --- | --- |
-| OpenAI 官方 | 走 Responses API，自动使用模型允许的最低推理强度 |
-| OpenAI 兼容中转、OpenRouter | 填写以 `/v1` 结尾的接口地址 |
-| DeepSeek、通义千问、智谱 GLM、Moonshot 等官方接口 | 自动识别，改用 Chat Completions |
-| 本地模型（Ollama、LM Studio…） | 使用它们的 OpenAI 兼容接口 |
-| Claude | Anthropic API Key，或本机 Claude Code 的登录（仅限个人使用） |
+**支持的服务商**
 
-不能看图的模型也能用：这时只根据 OCR 识别出的文字翻译，没法纠正识别错误。
+| 服务商 | 获取 Key | 推荐的快模型 | 说明 |
+| --- | --- | --- | --- |
+| Gemini | [Google AI Studio](https://aistudio.google.com/apikey) | `gemini-3.5-flash-lite` | 有免费额度，免费额度内的数据可能被 Google 使用；国内需要代理 |
+| OpenAI | [OpenAI Platform](https://platform.openai.com/api-keys) | `gpt-6-luna`、`gpt-5-mini` | ChatGPT 会员不包含 API 额度 |
+| DeepSeek | [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) | `deepseek-flash` | 能看图，首字约 1 秒，非高峰时段半价，国内直连 |
+| 通义千问 | [阿里云百炼](https://bailian.console.aliyun.com/?tab=model#/api-key) | `qwen3.8-flash` | 新用户有免费额度，国内直连 |
+| 智谱 GLM | [智谱开放平台](https://bigmodel.cn/usercenter/proj-mgmt/apikeys) | `glm-4.6v-flash` | 免费且能看图（同一时间只处理一个请求） |
+| Kimi | [Kimi 开放平台](https://platform.kimi.com/console/api-keys) | | 国内直连 |
+| 豆包 | [火山方舟](https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey) | `doubao-seed-2.0-mini` | 新用户有免费额度，国内直连 |
+| Claude | [Claude Console](https://platform.claude.com/settings/keys) | `claude-haiku-4-5` | 只能用 API Key：Anthropic 不允许第三方软件使用 Claude Pro / Max 会员登录 |
+| OpenRouter | [OpenRouter](https://openrouter.ai/settings/keys) | | 一个 Key 用遍各家模型 |
+| 自定义 | — | | 任何兼容 OpenAI 接口的服务：中转站、Ollama、LM Studio 等 |
 
-本机装了 Codex 或 CC Switch 时，点「**从本机导入**」可以直接用里面现成的 Key。
+软件会让所有模型跳过「思考」直接作答（按各家自己的参数，不支持时自动退回），DeepSeek V4 Flash、GLM Flash 这类模型因此快 2–4 倍。不能看图的模型也能用，只是只根据 OCR 文字翻译，没法纠正识别错误。在「自定义」里点「**从本机导入**」，可以直接用 Codex 或 CC Switch 里现成的 Key。
 
 ## 快捷键
 
 | 按键 | 作用 |
 | --- | --- |
-| <kbd>Alt</kbd>+<kbd>Q</kbd>（可改） | 开始截图翻译 |
+| <kbd>Alt</kbd>+<kbd>Q</kbd>（可改）或单击托盘图标 | 开始截图翻译 |
+| 双击托盘图标 | 打开设置 |
 | 拖动 / 单击 | 框选区域 / 选中鼠标下的窗口 |
 | 拖动选区、拖动手柄 | 移动、调整选区，松开后自动重新翻译 |
 | 按住 <kbd>Space</kbd> | 查看原文 |

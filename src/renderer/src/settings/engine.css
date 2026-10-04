@@ -356,3 +356,183 @@
   border-radius: 4px;
   background: linear-gradient(90deg, #6d63ff, #a855f2);
 }
+
+/* ---------------------------------------------------------------- 服务商选择 */
+.prov-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+.prov {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  padding: 11px 11px 10px;
+  border-radius: 12px;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow);
+  transition:
+    transform 0.18s var(--ease),
+    background 0.15s;
+}
+.prov:hover {
+  transform: translateY(-2px);
+  background: var(--card-hover);
+}
+.prov-ring {
+  position: absolute;
+  inset: -1px;
+  border-radius: 12px;
+  border: 1.5px solid #7c6cff;
+  box-shadow: 0 0 0 3px rgba(124, 108, 255, 0.14);
+  pointer-events: none;
+}
+.prov-mark {
+  width: 26px;
+  height: 26px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+.prov-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.prov-ready {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2fcf87;
+  box-shadow: 0 0 0 2px rgba(47, 207, 135, 0.2);
+}
+.prov-blurb {
+  max-width: 100%;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--fg-3);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.tile-icon.brand {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* ---------------------------------------------------------------- 获取 Key 引导 */
+.guide {
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(124, 108, 255, 0.08), rgba(124, 108, 255, 0.03));
+  border: 1px solid rgba(124, 108, 255, 0.22);
+  overflow: hidden;
+}
+.guide-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  text-align: left;
+}
+.guide-head > svg:first-child {
+  color: #7b6dff;
+}
+.guide-head .chev {
+  margin-left: 6px;
+  color: var(--fg-3);
+  transition: transform 0.2s var(--ease);
+}
+.guide.open .guide-head .chev {
+  transform: rotate(180deg);
+}
+.guide-tags {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.guide-body {
+  overflow: hidden;
+}
+.guide-body > :last-child {
+  margin: 0 14px 14px;
+}
+.guide-steps {
+  margin: 0;
+  padding: 0 14px 4px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.guide-steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--fg-2);
+}
+.step-n {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #6d63ff, #a855f2);
+}
+.guide-tip {
+  margin: 10px 14px 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-2);
+  background: var(--line);
+}
+.tag.free {
+  color: #1fa86d;
+  background: rgba(47, 207, 135, 0.14);
+}
+.tag.cn {
+  color: #3a7bff;
+  background: rgba(58, 123, 255, 0.13);
+}
+.tag.proxy {
+  color: #c97a00;
+  background: rgba(255, 176, 32, 0.16);
+}
+.tag.agg {
+  color: #7b6dff;
+  background: rgba(124, 108, 255, 0.14);
+}
+.field-warn {
+  font-size: 11.5px;
+  color: #d9822b;
+}
+.link.inline.left {
+  align-self: flex-start;
+  margin: -2px 0 0 2px;
+}

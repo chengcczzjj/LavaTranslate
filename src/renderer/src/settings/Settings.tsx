@@ -5,6 +5,7 @@ import {
   Columns2,
   Cpu,
   Download,
+  ExternalLink,
   Info,
   KeyRound,
   Keyboard,
@@ -13,24 +14,36 @@ import {
   LayoutDashboard,
   ListOrdered,
   Loader2,
-  LogIn,
   MessageSquareReply,
   Power,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   Sparkles,
-  UserRound,
   Zap
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { LANGUAGES, MODELS, type EngineStatus, type ModelInfo, type OpenAISource, type Settings as S, type UpdateState } from '@shared/types'
+import {
+  LANGUAGES,
+  PROVIDERS,
+  providerInfo,
+  type EngineStatus,
+  type ModelInfo,
+  type OpenAISource,
+  type ProviderConfig,
+  type ProviderId,
+  type ProviderInfo,
+  type Settings as S,
+  type SettingsPatch,
+  type UpdateState
+} from '@shared/types'
 
 type Page = 'home' | 'translate' | 'engine' | 'general' | 'about'
 
 const NAV: { id: Page; label: string; icon: ReactNode }[] = [
   { id: 'home', label: '概览', icon: <LayoutDashboard size={17} /> },
   { id: 'translate', label: '翻译', icon: <Languages size={17} /> },
-  { id: 'engine', label: '引擎与模型', icon: <Sparkles size={17} /> },
+  { id: 'engine', label: '翻译服务', icon: <Sparkles size={17} /> },
   { id: 'general', label: '快捷键与启动', icon: <Keyboard size={17} /> },
   { id: 'about', label: '关于', icon: <Info size={17} /> }
 ]
@@ -63,7 +76,7 @@ export function Settings() {
     }
   }, [refreshStatus])
 
-  const update = useCallback(async (patch: Partial<S>) => {
+  const update = useCallback(async (patch: SettingsPatch) => {
     setS(await window.lens.setSettings(patch))
   }, [])
 
@@ -99,7 +112,7 @@ export function Settings() {
             >
               {page === 'home' && <Home s={s} status={status} ocr={ocr} go={setPage} />}
               {page === 'translate' && <TranslatePage s={s} update={update} />}
-              {page === 'engine' && <EnginePage s={s} update={update} status={status} refresh={refreshStatus} />}
+              {page === 'engine' && <ServicePage s={s} update={update} status={status} refresh={refreshStatus} />}
               {page === 'general' && <GeneralPage s={s} update={update} />}
               {page === 'about' && <About s={s} update={update} version={version} ocr={ocr} />}
             </motion.div>
@@ -112,10 +125,9 @@ export function Settings() {
 
 // ------------------------------------------------------------------ 概览
 function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: string; go: (p: Page) => void }) {
-  const model = MODELS.find((m) => m.id === s.model)
   const target = LANGUAGES.find((l) => l.code === s.targetLang)
-  const oai = s.engine === 'openai'
-  const engineName = oai ? 'OpenAI 兼容' : s.engine === 'api' ? 'Claude API' : 'Claude 账号'
+  const info = providerInfo(s.provider)
+  const model = s.providers[s.provider]?.model
   return (
     <>
       <section className="hero">
@@ -138,18 +150,18 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
 
       <div className="tiles">
         <button className="tile" onClick={() => go('engine')}>
-          <span className={`tile-icon ${status?.ok ? 'ok' : 'warn'}`}>
-            <UserRound size={18} />
+          <span className="tile-icon brand" style={{ background: info.color }}>
+            {info.id === 'custom' ? <SlidersHorizontal size={17} /> : info.name.slice(0, 1)}
           </span>
-          <span className="tile-title">{engineName}</span>
-          <span className="tile-sub">{status?.detail ?? '检查中…'}</span>
+          <span className="tile-title">{info.name}</span>
+          <span className="tile-sub">{status?.ok ? '翻译服务 · 已就绪' : (status?.detail ?? '检查中…')}</span>
         </button>
         <button className="tile" onClick={() => go('engine')}>
           <span className="tile-icon violet">
             <Sparkles size={18} />
           </span>
-          <span className="tile-title">{oai ? s.openaiModel || '未选择模型' : (model?.name ?? s.model)}</span>
-          <span className="tile-sub">{oai ? '翻译与回复使用的模型' : (model?.desc ?? '自定义模型')}</span>
+          <span className="tile-title">{model || '未选择模型'}</span>
+          <span className="tile-sub">翻译与回复使用的模型</span>
         </button>
         <button className="tile" onClick={() => go('translate')}>
           <span className="tile-icon blue">
@@ -171,17 +183,11 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
         <motion.div className="callout" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
           <div>
             <b>还差一步</b>
-            <span>{status.detail}。{status.engine === 'claude-code' ? '登录后即可使用你的 Claude 账号额度进行翻译。' : '填好 API Key、选好模型就能开始翻译。'}</span>
+            <span>{status.detail}。选一个翻译服务、填好 API Key、选好模型就能开始翻译；设置页里有获取 Key 的步骤和链接。</span>
           </div>
-          {status.engine === 'claude-code' ? (
-            <button className="btn primary" onClick={() => window.lens.login()}>
-              <LogIn size={15} /> 登录 Claude
-            </button>
-          ) : (
-            <button className="btn primary" onClick={() => go('engine')}>
-              去配置
-            </button>
-          )}
+          <button className="btn primary" onClick={() => go('engine')}>
+            去配置
+          </button>
         </motion.div>
       )}
 
@@ -211,7 +217,7 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
 }
 
 // ------------------------------------------------------------------ 翻译
-function TranslatePage({ s, update }: { s: S; update: (p: Partial<S>) => void }) {
+function TranslatePage({ s, update }: { s: S; update: (p: SettingsPatch) => void }) {
   const [hint, setHint] = useState(s.styleHint)
   useEffect(() => setHint(s.styleHint), [s.styleHint])
   return (
@@ -337,12 +343,11 @@ function LangSelect({ value, onChange }: { value: string; onChange: (v: string) 
   )
 }
 
-// ------------------------------------------------------------------ 引擎
-type Upd = (p: Partial<S>) => Promise<void> | void
+// ------------------------------------------------------------------ 翻译服务
+type Upd = (p: SettingsPatch) => Promise<void> | void
 
-function EnginePage({ s, update, status, refresh }: { s: S; update: Upd; status: EngineStatus | null; refresh: () => void }) {
+function ServicePage({ s, update, status, refresh }: { s: S; update: Upd; status: EngineStatus | null; refresh: () => void }) {
   const [test, setTest] = useState<{ state: 'idle' | 'run' | 'ok' | 'fail'; msg?: string }>({ state: 'idle' })
-  const family = s.engine === 'openai' ? 'openai' : 'claude'
 
   const runTest = async () => {
     setTest({ state: 'run' })
@@ -351,43 +356,18 @@ function EnginePage({ s, update, status, refresh }: { s: S; update: Upd; status:
     refresh()
   }
 
+  const pick = (id: ProviderId) => {
+    if (id === s.provider) return
+    setTest({ state: 'idle' })
+    void update({ provider: id })
+  }
+
   return (
     <>
-      <h2>引擎与模型</h2>
-      <div className="fam-tabs">
-        {(
-          [
-            ['openai', 'OpenAI 兼容', '官方或任意兼容服务的 API Key'],
-            ['claude', 'Claude', 'Claude 账号或 Anthropic API']
-          ] as const
-        ).map(([id, title, sub]) => (
-          <button
-            key={id}
-            className={`fam-tab${family === id ? ' on' : ''}`}
-            onClick={() => {
-              if (family === id) return
-              setTest({ state: 'idle' })
-              void update({ engine: id === 'openai' ? 'openai' : 'claude-code' })
-            }}
-          >
-            {family === id && <motion.span layoutId="fam-pill" className="fam-pill" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}
-            <span className="fam-title">
-              {title}
-              {id === 'openai' && <span className="fam-badge">推荐</span>}
-            </span>
-            <span className="fam-sub">{sub}</span>
-          </button>
-        ))}
-      </div>
-
+      <h2>翻译服务</h2>
       <div className={`status-bar${status?.ok ? ' ok' : ''}`}>
         <span className={`dot big ${status?.ok ? 'ok' : 'bad'}`} />
         <span className="status-text">{status?.detail ?? '检查中…'}</span>
-        {s.engine === 'claude-code' && (
-          <button className="btn" onClick={() => window.lens.login()}>
-            <LogIn size={15} /> {status?.ok ? '重新登录' : '登录 Claude'}
-          </button>
-        )}
         <button className="btn primary" disabled={test.state === 'run' || !status?.ok} onClick={runTest}>
           {test.state === 'run' ? <Loader2 size={15} className="spin" /> : <Zap size={15} />} 测试翻译
         </button>
@@ -401,74 +381,45 @@ function EnginePage({ s, update, status, refresh }: { s: S; update: Upd; status:
         ) : null}
       </AnimatePresence>
 
-      {family === 'openai' ? <OpenAIConfig s={s} update={update} /> : <ClaudeConfig s={s} update={update} onSwitch={() => setTest({ state: 'idle' })} />}
-    </>
-  )
-}
+      <div className="prov-grid">
+        {PROVIDERS.map((p) => {
+          const on = p.id === s.provider
+          const ready = !!s.providers[p.id]?.key
+          return (
+            <button key={p.id} className={`prov${on ? ' on' : ''}`} onClick={() => pick(p.id)}>
+              {on && <motion.span layoutId="prov-ring" className="prov-ring" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}
+              <span className="prov-mark" style={{ background: p.color }}>
+                {p.id === 'custom' ? <SlidersHorizontal size={14} /> : p.name.slice(0, 1)}
+              </span>
+              <span className="prov-name">
+                {p.name}
+                {ready && <span className="prov-ready" title="已填写 Key" />}
+              </span>
+              <span className="prov-blurb">{p.blurb}</span>
+            </button>
+          )
+        })}
+      </div>
 
-function ClaudeConfig({ s, update, onSwitch }: { s: S; update: Upd; onSwitch: () => void }) {
-  const [base, setBase] = useState(s.apiBaseUrl)
-  const [key, setKey] = useState('')
-  const cards: { id: S['engine']; title: string; desc: string; icon: ReactNode; cls: string }[] = [
-    { id: 'claude-code', title: 'Claude 账号', desc: '本机 Claude Code 登录，用订阅额度', icon: <UserRound size={18} />, cls: 'grad' },
-    { id: 'api', title: 'Claude API', desc: 'Anthropic Key 或兼容中转', icon: <KeyRound size={18} />, cls: '' }
-  ]
-  return (
-    <>
-      <div className="engine-cards">
-        {cards.map((c) => (
-          <button
-            key={c.id}
-            className={`engine-card${s.engine === c.id ? ' on' : ''}`}
-            onClick={() => {
-              onSwitch()
-              void update({ engine: c.id })
-            }}
-          >
-            <span className={`engine-icon ${c.cls}`}>{c.icon}</span>
-            <span className="engine-title">{c.title}</span>
-            <span className="engine-desc">{c.desc}</span>
-            {s.engine === c.id && <span className="badge">当前</span>}
-          </button>
-        ))}
-      </div>
-      {s.engine === 'api' && (
-        <Card stack title="API 配置" desc="两项都留空时，自动读取 Claude Code 的配置（~/.claude/settings.json）">
-          <div className="fields">
-            <input className="input" placeholder="Base URL（默认 https://api.anthropic.com）" value={base} onChange={(e) => setBase(e.target.value)} onBlur={() => base !== s.apiBaseUrl && update({ apiBaseUrl: base.trim() })} />
-            <input
-              className="input"
-              type="password"
-              placeholder={s.apiKey ? `已保存 ${s.apiKey}` : 'API Key'}
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              onBlur={() => {
-                if (key.trim()) void update({ apiKey: key.trim() })
-                setKey('')
-              }}
-            />
-          </div>
-        </Card>
-      )}
-      <h3 className="h3">模型</h3>
-      <div className="model-list">
-        {MODELS.map((m) => (
-          <button key={m.id} className={`model${s.model === m.id ? ' on' : ''}`} onClick={() => update({ model: m.id })}>
-            <span className="radio">{s.model === m.id && <motion.span layoutId="radio-dot" className="radio-dot" />}</span>
-            <span className="model-name">{m.name}</span>
-            <span className="model-desc">{m.desc}</span>
-            {m.id === 'claude-haiku-4-5' && <span className="badge soft">推荐</span>}
-          </button>
-        ))}
-      </div>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={s.provider}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4, transition: { duration: 0.1 } }}
+          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <ProviderPanel s={s} update={update} info={providerInfo(s.provider)} />
+        </motion.div>
+      </AnimatePresence>
     </>
   )
 }
 
 /** 速度优先：小而快的模型打上标记 */
-const FAST_HINT = /(mini|nano|flash|haiku|lite|air|turbo|spark|instant)/i
-/** 不能用来翻译的模型（向量、语音、绘图…），列表里不显示 */
-const NON_CHAT = /(embed|tts|whisper|dall-?e|image|audio|realtime|moderation|transcri|rerank|sora|veo|speech|search-preview)/i
+const FAST_HINT = /(mini|nano|flash|haiku|lite|air|turbo|spark|instant|luna)/i
+/** 不能用来翻译的模型（向量、语音、绘图…），列表里默认不显示 */
+const NON_CHAT = /(embed|tts|whisper|dall-?e|imagen|image-gen|-image|audio|realtime|moderation|transcri|rerank|sora|veo|speech|search-preview|aqa|live)/i
 
 function money(v: number) {
   if (v < 0.01) return '<$0.01'
@@ -479,21 +430,25 @@ function perM(v: number | null) {
   return '$' + (v >= 10 ? Math.round(v) : Number(v.toFixed(v >= 1 ? 2 : 3)))
 }
 
-function OpenAIConfig({ s, update }: { s: S; update: Upd }) {
-  const [base, setBase] = useState(s.openaiBaseUrl)
+function ProviderPanel({ s, update, info }: { s: S; update: Upd; info: ProviderInfo }) {
+  const conf = s.providers[info.id] ?? { key: '', baseUrl: '', model: '' }
+  const hasKey = !!conf.key
+  const custom = info.id === 'custom'
   const [key, setKey] = useState('')
+  const [base, setBase] = useState(conf.baseUrl)
+  const [showBase, setShowBase] = useState(custom || !!conf.baseUrl)
+  const [guide, setGuide] = useState(!hasKey)
   const [sources, setSources] = useState<OpenAISource[]>([])
   const [importOpen, setImportOpen] = useState(false)
   const [models, setModels] = useState<{ state: 'idle' | 'load' | 'ok' | 'fail'; list: ModelInfo[]; msg?: string }>({ state: 'idle', list: [] })
   const [q, setQ] = useState('')
   const [all, setAll] = useState(false)
-  const hasKey = !!s.openaiKey
   const importRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => setBase(s.openaiBaseUrl), [s.openaiBaseUrl])
+  useEffect(() => setBase(conf.baseUrl), [conf.baseUrl])
   useEffect(() => {
-    void window.lens.openaiSources().then(setSources)
-  }, [])
+    if (custom) void window.lens.openaiSources().then(setSources)
+  }, [custom])
   useEffect(() => {
     if (!importOpen) return
     const away = (e: MouseEvent) => {
@@ -505,22 +460,29 @@ function OpenAIConfig({ s, update }: { s: S; update: Upd }) {
 
   const loadModels = useCallback(async () => {
     setModels((m) => ({ ...m, state: 'load' }))
-    const r = await window.lens.openaiModels()
+    const r = await window.lens.listModels(info.id)
     setModels({ state: r.ok ? 'ok' : 'fail', list: r.models, msg: r.message })
-  }, [])
+  }, [info.id])
 
   // 有 Key 时自动拉一次模型列表
   useEffect(() => {
-    if (hasKey) void loadModels()
+    if (hasKey && (!custom || conf.baseUrl)) void loadModels()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const typed = key.trim()
+  const keyWarn = typed && info.keyHint && !typed.startsWith(info.keyHint) ? `${info.name} 的 Key 一般以 ${info.keyHint} 开头，确认一下有没有复制错` : ''
+  const dirty = !!typed || base.trim() !== conf.baseUrl
+  const canSave = (dirty || hasKey) && (!custom || !!base.trim())
+
   const save = async () => {
-    const patch: Partial<S> = { engine: 'openai', openaiBaseUrl: base.trim() }
-    if (key.trim()) patch.openaiKey = key.trim()
-    await update(patch)
+    if (!canSave) return
+    const patch: Partial<ProviderConfig> = { baseUrl: base.trim() }
+    if (typed) patch.key = typed
+    await update({ provider: info.id, providers: { [info.id]: patch } })
     setKey('')
-    if (key.trim() || hasKey) void loadModels()
+    setGuide(false)
+    void loadModels()
   }
 
   const importFrom = async (id: string) => {
@@ -530,50 +492,105 @@ function OpenAIConfig({ s, update }: { s: S; update: Upd }) {
     void loadModels()
   }
 
+  const choose = (model: string) => update({ provider: info.id, providers: { [info.id]: { model } } })
+
   const chat = models.list.filter((m) => !NON_CHAT.test(m.id))
-  const shown = (all ? models.list : chat).filter((m) => m.id.toLowerCase().includes(q.trim().toLowerCase()))
+  const needle = q.trim().toLowerCase()
+  const shown = (all ? models.list : chat).filter((m) => m.id.toLowerCase().includes(needle))
   const hidden = models.list.length - chat.length
-  // 推荐：有价格、名字像快模型里最便宜的那个
-  const pick = chat.find((m) => m.perCall != null && FAST_HINT.test(m.id))?.id
-  const dirty = base.trim() !== s.openaiBaseUrl || !!key.trim()
+  // 推荐：服务商目录里的推荐模型优先，否则取名字像快模型里最便宜的那个
+  const pick =
+    info.suggest.find((id) => models.list.some((m) => m.id === id)) ?? chat.find((m) => m.perCall != null && FAST_HINT.test(m.id))?.id
+  const manual = needle && !models.list.some((m) => m.id.toLowerCase() === needle) ? q.trim() : ''
 
   return (
     <>
-      <div className="card stack conn">
-        <div className="card-text">
-          <div className="card-title">服务地址与 API Key</div>
-          <div className="card-desc">支持 OpenAI 官方，以及任何兼容 OpenAI 接口的服务（中转、Codex 等）。Key 用系统加密保存在本机，只会发给你填写的地址。</div>
+      {info.keyUrl && (
+        <div className={`guide${guide ? ' open' : ''}`}>
+          <button className="guide-head" onClick={() => setGuide((v) => !v)}>
+            <KeyRound size={15} />
+            <span>如何获取 {info.name} 的 API Key</span>
+            <span className="guide-tags">
+              {info.tags.map((t) => (
+                <span key={t} className={`tag ${t === '免费额度' ? 'free' : t === '国内直连' ? 'cn' : t === '需要代理' ? 'proxy' : 'agg'}`}>
+                  {t}
+                </span>
+              ))}
+            </span>
+            <ChevronDown size={15} className="chev" />
+          </button>
+          <AnimatePresence initial={false}>
+            {guide && (
+              <motion.div className="guide-body" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22 }}>
+                <ol className="guide-steps">
+                  {info.steps.map((t, i) => (
+                    <li key={i}>
+                      <span className="step-n">{i + 1}</span>
+                      {t}
+                    </li>
+                  ))}
+                </ol>
+                {info.tip && <div className="guide-tip">{info.tip}</div>}
+                <button className="btn primary" onClick={() => window.lens.openExternal(info.keyUrl)}>
+                  <ExternalLink size={15} /> {info.keyUrlLabel}
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
+      )}
+
+      <div className="card stack conn">
+        {custom && (
+          <div className="card-text">
+            <div className="card-title">自定义服务</div>
+            <div className="card-desc">{info.tip}</div>
+          </div>
+        )}
         <div className="conn-fields">
-          <label className="field">
-            <span className="field-label">接口地址</span>
-            <input className="input" placeholder="https://api.openai.com/v1" value={base} spellCheck={false} onChange={(e) => setBase(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void save()} />
-          </label>
           <label className="field">
             <span className="field-label">
               API Key
               {hasKey && (
                 <span className="key-saved">
-                  <Check size={12} strokeWidth={3} /> 已保存 {s.openaiKey}
+                  <Check size={12} strokeWidth={3} /> 已保存 {conf.key}
                 </span>
               )}
             </span>
             <input
               className="input mono"
               type="password"
-              placeholder={hasKey ? '输入新的 Key 可替换' : 'sk-…'}
+              placeholder={hasKey ? '输入新的 Key 可替换' : info.keyHint ? `${info.keyHint}…` : '粘贴 API Key'}
               value={key}
               spellCheck={false}
               onChange={(e) => setKey(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void save()}
             />
+            {keyWarn && <span className="field-warn">{keyWarn}</span>}
           </label>
+          {showBase ? (
+            <label className="field">
+              <span className="field-label">接口地址{!custom && <span className="muted">（留空使用官方地址）</span>}</span>
+              <input
+                className="input"
+                placeholder={custom ? 'https://…/v1' : info.baseUrl || 'https://api.anthropic.com'}
+                value={base}
+                spellCheck={false}
+                onChange={(e) => setBase(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && void save()}
+              />
+            </label>
+          ) : (
+            <button className="link inline left" onClick={() => setShowBase(true)}>
+              使用中转或自定义接口地址
+            </button>
+          )}
           <div className="conn-actions">
-            <button className="btn primary" disabled={!dirty && !hasKey} onClick={() => void save()}>
+            <button className="btn primary" disabled={!canSave} onClick={() => void save()}>
               {models.state === 'load' ? <Loader2 size={15} className="spin" /> : <ListOrdered size={15} />}
               {dirty ? '保存并获取模型' : '获取模型列表'}
             </button>
-            {sources.length > 0 && (
+            {custom && sources.length > 0 && (
               <div className="import" ref={importRef}>
                 <button className="btn" onClick={() => setImportOpen((v) => !v)}>
                   <Download size={15} /> 从本机导入
@@ -588,7 +605,7 @@ function OpenAIConfig({ s, update }: { s: S; update: Upd }) {
                       exit={{ opacity: 0, y: -4, transition: { duration: 0.1 } }}
                       transition={{ type: 'spring', stiffness: 560, damping: 36 }}
                     >
-                      <div className="pop-label">在本机找到的配置</div>
+                      <div className="pop-label">在本机找到的配置（Codex / CC Switch）</div>
                       {sources.map((src) => (
                         <button key={src.id} className="select-item" disabled={!src.hasKey} onClick={() => void importFrom(src.id)}>
                           <span>{src.label}</span>
@@ -604,8 +621,9 @@ function OpenAIConfig({ s, update }: { s: S; update: Upd }) {
               <button
                 className="link danger"
                 onClick={async () => {
-                  await update({ openaiKey: '', openaiModel: '' })
+                  await update({ providers: { [info.id]: { key: '', model: '' } } })
                   setModels({ state: 'idle', list: [] })
+                  setGuide(true)
                 }}
               >
                 清除 Key
@@ -617,11 +635,17 @@ function OpenAIConfig({ s, update }: { s: S; update: Upd }) {
 
       <h3 className="h3 row">
         模型
-        <span className="muted">· 当前 {s.openaiModel || '未选择'}</span>
-        {models.list.length > 0 && (
+        <span className="muted">· 当前 {conf.model || '未选择'}</span>
+        {hasKey && (
           <div className="search">
             <Search size={13} />
-            <input placeholder="搜索模型" value={q} onChange={(e) => setQ(e.target.value)} spellCheck={false} />
+            <input
+              placeholder="搜索或输入模型名"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && manual && void choose(manual)}
+              spellCheck={false}
+            />
           </div>
         )}
         {hasKey && (
@@ -634,10 +658,8 @@ function OpenAIConfig({ s, update }: { s: S; update: Upd }) {
       {!hasKey ? (
         <div className="empty-models">
           <KeyRound size={20} />
-          <span>填好 API Key 后，这里会列出服务商提供的全部模型，按价格从低到高排好</span>
+          <span>填好 API Key 后，这里会列出 {info.name} 的全部模型，按价格从低到高排好</span>
         </div>
-      ) : models.state === 'fail' ? (
-        <div className="note err">获取模型列表失败：{models.msg}</div>
       ) : models.state === 'load' && !models.list.length ? (
         <div className="empty-models">
           <Loader2 size={18} className="spin" />
@@ -645,41 +667,54 @@ function OpenAIConfig({ s, update }: { s: S; update: Upd }) {
         </div>
       ) : (
         <>
-          <div className="price-list">
-            <div className="price-head">
-              <span />
-              <span>模型</span>
-              <span className="r">输入 / 输出 · 每百万 token</span>
-              <span className="r">每千次截图约</span>
+          {models.state === 'fail' && <div className="note err">获取模型列表失败：{models.msg}。也可以在上面的搜索框里直接输入模型名，回车使用。</div>}
+          {(models.list.length > 0 || manual) && (
+            <div className="price-list">
+              <div className="price-head">
+                <span />
+                <span>模型</span>
+                <span className="r">输入 / 输出 · 每百万 token</span>
+                <span className="r">每千次截图约</span>
+              </div>
+              <div className="price-body">
+                {manual && (
+                  <button className="price-row" onClick={() => void choose(manual)}>
+                    <span className="radio" />
+                    <span className="pm-name">
+                      <span className="pm-id">使用「{manual}」</span>
+                    </span>
+                    <span className="pm-io r muted">手动输入</span>
+                    <span className="pm-call r">—</span>
+                  </button>
+                )}
+                {shown.map((m, i) => (
+                  <motion.button
+                    key={m.id}
+                    className={`price-row${m.id === conf.model ? ' on' : ''}`}
+                    onClick={() => void choose(m.id)}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: Math.min(i * 0.015, 0.25), duration: 0.22 }}
+                  >
+                    <span className="radio">{m.id === conf.model && <motion.span layoutId="model-dot" className="radio-dot" />}</span>
+                    <span className="pm-name">
+                      <span className="pm-id">{m.id}</span>
+                      {m.id === pick && <span className="tag rec">推荐</span>}
+                      {FAST_HINT.test(m.id) && <span className="tag fast">快</span>}
+                      {m.vision === false && (
+                        <span className="tag text" title="不能看图，只用本地 OCR 的文字翻译，识别纠错能力弱一些">
+                          仅文字
+                        </span>
+                      )}
+                    </span>
+                    <span className="pm-io r">{m.input == null ? <span className="muted">价格未知</span> : `${perM(m.input)} / ${perM(m.output)}`}</span>
+                    <span className="pm-call r">{m.perCall == null ? '—' : money(m.perCall * 1000)}</span>
+                  </motion.button>
+                ))}
+                {!shown.length && !manual && <div className="empty-row">{q ? '没有匹配的模型' : '服务商没有返回模型'}</div>}
+              </div>
             </div>
-            <div className="price-body">
-              {shown.map((m, i) => (
-                <motion.button
-                  key={m.id}
-                  className={`price-row${m.id === s.openaiModel ? ' on' : ''}`}
-                  onClick={() => update({ openaiModel: m.id })}
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: Math.min(i * 0.015, 0.25), duration: 0.22 }}
-                >
-                  <span className="radio">{m.id === s.openaiModel && <motion.span layoutId="oai-dot" className="radio-dot" />}</span>
-                  <span className="pm-name">
-                    <span className="pm-id">{m.id}</span>
-                    {m.id === pick && <span className="tag rec">推荐</span>}
-                    {FAST_HINT.test(m.id) && <span className="tag fast">快</span>}
-                    {m.vision === false && (
-                      <span className="tag text" title="不能看图，只用本地 OCR 的文字翻译，识别纠错能力弱一些">
-                        仅文字
-                      </span>
-                    )}
-                  </span>
-                  <span className="pm-io r">{m.input == null ? <span className="muted">价格未知</span> : `${perM(m.input)} / ${perM(m.output)}`}</span>
-                  <span className="pm-call r">{m.perCall == null ? '—' : money(m.perCall * 1000)}</span>
-                </motion.button>
-              ))}
-              {!shown.length && <div className="empty-row">{q ? '没有匹配的模型' : '服务商没有返回模型'}</div>}
-            </div>
-          </div>
+          )}
           <div className="note">
             价格来自 models.dev 的公开数据（按官方价），中转服务的实际计费以服务商为准。每次截图约按 1500 输入 + 700 输出 token 估算。
             {hidden > 0 && (
@@ -703,7 +738,7 @@ function hostOf(url: string) {
 }
 
 // ------------------------------------------------------------------ 通用
-function GeneralPage({ s, update }: { s: S; update: (p: Partial<S>) => void }) {
+function GeneralPage({ s, update }: { s: S; update: (p: SettingsPatch) => void }) {
   return (
     <>
       <h2>快捷键与启动</h2>
@@ -805,7 +840,7 @@ function keyName(code: string): string | null {
 }
 
 // ------------------------------------------------------------------ 关于
-function About({ s, update, version, ocr }: { s: S; update: (p: Partial<S>) => void; version: string; ocr: string }) {
+function About({ s, update, version, ocr }: { s: S; update: (p: SettingsPatch) => void; version: string; ocr: string }) {
   const [u, setU] = useState<UpdateState | null>(null)
   const [checking, setChecking] = useState(false)
   useEffect(() => {
@@ -859,7 +894,7 @@ function About({ s, update, version, ocr }: { s: S; update: (p: Partial<S>) => v
       </Card>
 
       <h3 className="h3">技术</h3>
-      <Card title="翻译" desc="大模型（OpenAI 兼容服务或 Claude）结合截图画面纠正识别错误、合并段落、判断哪些内容不用翻，并按原排版回填" />
+      <Card title="翻译" desc="大模型（Gemini、OpenAI、DeepSeek、Claude 等，用你自己的 Key）结合截图画面纠正识别错误、合并段落、判断哪些内容不用翻，并按原排版回填" />
       <Card title="文字识别" desc={`PaddleOCR PP-OCRv6 · 本地运行 · ${ocr || 'ONNX Runtime'}`} />
       <Card title="隐私" desc="截图只在本机做文字识别；只有你框选的区域会发给你配置的翻译服务，不保存任何会话记录" />
     </>

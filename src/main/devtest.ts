@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import type { OcrLine, Settings, TranslatedBlock } from '../shared/types'
+import type { OcrLine, SettingsPatch, TranslatedBlock } from '../shared/types'
 import type { DisplayCapture } from './capture'
 import type { Emit, Engine, ReplyRequest, TranslateRequest, TranslateResult } from './translator'
 
@@ -126,7 +126,7 @@ interface Hooks {
   waitDone: () => Promise<void>
   display: Electron.Display
   mock: MockEngine | null
-  setSettings: (p: Partial<Settings>) => void
+  setSettings: (p: SettingsPatch) => void
 }
 
 /**
@@ -280,7 +280,7 @@ export async function runAutotest(h: Hooks) {
   if (sw.webContents.isLoading())
     await Promise.race([new Promise<void>((r) => sw.webContents.once('did-finish-load', () => r())), sleep(6000).then(() => console.log('[autotest] load timeout', sw.webContents.getURL(), sw.isVisible()))])
   await sleep(1200)
-  const pages = ['概览', '翻译', '引擎与模型', '快捷键与启动', '关于']
+  const pages = ['概览', '翻译', '翻译服务', '快捷键与启动', '关于']
   const sshot = async (name: string) => {
     const img = await sw.webContents.capturePage()
     writeFileSync(join(dir, `${name}.png`), img.toPNG())
@@ -293,17 +293,25 @@ export async function runAutotest(h: Hooks) {
   }
   // 填好 Key 后的模型价格列表（假服务，不涉及真实 Key）
   const fake = await fakeModelServer()
-  h.setSettings({ engine: 'openai', openaiBaseUrl: fake.url, openaiKey: 'sk-test-0000-abcd', openaiModel: 'deepseek-v4-flash' })
+  h.setSettings({ provider: 'custom', providers: { custom: { baseUrl: fake.url, key: 'sk-test-0000-abcd', model: 'deepseek-v4-flash' } } })
   await sleep(400)
   await sw.webContents.executeJavaScript(`[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('概览'))?.click()`)
   await sleep(400)
-  await sw.webContents.executeJavaScript(`[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('引擎与模型'))?.click()`)
+  await sw.webContents.executeJavaScript(`[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('翻译服务'))?.click()`)
   await sleep(1800)
   await sshot('settings-engine-models')
   await sw.webContents.executeJavaScript(`document.querySelector('.content').scrollTop = 9999`)
   await sleep(400)
   await sshot('settings-engine-models-2')
   fake.close()
+  // 没填 Key 的服务：展开获取 Key 的引导
+  for (const name of ['Gemini', 'DeepSeek']) {
+    await sw.webContents.executeJavaScript(`[...document.querySelectorAll('.prov')].find(b => b.textContent.includes(${JSON.stringify(name)}))?.click()`)
+    await sleep(900)
+    await sw.webContents.executeJavaScript(`document.querySelector('.content').scrollTop = 250`)
+    await sleep(400)
+    await sshot(`settings-provider-${name.toLowerCase()}`)
+  }
   console.log('[autotest] done')
   app.quit()
 }
@@ -311,13 +319,13 @@ export async function runAutotest(h: Hooks) {
 /** LENS_ENGINE_TEST=1：用测试图走一遍真实引擎，打印事件与耗时 */
 export async function runEngineTest(engine: Engine, ocrLines: OcrLine[], image: TranslateRequest['image']) {
   const t0 = Date.now()
-  engine.warm('claude-haiku-4-5')
+  engine.warm()
   await sleep(Number(process.env.LENS_WARM_MS ?? 2500))
   const t1 = Date.now()
   const ctl = new AbortController()
   try {
     const res = await engine.translate(
-      { image, lines: ocrLines, target: { code: 'zh-Hans', name: '简体中文', native: '简体中文' }, styleHint: '', model: 'claude-haiku-4-5' },
+      { image, lines: ocrLines, target: { code: 'zh-Hans', name: '简体中文', native: '简体中文' }, styleHint: '' },
       (e) => console.log(`[engine +${Date.now() - t1}ms]`, JSON.stringify(e)),
       ctl.signal
     )
@@ -337,8 +345,7 @@ export async function runEngineTest(engine: Engine, ocrLines: OcrLine[], image: 
           from: { code: 'zh-Hans', name: '简体中文', native: '简体中文' },
           to: { code: process.env.LENS_REPLY_TO ?? 'en', name: 'English', native: 'English' },
           context: ocrLines.map((l) => l.text).join('\n'),
-          tone: (process.env.LENS_REPLY_TONE as 'auto') ?? 'auto',
-          model: process.env.LENS_OPENAI_MODEL ?? ''
+          tone: (process.env.LENS_REPLY_TONE as 'auto') ?? 'auto'
         },
         (d) => {
           if (!first) first = Date.now() - t2

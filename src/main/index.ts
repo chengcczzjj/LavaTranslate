@@ -11,15 +11,16 @@ import {
   nativeTheme,
   Notification,
   screen,
+  shell,
   Tray,
   type Display,
   type WebContents
 } from 'electron'
-import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   LANGUAGES,
+  providerInfo,
   type CaptureFrame,
   type EngineStatus,
   type Language,
@@ -29,18 +30,20 @@ import {
   type ReplyStartMsg,
   type OpenAISource,
   type PinPayload,
+  type ProviderId,
   type Rect,
   type Settings,
+  type SettingsPatch,
   type TranslateEvent,
   type TranslateRequestMsg
 } from '../shared/types'
 import { captureAll, cropRgba, rgbaToBgra, type DisplayCapture } from './capture'
-import { claudeLoginStatus, findOpenAISources, resolveApiCredentials, resolveOpenAICredentials } from './credentials'
+import { findOpenAISources, resolveProvider } from './credentials'
 import { PaddleOcr } from './ocr'
 import { refreshPrices, sortByPrice } from './pricing'
 import { check as checkUpdate, initUpdater, installNow, setAutoUpdate, updateState } from './updater'
 import { settings } from './settings'
-import { ApiEngine, ClaudeCodeEngine, claudeExecutable, OpenAIEngine, TranslateError, type Engine } from './translator'
+import { ApiEngine, OpenAIEngine, TranslateError, type Engine } from './translator'
 import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runReview } from './devtest'
 import { EventEmitter } from 'node:events'
 
@@ -54,6 +57,11 @@ const pipeline = new EventEmitter()
 
 // 自测用独立的数据目录：不读写用户配置，也不和已安装、正在运行的版本抢单实例锁
 if (AUTOTEST || process.env.LENS_ENGINE_TEST) app.setPath('userData', join(app.getPath('temp'), 'lens-autotest'))
+// LENS_AUTOTEST_SEED=<settings.json>：自测前放一份指定的设置（检查旧格式迁移等）
+if (AUTOTEST && process.env.LENS_AUTOTEST_SEED) {
+  mkdirSync(app.getPath('userData'), { recursive: true })
+  writeFileSync(join(app.getPath('userData'), 'settings.json'), readFileSync(process.env.LENS_AUTOTEST_SEED))
+}
 if (!app.requestSingleInstanceLock()) app.quit()
 
 // 主进程未捕获的异常默认会弹出模态对话框并阻塞主线程；改为写日志
@@ -89,45 +97,33 @@ function loadPage(win: BrowserWindow, page: 'overlay' | 'settings' | 'pin') {
 function buildEngine(s: Settings): Engine | null {
   engine?.dispose()
   if (mockEngine) return (engine = mockEngine)
-  if (s.engine === 'api') {
-    const creds = resolveApiCredentials(s)
-    engine = creds ? new ApiEngine(creds) : null
-  } else if (s.engine === 'openai') {
-    const creds = resolveOpenAICredentials(s)
-    engine = creds && s.openaiModel ? new OpenAIEngine(creds, s.openaiModel) : null
-  } else {
-    // 安装包不带 Claude Code；本机没装时不创建引擎，界面会提示去设置
-    engine = claudeExecutable() ? new ClaudeCodeEngine() : null
-  }
+  engine = engineFor(s)
   return engine
+}
+
+/** 按当前服务创建引擎；没填 Key 或没选模型时返回 null */
+function engineFor(s: Settings, id = s.provider): Engine | null {
+  const r = resolveProvider(s, id)
+  if (!r || !r.model) return null
+  if (r.info.protocol === 'anthropic') return new ApiEngine({ baseURL: r.baseURL, apiKey: r.apiKey }, r.model)
+  return new OpenAIEngine({ baseURL: r.baseURL, apiKey: r.apiKey }, r.model, { api: r.info.api, chatExtra: r.info.chatExtra })
 }
 
 function engineStatus(): EngineStatus {
   const s = settings.get()
-  if (s.engine === 'api') {
-    const c = resolveApiCredentials(s)
-    if (!c) return { engine: 'api', ok: false, detail: '未配置 API Key' }
-    const host = c.baseURL ? new URL(c.baseURL).host : 'api.anthropic.com'
-    const src = c.source === 'custom' ? '自定义' : c.source === 'claude-code' ? '读取自 Claude Code 配置' : '环境变量'
-    return { engine: 'api', ok: true, detail: `${host} · ${src}` }
-  }
-  if (s.engine === 'openai') {
-    const c = resolveOpenAICredentials(s)
-    if (!c) return { engine: 'openai', ok: false, detail: '还没有填写 API Key' }
-    if (!s.openaiModel) return { engine: 'openai', ok: false, detail: '请选择一个模型' }
-    let host = c.baseURL
+  const info = providerInfo(s.provider)
+  const r = resolveProvider(s)
+  if (!r) return { provider: info.id, ok: false, detail: info.id === 'custom' && s.providers.custom?.key ? '还没有填写接口地址' : `${info.name} · 还没有填写 API Key` }
+  if (!r.model) return { provider: info.id, ok: false, detail: `${info.name} · 请选择一个模型` }
+  let where = info.name
+  if (info.id === 'custom' || s.providers[info.id]?.baseUrl) {
     try {
-      host = new URL(c.baseURL).host
+      where = new URL(r.baseURL).host
     } catch {
-      /* 保持原样 */
+      where = r.baseURL
     }
-    return { engine: 'openai', ok: true, detail: `${s.openaiModel} · ${host}` }
   }
-  if (!claudeExecutable()) return { engine: 'claude-code', ok: false, detail: '没有找到 Claude Code，请在设置里改用 OpenAI 兼容服务' }
-  const st = claudeLoginStatus()
-  if (!st.loggedIn) return { engine: 'claude-code', ok: false, detail: '未登录 Claude 账号' }
-  if (st.expired) return { engine: 'claude-code', ok: false, detail: '登录已过期，需要重新登录' }
-  return { engine: 'claude-code', ok: true, detail: st.subscription ? `已登录 · ${st.subscription.toUpperCase()} 订阅` : '已登录' }
+  return { provider: info.id, ok: true, detail: `${r.model} · ${where}` }
 }
 
 // ------------------------------------------------------------------ 遮罩窗口
@@ -208,7 +204,7 @@ async function startCapture() {
   if (releaseTimer) clearTimeout(releaseTimer)
   // 预热失败不能挡住截图：翻译时还会再报一次，届时在工具条上提示
   try {
-    engine?.warm(settings.get().model)
+    engine?.warm()
   } catch (e) {
     logError('warm', e)
   }
@@ -367,7 +363,7 @@ ipcMain.on('translate:start', async (e, msg: TranslateRequestMsg) => {
   const promptLines = factor === 1 ? lines : lines.map((l) => ({ ...l, box: scaleRect(l.box, factor) }))
   try {
     const res = await eng.translate(
-      { image, lines: promptLines, target, styleHint: s.styleHint, model: s.model },
+      { image, lines: promptLines, target, styleHint: s.styleHint },
       send,
       ctl.signal
     )
@@ -415,8 +411,7 @@ ipcMain.on('reply:start', async (e, msg: ReplyStartMsg) => {
         from: langFor(s.targetLang),
         to: langFor(msg.to, msg.toName),
         context: msg.context,
-        tone: msg.tone,
-        model: s.engine === 'openai' ? s.openaiModel : s.model
+        tone: msg.tone
       },
       (d) => send({ type: 'delta', text: d }),
       ctl.signal
@@ -617,7 +612,7 @@ nativeTheme.on('updated', () => {
 })
 
 ipcMain.handle('settings:get', () => settings.public())
-ipcMain.handle('settings:set', (_e, patch: Partial<Settings>) => {
+ipcMain.handle('settings:set', (_e, patch: SettingsPatch) => {
   settings.update(patch)
   return settings.public()
 })
@@ -629,19 +624,24 @@ ipcMain.handle('openai:sources', (): OpenAISource[] =>
 ipcMain.handle('openai:import', (_e, id: string) => {
   const src = findOpenAISources().find((f) => f.id === id)
   if (!src) return settings.public()
-  settings.update({ engine: 'openai', openaiBaseUrl: src.baseURL, openaiKey: src.apiKey, openaiModel: '' })
+  settings.update({ provider: 'custom', providers: { custom: { baseUrl: src.baseURL, key: src.apiKey, model: '' } } })
   return settings.public()
 })
+/** 打开服务商的网页（获取 Key、文档）；只允许 https */
+ipcMain.on('shell:open', (_e, url: string) => {
+  if (/^https:[/][/]/.test(url)) void shell.openExternal(url)
+})
 /** 拉取服务端模型列表，按一次翻译的估算费用从低到高排序（价格来自 models.dev） */
-ipcMain.handle('openai:models', async (): Promise<{ ok: boolean; models: ModelInfo[]; message?: string }> => {
+ipcMain.handle('models:list', async (_e, id?: ProviderId): Promise<{ ok: boolean; models: ModelInfo[]; message?: string }> => {
   const s = settings.get()
-  const c = resolveOpenAICredentials(s)
-  if (!c) return { ok: false, models: [], message: '请先填写 API Key' }
+  const r = resolveProvider(s, id ?? s.provider)
+  if (!r) return { ok: false, models: [], message: '请先填写 API Key' }
   const bundled = join(resources, 'model-prices.json')
   try {
     // 价格库在后台刷新，不拖慢列表；这次先用缓存或安装包内置的价格
     void refreshPrices(bundled)
-    const ids = await new OpenAIEngine(c, s.openaiModel || 'x').listModels()
+    const creds = { baseURL: r.baseURL, apiKey: r.apiKey }
+    const ids = r.info.protocol === 'anthropic' ? await new ApiEngine(creds, 'x').listModels() : await new OpenAIEngine(creds, 'x').listModels()
     return { ok: true, models: sortByPrice(ids, bundled) }
   } catch (e) {
     return { ok: false, models: [], message: e instanceof Error ? e.message : String(e) }
@@ -680,8 +680,7 @@ ipcMain.handle('engine:test', async () => {
         image: { base64: img.toPNG().toString('base64'), mediaType: 'image/png', width: size.width, height: size.height },
         lines: [{ id: 1, text: 'Hello, world', score: 1, box: { x: 8, y: 8, w: size.width - 16, h: size.height - 16 } }],
         target: LANGUAGES.find((l) => l.code === s.targetLang) ?? LANGUAGES[0],
-        styleHint: '',
-        model: s.model
+        styleHint: ''
       },
       (ev) => {
         if (ev.type === 'block') got = ev.block.translation
@@ -693,18 +692,6 @@ ipcMain.handle('engine:test', async () => {
     return { ok: false, message: err instanceof Error ? err.message : String(err) }
   }
 })
-
-/** 打开终端执行 claude auth login */
-ipcMain.on('engine:login', () => {
-  const exe = claudeExe()
-  const env: Record<string, string | undefined> = {}
-  for (const [k, v] of Object.entries(process.env)) if (!/^ANTHROPIC_|^CLAUDE_CODE_|^CLAUDECODE$/.test(k)) env[k] = v
-  spawn('cmd.exe', ['/c', 'start', 'Claude 登录', 'cmd', '/k', exe, 'auth', 'login'], { detached: true, stdio: 'ignore', env }).unref()
-})
-
-function claudeExe() {
-  return claudeExecutable() ?? 'claude'
-}
 
 // ------------------------------------------------------------------ 快捷键 / 托盘
 let registeredHotkey = ''
@@ -752,7 +739,7 @@ function updateTray() {
       ...(updateState().state === 'ready'
         ? [{ label: `重启并更新到 v${(updateState() as { next: string }).next}`, click: () => ((quitting = true), installNow()) }, { type: 'separator' as const }]
         : []),
-      { label: '设置…', click: openSettings },
+      { label: '设置…（双击图标）', click: openSettings },
       { type: 'separator' },
       { label: '退出', click: () => app.quit() }
     ])
@@ -769,7 +756,7 @@ app.on('second-instance', () => openSettings())
 /**
  * 旧名称「Lens 截图翻译」的配置搬到新目录。
  * Key 不搬：safeStorage 的密钥存在各自数据目录的 Local State 里，换了目录就解不开，需要重新填写。
- * 旧版默认的「Claude 账号」依赖本机的 Claude Code，没装时改用 OpenAI 兼容服务。
+ * 格式转换（engine / openaiKey → providers）由 settings.load() 统一处理。
  */
 function migrateLegacy() {
   if (AUTOTEST || process.env.LENS_ENGINE_TEST) return
@@ -777,11 +764,10 @@ function migrateLegacy() {
   const legacy = join(app.getPath('appData'), 'Lens 截图翻译', 'settings.json')
   if (existsSync(join(dir, 'settings.json')) || !existsSync(legacy)) return
   try {
-    const old = JSON.parse(readFileSync(legacy, 'utf8')) as Partial<Settings> & { openaiSource?: string }
-    delete old.openaiSource
-    if (old.apiKey?.startsWith('enc:')) old.apiKey = ''
-    if (old.openaiKey?.startsWith('enc:')) old.openaiKey = ''
-    if (old.engine === 'claude-code' && !claudeExecutable()) old.engine = 'openai'
+    const old = JSON.parse(readFileSync(legacy, 'utf8')) as Record<string, unknown>
+    for (const k of ['apiKey', 'openaiKey']) if (String(old[k] ?? '').startsWith('enc:')) old[k] = ''
+    // 「Claude 账号」登录已移除（Anthropic 不允许第三方软件使用订阅登录）
+    if (old.engine === 'claude-code') delete old.engine
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'settings.json'), JSON.stringify(old, null, 2))
   } catch (e) {
@@ -800,7 +786,24 @@ app.whenReady().then(async () => {
   screen.on('display-metrics-changed', syncOverlays)
 
   tray = new Tray(nativeImage.createFromPath(join(resources, 'tray.png')))
-  tray.on('click', () => void startCapture())
+  // 单击截图、双击打开设置：单击要等过双击间隔才动作，否则双击会先触发一次截图
+  let clickTimer: NodeJS.Timeout | null = null
+  let lastDouble = 0
+  tray.on('click', () => {
+    if (Date.now() - lastDouble < 600) return
+    if (clickTimer) clearTimeout(clickTimer)
+    clickTimer = setTimeout(() => {
+      clickTimer = null
+      void startCapture()
+    }, 280)
+  })
+  tray.on('double-click', () => {
+    lastDouble = Date.now()
+    if (clickTimer) clearTimeout(clickTimer)
+    clickTimer = null
+    void hideOverlays(true)
+    openSettings()
+  })
   updateTray()
 
   initUpdater({
@@ -816,8 +819,7 @@ app.whenReady().then(async () => {
 
   const ok = registerHotkey(s.hotkey)
   settings.onChange((next, prev) => {
-    const keys: (keyof Settings)[] = ['engine', 'apiKey', 'apiBaseUrl', 'model', 'openaiBaseUrl', 'openaiKey', 'openaiModel']
-    if (keys.some((k) => next[k] !== prev[k])) buildEngine(next)
+    if (next.provider !== prev.provider || JSON.stringify(next.providers[next.provider]) !== JSON.stringify(prev.providers[prev.provider])) buildEngine(next)
     if (next.launchAtLogin !== prev.launchAtLogin) app.setLoginItemSettings({ openAtLogin: next.launchAtLogin })
     if (next.autoUpdate !== prev.autoUpdate) setAutoUpdate(next.autoUpdate)
     updateTray()
@@ -850,24 +852,22 @@ app.whenReady().then(async () => {
     }
     const lines = await ocr.recognize({ data: rgba, width: size.width, height: size.height })
     const enc = encodeForModel(rgba, size.width, size.height)
-    const kind = process.env.LENS_ENGINE_TEST
+    // LENS_PROVIDER=<服务商> + LENS_PROVIDER_KEY：直接测某家服务；
+    // LENS_OPENAI_SOURCE=ccs:<名称> / codex：用本机 Codex / CC Switch 的凭据，按自定义服务测（自测数据目录里没有 Key）；
+    // LENS_OPENAI_FAKE=1：本地假服务（只有 Chat Completions），检查接口自动回退
     const fake = process.env.LENS_OPENAI_FAKE ? await fakeModelServer() : null
-    const eng =
-      kind === 'api'
-        ? buildEngine({ ...s, engine: 'api' })
-        : kind === 'openai'
-          ? (() => {
-              // LENS_OPENAI_SOURCE=ccs:<名称> / codex：直接用本机 Codex / CC Switch 的凭据（自测数据目录里没有 Key）
-              const all = process.env.LENS_OPENAI_SOURCE ? findOpenAISources() : []
-              const src = all.find((f) => f.id === process.env.LENS_OPENAI_SOURCE)
-              if (process.env.LENS_OPENAI_SOURCE && !src) console.log('[engine] sources:', all.map((f) => f.id).join(', '))
-              // LENS_OPENAI_FAKE=1：本地假服务（只有 Chat Completions），检查接口自动回退
-              const base = fake ? { openaiBaseUrl: fake.url, openaiKey: 'sk-test-0000' } : src ? { openaiBaseUrl: src.baseURL, openaiKey: src.apiKey } : {}
-              return buildEngine({ ...s, ...base, engine: 'openai', openaiModel: process.env.LENS_OPENAI_MODEL ?? s.openaiModel })
-            })()
-          : new ClaudeCodeEngine()
-    // LENS_OPENAI_API=chat：直接走 Chat Completions
-    if (eng && process.env.LENS_OPENAI_API === 'chat') (eng as unknown as { api: string }).api = 'chat'
+    const all = process.env.LENS_OPENAI_SOURCE ? findOpenAISources() : []
+    const src = all.find((f) => f.id === process.env.LENS_OPENAI_SOURCE)
+    if (process.env.LENS_OPENAI_SOURCE && !src) console.log('[engine] sources:', all.map((f) => f.id).join(', '))
+    const id = (process.env.LENS_PROVIDER as ProviderId | undefined) ?? (fake || src ? 'custom' : s.provider)
+    const conf = fake
+      ? { baseUrl: fake.url, key: 'sk-test-0000' }
+      : src
+        ? { baseUrl: src.baseURL, key: src.apiKey }
+        : { key: process.env.LENS_PROVIDER_KEY ?? '', baseUrl: '' }
+    const model = process.env.LENS_OPENAI_MODEL ?? s.providers[id]?.model ?? ''
+    // 只在内存里拼一份配置（Key 明文，不写盘）：resolveProvider 解密时明文原样返回
+    const eng = engineFor({ ...s, provider: id, providers: { ...s.providers, [id]: { ...conf, model } } })
     if (!eng) {
       console.log('[engine] no api credentials')
       return app.quit()

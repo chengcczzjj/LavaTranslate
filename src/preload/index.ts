@@ -8,8 +8,10 @@ import type {
   ReplyStartMsg,
   UpdateState,
   PinPayload,
+  ProviderId,
   Rect,
   Settings,
+  SettingsPatch,
   TranslateEvent,
   TranslateRequestMsg
 } from '../shared/types'
@@ -57,21 +59,21 @@ const api = {
 
   // 设置
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
-  setSettings: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke('settings:set', patch),
+  setSettings: (patch: SettingsPatch): Promise<Settings> => ipcRenderer.invoke('settings:set', patch),
   onSettings: (cb: (s: Settings) => void) => on('settings:changed', cb),
   openSettings: () => ipcRenderer.send('settings:open'),
   engineStatus: (): Promise<EngineStatus> => ipcRenderer.invoke('engine:status'),
   testEngine: (): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('engine:test'),
   openaiSources: (): Promise<OpenAISource[]> => ipcRenderer.invoke('openai:sources'),
   openaiImport: (id: string): Promise<Settings> => ipcRenderer.invoke('openai:import', id),
-  openaiModels: (): Promise<{ ok: boolean; models: ModelInfo[]; message?: string }> => ipcRenderer.invoke('openai:models'),
+  listModels: (provider?: ProviderId): Promise<{ ok: boolean; models: ModelInfo[]; message?: string }> => ipcRenderer.invoke('models:list', provider),
+  openExternal: (url: string) => ipcRenderer.send('shell:open', url),
 
   // 更新
   updateState: (): Promise<UpdateState> => ipcRenderer.invoke('update:state'),
   updateCheck: (): Promise<UpdateState> => ipcRenderer.invoke('update:check'),
   updateInstall: () => ipcRenderer.send('update:install'),
   onUpdate: (cb: (s: UpdateState) => void) => on('update:state', cb),
-  login: () => ipcRenderer.send('engine:login'),
   setHotkey: (hotkey: string): Promise<{ ok: boolean; message?: string }> => ipcRenderer.invoke('hotkey:set', hotkey),
   suspendHotkey: (on: boolean) => ipcRenderer.invoke('hotkey:suspend', on),
   appInfo: (): Promise<{ version: string }> => ipcRenderer.invoke('app:info'),

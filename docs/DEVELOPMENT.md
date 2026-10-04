@@ -33,19 +33,18 @@
 - `Enter` 复制并关闭（还没翻完会等翻完再复制）、`Ctrl Enter` 只复制、`Shift Enter` 换行、单击译文复制；`↑ / ↓` 翻看发过的回复；
 - 输入框为空时，`Space` / `Enter` / `Tab` 等截图快捷键照常可用；有内容时 `Esc` 先收起回复框（保留草稿），空白时直接退出。
 
-## 首次使用：填写 API Key
+## 翻译服务
 
-设置 → 引擎与模型 → **OpenAI 兼容**：填写接口地址（OpenAI 官方留空即可，中转填它的 `/v1` 地址）和 API Key，点「获取模型列表」。
-列表按「每千次截图翻译的估算费用」从低到高排序（价格来自 [models.dev](https://models.dev) 公开数据，3 天刷新一次，离线时用安装包内置的快照），
-标出推荐、速度快、只能读文字（不能看图）的模型。本机装了 Codex 或 CC Switch 时，可以「从本机导入」现成的 Key。
-Key 用系统（DPAPI）加密保存在本机，界面上只显示末 4 位。
+服务商目录在 `src/shared/providers.ts`：每家的接口地址、获取 Key 的网页与步骤、推荐模型、优先用哪种接口（Responses / Chat Completions），
+以及在 Chat Completions 里关掉「思考」的参数（DeepSeek / 智谱 / 豆包：`thinking: {type: "disabled"}`，通义：`enable_thinking: false`；
+其余用 `reasoning_effort` 从 none 逐档尝试）。设置按服务商分别保存 `providers[id] = { key, baseUrl, model }`，Key 用 safeStorage 加密
+（密文绑定数据目录的 Local State，不能跨目录复制）；旧版的 `engine / openaiKey / apiKey` 在 `settings.load()` 里自动转换。
 
-也可以切到 **Claude**：
-
-- **Claude 账号**：本机 Claude Code 的登录（订阅额度），仅适合个人自用；
-- **Claude API**：Anthropic 官方 Key 或兼容中转；两项留空时自动读取 `~/.claude/settings.json`。
-
-不能看图的模型会自动改为只用 OCR 文字翻译。
+- 除 Claude（`@anthropic-ai/sdk`）外都走 `openai` SDK：先用 Responses API，服务商没有该接口（404）时改用 Chat Completions 并记住；
+  模型不能看图时只发 OCR 文本；Key 无效（401，Gemini 是 400）统一提示「API Key 无效」。
+- Gemini 的模型列表用原生接口 `/v1beta/models` 获取（OpenAI 兼容接口未必提供）。
+- 价格来自 [models.dev](https://models.dev)，3 天刷新一次，离线时用安装包内置的快照。
+- 不提供「Claude 账号」登录：Anthropic 不允许第三方软件使用 claude.ai 登录或订阅额度（见 Agent SDK 文档）。
 
 ## 自动更新
 
@@ -77,10 +76,8 @@ Key 用系统（DPAPI）加密保存在本机，界面上只显示末 4 位。
 排版回归测试（测试素材在本地 `.scratch/`，未纳入仓库）：`.scratch/pages` 里是真实网页截图，`.scratch/fixtures/*.jsonl` 是按提示词写的模型输出，
 `LENS_REVIEW=1 LENS_AUTOTEST_ROOT=. npx electron .` 回放并截图，`python .scratch/compare.py` 生成原图/译图对照。
 
-- **OCR**：PaddleOCR PP-OCRv6 small（50 种语言）。识别模型的输出在图里追加了 `ArgMax`（`scripts/patch-rec.py`），GPU 直接给出逐帧最佳字符，避免回传 N×T×18710 的概率矩阵。OCR 认不出的文字（如韩文）保留位置，由 Claude 看图补全。
-- **Claude 账号模式**：通过 Claude Agent SDK 启动内置的 Claude Code，自定义系统提示、无工具、不落盘会话。截图界面一打开就预热一个等待中的进程，框选完成时直接发请求，隐藏进程启动耗时；空闲 5 分钟后释放。
-- **API 模式**：`@anthropic-ai/sdk` 流式请求，走 Electron `net.fetch`（系统代理、HTTP/2），截图时预连接。
-- **OpenAI 兼容**：`openai` SDK，先用 Responses API（与 Codex 相同），服务商没有该接口（404）时自动改用 Chat Completions 并记住；GPT-5 系列自动选最低推理强度，不支持时逐级回退；模型不能看图时只发 OCR 文本。
+- **OCR**：PaddleOCR PP-OCRv6 small（50 种语言）。识别模型的输出在图里追加了 `ArgMax`（`scripts/patch-rec.py`），GPU 直接给出逐帧最佳字符，避免回传 N×T×18710 的概率矩阵。OCR 认不出的文字（如韩文）保留位置，由能看图的模型补全。
+- **网络**：模型请求都走 Electron `net.fetch`（系统代理、HTTP/2），截图界面一打开就预连接当前服务的地址。
 - 界面：Electron + React + Motion；Windows 11 Mica 设置窗口，跟随系统深浅色。
 
 ## 开发
@@ -95,9 +92,14 @@ npm run dist     # 打包 NSIS 安装程序到 dist/
 自测（离屏渲染，不打扰屏幕，使用独立的数据目录）：`LENS_AUTOTEST=1 LENS_MOCK=1 npx electron .`，截图输出到 `.scratch/shots/`；
 包括聊天截图 + 回复框、模型价格列表（本地假服务）、设置各页。
 
-真实引擎：`LENS_ENGINE_TEST=openai LENS_OPENAI_SOURCE=ccs:<CC Switch 供应商名> LENS_OPENAI_MODEL=<模型> LENS_ENGINE_IMAGE=chat.png LENS_REPLY_TEST="要回复的话" npx electron .`
+真实引擎（独立数据目录，Key 不写盘）：
+- 某家服务：`LENS_ENGINE_TEST=1 LENS_PROVIDER=<服务商> LENS_PROVIDER_KEY=<Key> LENS_OPENAI_MODEL=<模型> npx electron .`
+- 本机 Codex / CC Switch 的中转：`LENS_ENGINE_TEST=1 LENS_OPENAI_SOURCE=ccs:<供应商名> LENS_OPENAI_MODEL=<模型> npx electron .`
+- 可加 `LENS_ENGINE_IMAGE=chat.png`（换测试图）、`LENS_REPLY_TEST="要回复的话"`（同时测回复助手）、
+  `LENS_OPENAI_EFFORT=default`（不关思考，对照用）、`LENS_OPENAI_FAKE=1`（本地假服务，检查接口回退）。
+- 旧格式设置迁移：`LENS_AUTOTEST=1 LENS_MOCK=1 LENS_AUTOTEST_SEED=<旧 settings.json> npx electron .`
 
 ## 说明
 
-- 软件不内置任何 Key，用户填自己的；「Claude 账号」模式使用本机 Claude Code 的登录，只适合个人自用。
+- 软件不内置任何 Key，用户填自己的。
 - 只有框选的区域（以及你写的回复）会发送给你配置的服务；OCR 在本地完成，不保存任何会话记录。

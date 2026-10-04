@@ -1,4 +1,7 @@
 // 主进程与渲染进程共享的数据结构
+import type { ProviderId } from './providers'
+
+export * from './providers'
 
 export interface Rect {
   x: number
@@ -66,21 +69,20 @@ export const LANGUAGES: Language[] = [
   { code: 'ar', name: '阿拉伯语', native: 'العربية' }
 ]
 
-export type EngineKind = 'claude-code' | 'api' | 'openai'
+/** 某个翻译服务的配置：Key 落盘加密，界面上为打码形式（•••• 末四位）；接口地址留空表示用默认 */
+export interface ProviderConfig {
+  key: string
+  baseUrl: string
+  model: string
+}
 
 export interface Settings {
   hotkey: string
   targetLang: string
-  model: string
-  engine: EngineKind
-  /** API 模式：留空则自动读取 Claude Code 的 ~/.claude/settings.json */
-  apiBaseUrl: string
-  apiKey: string
-  /** OpenAI 兼容（Codex / 中转）：留空则自动读取 Codex / CC Switch 的配置 */
-  /** OpenAI 兼容服务（Codex 中转 / OpenAI 官方）：Base URL、Key（落盘加密，界面上为打码形式）、模型 */
-  openaiBaseUrl: string
-  openaiKey: string
-  openaiModel: string
+  /** 当前使用的翻译服务 */
+  provider: ProviderId
+  /** 各服务分别保存 Key、接口地址、模型，切换时互不影响 */
+  providers: Partial<Record<ProviderId, ProviderConfig>>
   /** 自动检查并下载更新（GitHub Releases） */
   autoUpdate: boolean
   /** 回复助手：翻译完成后自动打开回复框 */
@@ -94,22 +96,16 @@ export interface Settings {
   firstRunDone: boolean
 }
 
-export const MODELS = [
-  { id: 'claude-haiku-4-5', name: 'Haiku 4.5', desc: '最快 · 最省' },
-  { id: 'claude-sonnet-5', name: 'Sonnet 5', desc: '更准 · 稍慢' },
-  { id: 'claude-opus-5', name: 'Opus 5', desc: '最强 · 最慢' }
-] as const
+/** 更新设置用：providers 可以只改某个服务的部分字段 */
+export type SettingsPatch = Omit<Partial<Settings>, 'providers'> & {
+  providers?: Partial<Record<ProviderId, Partial<ProviderConfig>>>
+}
 
 export const DEFAULT_SETTINGS: Settings = {
   hotkey: 'Alt+Q',
   targetLang: 'zh-Hans',
-  model: 'claude-haiku-4-5',
-  engine: 'openai',
-  apiBaseUrl: '',
-  apiKey: '',
-  openaiBaseUrl: '',
-  openaiKey: '',
-  openaiModel: '',
+  provider: 'gemini',
+  providers: {},
   autoUpdate: true,
   replyAssist: true,
   replyTone: 'auto',
@@ -158,7 +154,7 @@ export type UpdateState =
   | { state: 'error'; version: string; message: string }
 
 export interface EngineStatus {
-  engine: EngineKind
+  provider: ProviderId
   ok: boolean
   detail: string
 }

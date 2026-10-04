@@ -58,32 +58,38 @@ You can read the other person's message now — LavaTranslate also helps you ans
 
 LavaTranslate does not ship with a key. You use your own, and you only pay your provider for what you translate.
 
-1. Open **Settings** (tray icon → 设置) → **引擎与模型 (Engine & model)** → **OpenAI 兼容 (OpenAI-compatible)**.
-2. Enter the **API base URL** (leave it empty for OpenAI) and your **API key**, then click **获取模型列表 (Fetch models)**.
-3. Pick a model. The list is sorted by estimated cost per 1,000 screenshots and marks the recommended, fast, and text-only models. Small vision models such as `gpt-5-nano`, `gpt-5-mini` or `deepseek-v4-flash` are quick and cost well under **$1 per 1,000 screenshots**.
+1. Open **Settings** (double-click the tray icon) → **翻译服务 (Translation service)** and pick a provider.
+2. Follow the built-in steps under **如何获取 API Key (How to get an API key)** — the button opens the provider's key page. Paste the key and click **保存并获取模型 (Save & fetch models)**.
+3. Pick a model. The list is sorted by estimated cost per 1,000 screenshots and marks the recommended, fast and text-only models.
 4. Click **测试翻译 (Test)**, then press <kbd>Alt</kbd>+<kbd>Q</kbd> anywhere and drag over some text.
 
-<img src="docs/images/settings-models.png" width="560" alt="Model list sorted by price">
+Each provider keeps its own key and model, so you can switch back and forth without re-entering anything.
 
-**Supported services**
+<img src="docs/images/settings-service.png" width="560" alt="Translation service settings">
 
-| Service | Notes |
-| --- | --- |
-| OpenAI | Responses API, with the lowest reasoning effort the model allows. |
-| OpenAI-compatible relays, OpenRouter | Any base URL ending in `/v1`. |
-| DeepSeek, Qwen, GLM, Moonshot and other official APIs | Detected automatically and switched to Chat Completions. |
-| Local servers (Ollama, LM Studio…) | Use their OpenAI-compatible endpoint. |
-| Claude | Anthropic API key, or the Claude Code login on this PC (personal use). |
+**Providers**
 
-Models without image input still work. They translate from the OCR text alone, so they can't correct OCR mistakes.
+| Provider | Get a key | Good fast models | Notes |
+| --- | --- | --- | --- |
+| Gemini | [Google AI Studio](https://aistudio.google.com/apikey) | `gemini-3.5-flash-lite` | Free tier; free-tier data may be used by Google. Needs a proxy in mainland China. |
+| OpenAI | [OpenAI Platform](https://platform.openai.com/api-keys) | `gpt-6-luna`, `gpt-5-mini` | ChatGPT plans don't include API credit. |
+| DeepSeek | [DeepSeek Platform](https://platform.deepseek.com/api_keys) | `deepseek-flash` | Reads images, ~1 s to first token, half price off-peak. |
+| Qwen (Alibaba Cloud) | [Model Studio](https://bailian.console.aliyun.com/?tab=model#/api-key) | `qwen3.8-flash` | Free quota for new users. |
+| Zhipu GLM | [BigModel](https://bigmodel.cn/usercenter/proj-mgmt/apikeys) | `glm-4.6v-flash` | Free vision model (one request at a time). |
+| Kimi | [Kimi Platform](https://platform.kimi.com/console/api-keys) | | |
+| Doubao (Volcano Engine) | [Ark console](https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey) | `doubao-seed-2.0-mini` | Free quota for new users. |
+| Claude | [Claude Console](https://platform.claude.com/settings/keys) | `claude-haiku-4-5` | API key only — Anthropic doesn't allow third-party apps to use Claude Pro/Max logins. |
+| OpenRouter | [OpenRouter](https://openrouter.ai/settings/keys) | | One key for many vendors. |
+| Custom | — | | Any OpenAI-compatible endpoint: relays, Ollama, LM Studio… |
 
-If Codex or CC Switch is installed, **从本机导入 (Import from this PC)** fills in an existing key for you.
+LavaTranslate asks every model to skip "thinking" (each provider's own switch, falling back automatically), which makes translation 2–4× faster on models such as DeepSeek V4 Flash and GLM Flash. Models without image input still work: they translate from the OCR text alone, so they can't correct OCR mistakes. On the Custom provider, **从本机导入 (Import from this PC)** can fill in a key from Codex or CC Switch.
 
 ## Shortcuts
 
 | Key | Action |
 | --- | --- |
-| <kbd>Alt</kbd>+<kbd>Q</kbd> (configurable) | Start a capture |
+| <kbd>Alt</kbd>+<kbd>Q</kbd> (configurable) or click the tray icon | Start a capture |
+| Double-click the tray icon | Open Settings |
 | Drag / click | Select a region / select the window under the cursor |
 | Drag the selection or its handles | Move / resize — it translates again when you let go |
 | Hold <kbd>Space</kbd> | Show the original |
