@@ -30,7 +30,7 @@ const files = [exe, `${exe}.blockmap`, 'dist/latest.yml']
 
 // 安卓：签名的 arm64 安装包 + 应用内更新读取的 latest-android.json（版本号、下载地址、大小、SHA-256、更新说明）
 if (android) {
-  run(process.platform === 'win32' ? 'gradlew.bat assembleRelease' : './gradlew assembleRelease', {}, 'android')
+  run(process.platform === 'win32' ? '.\\gradlew.bat assembleRelease' : './gradlew assembleRelease', {}, 'android')
   const apk = `dist/${build.productName}-Android-${version}.apk`
   copyFileSync('android/app/build/outputs/apk/release/app-arm64-v8a-release.apk', apk)
   const [major, minor, patch] = version.split('.').map((v) => parseInt(v, 10))
