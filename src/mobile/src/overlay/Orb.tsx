@@ -11,6 +11,8 @@ export interface OrbItem {
   icon: React.ReactNode
   active?: boolean
   disabled?: boolean
+  /** 退出这类操作：图标用红色 */
+  danger?: boolean
 }
 
 interface Props {
@@ -125,7 +127,7 @@ export function Orb(p: Props) {
             return (
               <motion.button
                 key={it.id}
-                className={`m-fan ${side}${it.active ? ' on' : ''}`}
+                className={`m-fan ${side}${it.active ? ' on' : ''}${it.danger ? ' danger' : ''}`}
                 disabled={it.disabled}
                 style={side === 'right' ? { right: p.vw - at.x - PILL / 2, top: at.y - PILL / 2, height: PILL } : { left: at.x - PILL / 2, top: at.y - PILL / 2, height: PILL }}
                 initial={{ ...from, scale: 0.3, opacity: 0 }}

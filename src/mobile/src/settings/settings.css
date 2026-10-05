@@ -21,7 +21,7 @@ body,
 }
 body {
   background:
-    radial-gradient(120% 60% at 0% 0%, rgba(92, 70, 255, 0.18), transparent 60%),
+    radial-gradient(120% 60% at 0% 0%, rgba(176, 28, 12, 0.18), transparent 60%),
     radial-gradient(90% 50% at 100% 0%, rgba(255, 140, 52, 0.1), transparent 60%),
     #0e0e14;
   background-attachment: fixed;
@@ -88,7 +88,7 @@ body {
   color: var(--text-3);
 }
 .s-small button {
-  color: #b9b0ff;
+  color: #ffaa8c;
   text-decoration: underline;
 }
 
@@ -98,9 +98,9 @@ body {
   overflow: hidden;
 }
 .s-hero.on {
-  border-color: rgba(170, 120, 255, 0.35);
+  border-color: rgba(255, 140, 90, 0.35);
   background:
-    radial-gradient(120% 120% at 0% 0%, rgba(124, 108, 255, 0.16), transparent 60%),
+    radial-gradient(120% 120% at 0% 0%, rgba(255, 90, 31, 0.16), transparent 60%),
     var(--card);
 }
 .s-hero-top {
@@ -166,7 +166,7 @@ body {
 .s-tip svg {
   flex: none;
   margin-top: 2px;
-  color: #c3b9ff;
+  color: #ffb496;
 }
 
 .s-check {
@@ -218,7 +218,7 @@ body {
 }
 .s-switch.on {
   justify-content: flex-end;
-  background: linear-gradient(135deg, #7c6cff, #e23e9a);
+  background: linear-gradient(135deg, #f03a22, #ff8a1f);
 }
 .s-knob {
   width: 24px;
@@ -249,7 +249,7 @@ body {
 }
 .s-btn.primary {
   color: #fff;
-  background: linear-gradient(135deg, #7c6cff, #b46bff);
+  background: linear-gradient(135deg, #f03a22, #ff7a1f);
 }
 .s-btn.sm {
   height: 32px;
@@ -283,7 +283,7 @@ body {
   outline: none;
 }
 .s-input:focus {
-  border-color: rgba(150, 136, 255, 0.7);
+  border-color: rgba(255, 122, 74, 0.7);
 }
 .s-input.mono {
   font-family: ui-monospace, 'Roboto Mono', monospace;
@@ -306,8 +306,8 @@ body {
   background: rgba(255, 255, 255, 0.025);
 }
 .s-mode.on {
-  border-color: rgba(150, 136, 255, 0.55);
-  background: rgba(124, 108, 255, 0.1);
+  border-color: rgba(255, 122, 74, 0.55);
+  background: rgba(255, 90, 31, 0.1);
 }
 .s-mode:disabled {
   opacity: 0.45;
@@ -323,13 +323,13 @@ body {
   place-items: center;
 }
 .s-mode.on .s-radio {
-  border-color: #9a8cff;
+  border-color: #ff8c5f;
 }
 .s-radio-dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #9a8cff, #e23e9a);
+  background: linear-gradient(135deg, #ff6a3d, #ffa53a);
 }
 .s-mode-body {
   display: flex;
@@ -351,7 +351,7 @@ body {
   padding: 1px 6px;
   border-radius: 6px;
   color: #fff;
-  background: linear-gradient(135deg, #7c6cff, #e23e9a);
+  background: linear-gradient(135deg, #f03a22, #ff8a1f);
 }
 .s-mode-desc {
   font-size: 12.5px;
@@ -391,8 +391,8 @@ body {
 }
 .s-prov.on {
   color: #fff;
-  border-color: rgba(150, 136, 255, 0.7);
-  background: rgba(124, 108, 255, 0.18);
+  border-color: rgba(255, 122, 74, 0.7);
+  background: rgba(255, 90, 31, 0.18);
 }
 .s-prov-name {
   overflow: hidden;
@@ -683,7 +683,7 @@ body {
   background: rgba(255, 255, 255, 0.06);
 }
 .s-model.on {
-  background: rgba(124, 108, 255, 0.16);
+  background: rgba(255, 90, 31, 0.16);
 }
 .s-model-id {
   flex: 1;
@@ -707,7 +707,7 @@ body {
 }
 .s-model-check {
   flex: none;
-  color: #a99bff;
+  color: #ff966e;
 }
 .s-model-price {
   flex: none;
@@ -738,7 +738,7 @@ body {
 }
 .s-field-head svg,
 .s-toggle-row > svg {
-  color: #b9b0ff;
+  color: #ffaa8c;
 }
 .s-langs {
   display: flex;
@@ -756,8 +756,8 @@ body {
 }
 .s-lang.on {
   color: #fff;
-  border-color: rgba(150, 136, 255, 0.6);
-  background: rgba(124, 108, 255, 0.2);
+  border-color: rgba(255, 122, 74, 0.6);
+  background: rgba(255, 90, 31, 0.2);
 }
 .s-toggle-row {
   display: flex;
@@ -826,8 +826,8 @@ body {
   font-size: 13.5px;
   font-weight: 650;
   color: #fff;
-  background: linear-gradient(135deg, rgba(110, 86, 255, 0.92), rgba(214, 64, 160, 0.92));
-  box-shadow: 0 10px 26px rgba(120, 50, 200, 0.3);
+  background: linear-gradient(135deg, rgba(240, 58, 34, 0.92), rgba(255, 120, 31, 0.92));
+  box-shadow: 0 10px 26px rgba(220, 50, 16, 0.3);
 }
 .s-upd-banner span {
   flex: 1;
@@ -852,8 +852,8 @@ body {
   margin-top: 12px;
   padding: 12px 14px;
   border-radius: 16px;
-  background: rgba(124, 108, 255, 0.09);
-  border: 1px solid rgba(150, 136, 255, 0.28);
+  background: rgba(255, 90, 31, 0.09);
+  border: 1px solid rgba(255, 122, 74, 0.28);
 }
 .s-upd-title {
   display: flex;
@@ -863,7 +863,7 @@ body {
   font-weight: 700;
 }
 .s-upd-title svg {
-  color: #c3b9ff;
+  color: #ffb496;
 }
 .s-upd-title .s-small {
   margin-left: auto;
@@ -892,7 +892,7 @@ body {
 .s-bar-fill {
   height: 100%;
   border-radius: 4px;
-  background: linear-gradient(90deg, #7c6cff, #e23e9a, #ff8c34);
+  background: linear-gradient(90deg, #f03a22, #ff6b1f, #ffb627);
 }
 .s-btn.wide {
   width: 100%;
@@ -907,4 +907,18 @@ body {
 
 .spin {
   animation: spin 0.8s linear infinite;
+}
+
+/* ---------------------------------------------------------------- 省电 */
+.s-power-note {
+  margin: 14px 2px 0;
+}
+.s-quit {
+  width: 100%;
+  margin-top: 12px;
+  justify-content: center;
+  color: #ff8a70;
+}
+.s-langs + .s-small {
+  margin: 8px 2px 0;
 }

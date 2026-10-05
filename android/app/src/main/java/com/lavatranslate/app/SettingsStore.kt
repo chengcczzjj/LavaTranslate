@@ -115,6 +115,9 @@ class SettingsStore(ctx: Context) {
             // 应用内更新：自动检查（Wi-Fi 下自动下载）、上次检查时间
             .put("autoUpdate", true)
             .put("updateCheckedAt", 0)
+            // 省电：多久不用悬浮球就自动退出（分钟，0 = 从不）；系统打开省电模式时自动退出
+            .put("idleExit", 60)
+            .put("saverExit", true)
     }
 }
 

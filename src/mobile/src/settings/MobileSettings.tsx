@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import {
   AlertCircle,
   BatteryCharging,
+  BatteryLow,
   Check,
   ChevronRight,
   ExternalLink,
@@ -10,10 +11,12 @@ import {
   KeyRound,
   Languages,
   MessageSquareReply,
+  Power,
   RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
+  Timer,
   X,
   Zap
 } from 'lucide-react'
@@ -118,6 +121,7 @@ export function MobileSettings() {
       <CaptureCard s={s} st={st} update={update} />
       <ServiceCard s={s} update={update} openModels={() => setModelSheet(true)} />
       <PrefsCard s={s} update={update} />
+      <PowerCard s={s} st={st} update={update} />
       <KeepAliveCard st={st} />
       <UpdateCard s={s} u={upd} update={update} />
 
@@ -172,14 +176,14 @@ function BubbleCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) =>
       <div className="s-checks">
         <Check2 ok={st.overlay} label="显示在其他应用上层" hint="悬浮球与翻译界面都需要" action="去开启" onAction={() => void call('requestOverlay')} />
         {st.sdk >= 33 && (
-          <Check2 ok={st.notifications} label="通知" hint="显示「悬浮球已开启」的常驻通知，可以从通知栏翻译、关闭" action="允许" onAction={() => void call('requestNotifications')} />
+          <Check2 ok={st.notifications} label="通知" hint="显示「悬浮球已开启」的常驻通知，可以从通知栏翻译、退出" action="允许" onAction={() => void call('requestNotifications')} />
         )}
         {on && !a11y && !st.projection && <Check2 ok={false} label="截屏授权" hint="授权一次后一直有效，直到锁屏或你在状态栏停止共享" action="授权" onAction={() => void call('authorize')} />}
       </div>
       {on && (
         <div className="s-tip">
           <Sparkles size={14} />
-          <span>单击悬浮球翻译屏幕，长按输入文字翻译；翻译时单击悬浮球打开菜单，按住看原文。也可以在下拉快捷开关里添加「翻译屏幕」。</span>
+          <span>单击悬浮球翻译屏幕，长按打开菜单（快捷回复、译成、设置、退出）。翻译时单击悬浮球或按返回键退出，长按打开菜单。也可以在下拉快捷开关里添加「翻译屏幕」。</span>
         </div>
       )}
     </section>
@@ -646,6 +650,49 @@ function PrefsCard({ s, update }: { s: S; update: (p: Patch) => Promise<void> })
           onBlur={() => hint !== s.styleHint && void update({ styleHint: hint })}
         />
       </div>
+    </section>
+  )
+}
+
+// ------------------------------------------------------------------ 省电
+const IDLE_EXIT = [
+  { min: 30, label: '30 分钟' },
+  { min: 60, label: '1 小时' },
+  { min: 180, label: '3 小时' },
+  { min: 0, label: '从不' }
+]
+
+function PowerCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => Promise<void> }) {
+  return (
+    <section className="s-card">
+      <h2>省电</h2>
+      <div className="s-field">
+        <div className="s-field-head">
+          <Timer size={15} /> 不用时自动退出
+        </div>
+        <div className="s-langs">
+          {IDLE_EXIT.map((o) => (
+            <button key={o.min} className={`s-lang${s.idleExit === o.min ? ' on' : ''}`} onClick={() => void update({ idleExit: o.min })}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <div className="s-small">这么久没用悬浮球就自动退出，不在后台常驻；通知栏会留一条提醒，点一下就能重新打开</div>
+      </div>
+      <div className="s-toggle-row">
+        <BatteryLow size={16} />
+        <div>
+          <div className="s-toggle-title">省电模式下自动退出</div>
+          <div className="s-small">打开系统省电模式（包括电量低时自动打开）时，悬浮球自动退出</div>
+        </div>
+        <Switch on={s.saverExit} onClick={() => void update({ saverExit: !s.saverExit })} />
+      </div>
+      <p className="s-small s-power-note">悬浮球不用时不截屏、不联网，界面也会暂停，几乎不耗电。退出后点 LavaTranslate 图标，或下拉快捷开关里的「翻译屏幕」，就能重新打开。</p>
+      {st.running && (
+        <button className="s-btn s-quit" onClick={() => void call('quitApp')}>
+          <Power size={14} /> 立即退出 LavaTranslate
+        </button>
+      )}
     </section>
   )
 }

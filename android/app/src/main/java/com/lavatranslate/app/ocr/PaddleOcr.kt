@@ -30,6 +30,9 @@ class PaddleOcr(private val ctx: Context, private val threads: Int = min(4, Runt
     /** 检测图最长边（物理像素） */
     var detLimit = 1280
 
+    /** 线程池空等时是否自旋（默认不自旋：省电，几乎不影响速度；调试对比用） */
+    var spinning = false
+
     /** 最近一次识别各阶段耗时（ms） */
     @Volatile
     var timing: Map<String, Long> = emptyMap()
@@ -55,6 +58,8 @@ class PaddleOcr(private val ctx: Context, private val threads: Int = min(4, Runt
         val opts = OrtSession.SessionOptions().apply {
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             setIntraOpNumThreads(threads)
+            // 默认各线程做完一段工作后会空转等下一段，白白占着 CPU
+            addConfigEntry("session.intra_op.allow_spinning", if (spinning) "1" else "0")
         }
         det = env.createSession(asset("models/det.onnx"), opts)
         rec = env.createSession(asset("models/rec.onnx"), opts)

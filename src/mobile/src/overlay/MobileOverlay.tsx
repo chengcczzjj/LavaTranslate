@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { Check, Copy, Eye, EyeOff, Languages, MessageSquareReply, RotateCcw, Settings2, X } from 'lucide-react'
+import { Check, Copy, Eye, EyeOff, Languages, MessageSquareReply, Power, RotateCcw, Settings2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LANGUAGES, type BlockColors, type ErrorCode, type OcrLine, type Phase, type Rect, type TranslatedBlock } from '@shared/types'
 import { TranslationLayer } from '@renderer/components/TranslationLayer'
@@ -12,9 +12,10 @@ import { installReplyHost } from './replyHost'
 
 // 手机版全屏翻译：原生截一帧 → 这里画出截图（与屏幕一模一样）→ 取 OCR 结果 → 调模型流式翻译，译文按原排版就地浮现。
 // 悬浮球：单击退出翻译，长按打开菜单（看原文 / 语言 / 复制 / 回复 / 重译 / 关闭）；返回键也直接退出（先收起打开的面板）。
+// 不在翻译时长按悬浮球：以 menu 模式打开，只有球和菜单（退出 / 设置 / 译成 / 快捷回复，最常用的放在最下面，拇指最好够到）。
 
 interface OpenMsg {
-  mode: 'translate' | 'quick'
+  mode: 'translate' | 'quick' | 'menu'
   density: number
   orb: { x: number; y: number; size: number }
   side: 'left' | 'right'
@@ -32,7 +33,7 @@ interface OcrResult {
   image: { base64: string; mediaType: 'image/png' | 'image/jpeg'; width: number; height: number; factor: number }
 }
 
-type Stage = 'hidden' | 'translate' | 'quick'
+type Stage = 'hidden' | 'translate' | 'quick' | 'menu'
 type Sheet = 'lang' | null
 
 const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
@@ -217,8 +218,9 @@ export function MobileOverlay() {
       setInsets((v) => ({ ...v, top: o.insets.top, bottom: o.insets.bottom }))
       // OCR 的同时先和翻译服务建立连接
       engineFor(o.settings)?.warm()
-      if (o.mode === 'quick') {
-        setStage('quick')
+      if (o.mode === 'quick' || o.mode === 'menu') {
+        setStage(o.mode)
+        setMenu(o.mode === 'menu')
         await raf()
         await raf()
         await call('shown').catch(() => {})
@@ -247,6 +249,7 @@ export function MobileOverlay() {
   // 返回键：先收起最上层的东西
   const back = useRef<() => void>(() => {})
   back.current = () => {
+    if (stage === 'menu') return sheet ? setSheet(null) : void close()
     if (menu) return setMenu(false)
     if (sheet) return setSheet(null)
     if (replyOpen) return setReplyOpen(false)
@@ -301,6 +304,8 @@ export function MobileOverlay() {
     setTarget(code)
     if (settings.current) settings.current = { ...settings.current, targetLang: code }
     void call('settings', { targetLang: code }).catch(() => {})
+    // 菜单模式：只改默认语言，回到菜单
+    if (stage === 'menu') return flash(`以后译成${LANGUAGES.find((l) => l.code === code)?.name ?? code}`)
     void startTranslate({ reuseOcr: true, lang: code })
   }
 
@@ -311,6 +316,7 @@ export function MobileOverlay() {
   }
 
   const pick = (id: string) => {
+    if (stage === 'menu') return pickIdle(id)
     setMenu(false)
     switch (id) {
       case 'peek':
@@ -334,13 +340,42 @@ export function MobileOverlay() {
     }
   }
 
+  // 菜单模式：菜单一直开着，选完要么进入别的界面，要么关掉
+  const pickIdle = (id: string) => {
+    switch (id) {
+      case 'quick':
+        setMenu(false)
+        setStage('quick')
+        notify('keyboard')
+        break
+      case 'lang':
+        setSheet('lang')
+        break
+      case 'settings':
+        void call('openSettings')
+        break
+      case 'quit':
+        haptic('confirm')
+        void call('quit')
+        break
+    }
+  }
+
+  const idleItems: OrbItem[] = [
+    { id: 'quit', label: '退出', icon: <Power size={18} />, danger: true },
+    { id: 'settings', label: '设置', icon: <Settings2 size={19} /> },
+    { id: 'lang', label: `译成${LANGUAGES.find((l) => l.code === target)?.name ?? target}`, icon: <Languages size={19} /> },
+    { id: 'quick', label: '快捷回复', icon: <MessageSquareReply size={19} /> }
+  ]
+
+  // 与菜单模式同一个规律：关闭在最上面（单击悬浮球也能关），回复在最下面（拇指最好够到）
   const items: OrbItem[] = [
+    { id: 'close', label: '关闭', icon: <X size={20} /> },
     { id: 'peek', label: peek ? '看译文' : '看原文', icon: peek ? <EyeOff size={19} /> : <Eye size={19} />, active: peek, disabled: !blocks.length },
     { id: 'lang', label: '语言', icon: <Languages size={19} /> },
     { id: 'copy', label: '复制', icon: <Copy size={18} />, disabled: !blocks.length },
-    { id: 'reply', label: '回复', icon: <MessageSquareReply size={19} /> },
     { id: 'retry', label: '重译', icon: <RotateCcw size={18} /> },
-    { id: 'close', label: '关闭', icon: <X size={20} /> }
+    { id: 'reply', label: '回复', icon: <MessageSquareReply size={19} /> }
   ]
 
   // ------------------------------------------------------------ 布局
@@ -463,12 +498,14 @@ export function MobileOverlay() {
         )}
       </AnimatePresence>
 
-      {/* 菜单打开时稍微压暗，点空白处收起 */}
+      {/* 菜单打开时稍微压暗，点空白处收起（菜单模式下就是关掉） */}
       <AnimatePresence>
-        {menu && <motion.div className="m-scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMenu(false)} />}
+        {menu && !closing && (
+          <motion.div className="m-scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => (stage === 'menu' ? void close() : setMenu(false))} />
+        )}
       </AnimatePresence>
 
-      {sess && stage === 'translate' && !closing && (
+      {sess && (stage === 'translate' || stage === 'menu') && !closing && (
         <Orb
           x={sess.orb.x}
           y={sess.orb.y}
@@ -480,8 +517,8 @@ export function MobileOverlay() {
           phase={phase}
           progress={progress}
           menu={menu}
-          items={items}
-          onTap={() => (menu ? setMenu(false) : void close())}
+          items={stage === 'menu' ? idleItems : items}
+          onTap={() => (menu && stage !== 'menu' ? setMenu(false) : void close())}
           onMenu={() => setMenu(true)}
           onPick={pick}
           onMoved={(side, y) => {

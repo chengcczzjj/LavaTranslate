@@ -1,15 +1,18 @@
 package com.lavatranslate.app
 
 import android.app.Activity
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -19,6 +22,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Base64
@@ -46,6 +50,10 @@ import kotlin.math.roundToInt
  * 悬浮球前台服务：管理悬浮球、全屏翻译窗口和截屏。
  * 流程：点悬浮球 → 藏起悬浮球 → 截一帧 → 同时开始 OCR、编码给模型的图片 → 网页画出截图（与屏幕一模一样）→
  * 网页取 OCR 结果、自己调模型流式翻译（core/translator.ts），译文就地浮现。
+ * 长按悬浮球：同一个翻译界面以「菜单」模式打开（快捷回复 / 译成 / 设置 / 退出）。
+ *
+ * 省电：不用时不截屏、不联网，网页暂停；长时间不用、或系统打开省电模式时自动退出（可在设置里关掉），
+ * 退出时释放截屏授权和翻译界面，并结束进程，把内存还给系统。
  */
 class FloatService : Service() {
     private val app get() = LavaApp.instance
@@ -62,7 +70,25 @@ class FloatService : Service() {
     private var mode = "translate"
     private var ocrJob: Future<JSONObject>? = null
     private var imageJob: Future<JSONObject>? = null
-    private val onSettings: () -> Unit = { main.post { refreshBadge() } }
+    private val onSettings: () -> Unit = {
+        main.post {
+            refreshBadge()
+            scheduleIdle()
+        }
+    }
+
+    /** 上次使用悬浮球的时间（elapsedRealtime，含休眠），用于「长时间不用自动退出」 */
+    private var lastUse = SystemClock.elapsedRealtime()
+    private val alarms by lazy { getSystemService(AlarmManager::class.java) }
+    private val idleAlarm = AlarmManager.OnAlarmListener { onIdle() }
+
+    /** 翻译界面开着时要退出：等它关掉再退 */
+    private var pendingQuit: String? = null
+    private val powerSave = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (getSystemService(PowerManager::class.java).isPowerSaveMode && app.settings.bool("saverExit")) quitWhenIdle(REASON_SAVER)
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -78,10 +104,13 @@ class FloatService : Service() {
         wm = wctx.getSystemService(WindowManager::class.java)
         projection = ProjectionCapturer(this) { main.post { onProjectionStopped() } }
 
-        bubble = BubbleView(wctx, wm, onTap = { translate() }, onLongPress = { quick() }, onMoved = { side, y ->
+        bubble = BubbleView(wctx, wm, onTap = { translate() }, onLongPress = { menu() }, onMoved = { side, y ->
+            touch()
             app.settings.update(JSONObject().put("bubbleSide", side).put("bubbleY", y))
         })
         overlay = OverlayHost(wctx, wm, ::handle)
+        // 翻译界面的网页先加载好（加载完说 hello 后暂停，见 handle）
+        app.webVisible(overlay.web, true)
         if (Settings.canDrawOverlays(this)) {
             // 先算好位置再挂窗口（刚 addView 时还没 attach，之后改位置不会生效）
             bubble.place(app.settings.str("bubbleSide"), app.settings.num("bubbleY"))
@@ -94,14 +123,14 @@ class FloatService : Service() {
         app.worker.execute { runCatching { app.ocr.init() } }
         // 悬浮球常驻期间每天检查一次更新
         main.postDelayed(updateTick, 60_000)
+        androidx.core.content.ContextCompat.registerReceiver(this, powerSave, IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+        getSystemService(NotificationManager::class.java).cancel(NOTICE_ID)
+        touch()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> {
-                app.settings.update(JSONObject().put("bubbleEnabled", false))
-                stopSelf()
-            }
+            ACTION_STOP -> quit()
             ACTION_TRANSLATE -> main.postDelayed({ translate() }, intent.getLongExtra(EXTRA_DELAY, 0))
             ACTION_QUICK -> quick()
         }
@@ -117,14 +146,83 @@ class FloatService : Service() {
 
     override fun onDestroy() {
         main.removeCallbacks(updateTick)
+        alarms.cancel(idleAlarm)
+        runCatching { unregisterReceiver(powerSave) }
         app.settings.offChange(onSettings)
         runCatching { if (bubble.isAttachedToWindow) wm.removeView(bubble) }
         runCatching { overlay.detach() }
+        app.webGone(overlay.web)
         overlay.web.destroy()
         projection.stop()
         FrameStore.current = null
+        // OCR 模型占几十 MB 内存：悬浮球关掉就释放，下次打开再载入
+        app.worker.execute { app.ocr.close() }
         if (instance === this) instance = null
         super.onDestroy()
+    }
+
+    // ------------------------------------------------------------ 退出与省电
+    /**
+     * 彻底退出：关掉悬浮球、常驻通知、截屏授权、翻译界面和设置页，然后结束进程释放内存。
+     * 不改「悬浮球」开关：之后点 LavaTranslate 图标会重新打开。reason 不为空表示自动退出，留一条通知说明原因。
+     */
+    fun quit(reason: String? = null) {
+        if (reason != null) notifyAutoExit(reason)
+        MainActivity.instance?.finishAndRemoveTask()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        app.endProcessSoon()
+    }
+
+    private fun quitWhenIdle(reason: String) {
+        if (busy || overlay.attached) pendingQuit = reason else quit(reason)
+    }
+
+    /** 用了一次悬浮球：重新计时 */
+    private fun touch() {
+        lastUse = SystemClock.elapsedRealtime()
+        scheduleIdle()
+    }
+
+    /** 「长时间不用自动退出」的时长（毫秒），0 表示从不 */
+    private fun idleLimit(): Long {
+        val min = app.settings.num("idleExit")
+        return if (min.isNaN() || min <= 0) 0 else (min * 60_000).toLong()
+    }
+
+    /** 到点检查一次：允许推迟 10 分钟，方便系统和别的唤醒合并（也不需要精确闹钟权限） */
+    private fun scheduleIdle() {
+        alarms.cancel(idleAlarm)
+        val limit = idleLimit()
+        if (limit > 0) alarms.setWindow(AlarmManager.ELAPSED_REALTIME_WAKEUP, lastUse + limit, 10 * 60_000L, "lava:idle", idleAlarm, main)
+    }
+
+    private fun onIdle() {
+        val limit = idleLimit()
+        if (limit <= 0) return
+        if (busy || overlay.attached || SystemClock.elapsedRealtime() - lastUse < limit - 1000) return touch()
+        quit(REASON_IDLE)
+    }
+
+    private fun notifyAutoExit(reason: String) {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel(NOTICE_CHANNEL, "自动退出提醒", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) })
+        val minutes = (idleLimit() / 60_000).toInt()
+        val span = if (minutes >= 60 && minutes % 60 == 0) "${minutes / 60} 小时" else "$minutes 分钟"
+        val why = if (reason == REASON_IDLE) "${span}没有使用" else "系统省电模式已打开"
+        val reopen = PendingIntent.getForegroundService(
+            this, 4, Intent(this, FloatService::class.java).setAction(ACTION_START), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val n = Notification.Builder(this, NOTICE_CHANNEL)
+            .setSmallIcon(R.drawable.ic_tile)
+            .setContentTitle("悬浮球已自动退出")
+            .setContentText("${why}，已退出以省电 · 点这里重新打开")
+            .setContentIntent(reopen)
+            .setAutoCancel(true)
+            .setColor(LAVA)
+            .setTimeoutAfter(12 * 3600_000L)
+            .build()
+        nm.notify(NOTICE_ID, n)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -176,6 +274,7 @@ class FloatService : Service() {
     fun translate() {
         if (busy || overlay.attached) return
         if (!Settings.canDrawOverlays(this)) return openMain()
+        touch()
         val capturer: ScreenCapturer = if (app.settings.str("captureMode") == "accessibility") {
             if (LavaAccessibilityService.instance == null) {
                 toast("免授权截屏还没开启：请在系统「无障碍」里打开 LavaTranslate")
@@ -220,10 +319,21 @@ class FloatService : Service() {
 
     private fun quick() {
         if (busy || overlay.attached || !Settings.canDrawOverlays(this)) return
+        touch()
         busy = true
         bubble.hideNow()
         overlay.attach()
         present(null, "quick")
+        main.postDelayed({ if (busy && overlay.attached && !overlay.visible) closeOverlay() }, 4000)
+    }
+
+    /** 长按悬浮球：菜单（网页里画一个一模一样的球和菜单，画好后再藏起原生的球，看不出切换） */
+    private fun menu() {
+        if (busy || overlay.attached || !Settings.canDrawOverlays(this)) return
+        touch()
+        busy = true
+        overlay.attach()
+        present(null, "menu")
         main.postDelayed({ if (busy && overlay.attached && !overlay.visible) closeOverlay() }, 4000)
     }
 
@@ -262,18 +372,35 @@ class FloatService : Service() {
         imageJob = null
         bubble.place(app.settings.str("bubbleSide"), app.settings.num("bubbleY"))
         bubble.show()
+        touch()
+        pendingQuit?.let { main.post { quit(it) } }
     }
 
     // ------------------------------------------------------------ 网页 → 原生
     private fun handle(m: String, a: JSONObject, reply: Bridge.Reply) {
         when (m) {
-            "hello" -> reply.ok(JSONObject().put("version", BuildConfig.VERSION_NAME))
+            "hello" -> {
+                // 网页加载好了：不用的时候先暂停
+                if (!overlay.attached) app.webVisible(overlay.web, false)
+                reply.ok(JSONObject().put("version", BuildConfig.VERSION_NAME))
+            }
             "shown" -> {
                 overlay.reveal()
                 busy = false
+                if (mode == "menu") bubble.hideNow()
                 // 输入翻译：网页里程序聚焦输入框不会弹出键盘，由原生弹
                 if (mode == "quick") main.postDelayed({ overlay.showKeyboard() }, 160)
                 reply.ok()
+            }
+            /** 菜单里点了「快捷回复」 */
+            "keyboard" -> {
+                mode = "quick"
+                main.postDelayed({ overlay.showKeyboard() }, 160)
+                reply.ok()
+            }
+            "quit" -> {
+                reply.ok()
+                main.post { quit() }
             }
             "close" -> {
                 closeOverlay()
@@ -348,12 +475,12 @@ class FloatService : Service() {
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_tile)
             .setContentTitle("悬浮球已开启")
-            .setContentText("点悬浮球翻译屏幕，长按输入文字翻译")
+            .setContentText("点悬浮球翻译屏幕，长按打开菜单")
             .setContentIntent(open)
             .setOngoing(true)
-            .setColor(0xFFE23E9A.toInt())
+            .setColor(LAVA)
             .addAction(Notification.Action.Builder(null, "翻译屏幕", translate).build())
-            .addAction(Notification.Action.Builder(null, "关闭悬浮球", stop).build())
+            .addAction(Notification.Action.Builder(null, "退出", stop).build())
             .build()
     }
 
@@ -373,9 +500,17 @@ class FloatService : Service() {
         const val ACTION_STOP = "com.lavatranslate.app.STOP"
         const val ACTION_TRANSLATE = "com.lavatranslate.app.TRANSLATE"
         const val ACTION_QUICK = "com.lavatranslate.app.QUICK"
+        const val ACTION_START = "com.lavatranslate.app.START"
         const val EXTRA_DELAY = "delay"
         private const val CHANNEL = "bubble"
         private const val NOTIFICATION_ID = 1
+        private const val NOTICE_CHANNEL = "notice"
+        private const val NOTICE_ID = 2
+        private const val REASON_IDLE = "idle"
+        private const val REASON_SAVER = "saver"
+
+        /** 熔岩色（与图标一致） */
+        const val LAVA = 0xFFFF5A1F.toInt()
 
         @Volatile
         var instance: FloatService? = null

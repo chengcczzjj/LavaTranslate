@@ -283,7 +283,7 @@ object Updater {
             .setContentText(if (ready) "点击安装更新" else "点击下载并安装")
             .setContentIntent(open)
             .setAutoCancel(true)
-            .setColor(0xFFE23E9A.toInt())
+            .setColor(com.lavatranslate.app.FloatService.LAVA)
             .build()
         runCatching { nm.notify(NOTIFY_ID, n) }
     }

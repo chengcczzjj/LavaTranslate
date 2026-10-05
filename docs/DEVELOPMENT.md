@@ -115,8 +115,8 @@ src/core/        两端共用、与平台无关：translator（提示词、JSONL
 src/mobile/      手机版网页：overlay.html（全屏翻译）、settings.html（设置），vite.mobile.config.ts 构建到 out/mobile
 android/         Kotlin 原生壳（Gradle）：
   FloatService     前台服务：悬浮球、全屏翻译窗口、截屏 → OCR → 交给网页
-  BubbleView       原生悬浮球（贴边、拖动、单击翻译、长按输入翻译）
-  OverlayHost      全屏覆盖窗口 + 常驻 WebView；平时不挂到屏幕上，用时先透明挂上、网页画好截图再显示
+  BubbleView       原生悬浮球（贴边、拖动、单击翻译、长按打开菜单）
+  OverlayHost      全屏覆盖窗口 + 常驻 WebView；平时不挂到屏幕上（网页暂停），用时先透明挂上、网页画好截图再显示
   capture/         截屏：ProjectionCapturer（系统截屏授权）、A11yCapturer（无障碍免授权，Android 11+）
   ocr/PaddleOcr    ocr.ts 的逐行移植（同一套 PP-OCRv6 模型，ONNX Runtime CPU 后端）
   web/Bridge       原生 ↔ 网页消息通道（WebMessageListener）；截图像素走 /frame/<id> 直接取，不走消息
@@ -128,7 +128,13 @@ android/         Kotlin 原生壳（Gradle）：
 - **识别范围**：去掉顶部状态栏；底部不去（Android 15 起应用都画到导航条下面）。
 - **OCR 性能**：检测图最长边 1280（手机截图字大，够用）；首次推理前预热。XNNPACK 后端在 ORT 1.30 会崩溃，NNAPI 已弃用，只用 CPU。
   模拟器（x86_64，4 线程）上 20 行聊天截图检测约 270 ms、识别约 600 ms；真机待测。
-- **界面**：翻译时原生悬浮球藏起，由网页里一模一样的球接替（单击展开菜单、按住看原文、拖动换边）；回复助手复用桌面组件（`window.lens` 由 `replyHost.ts` 在网页内实现）。
+- **界面**：翻译时原生悬浮球藏起，由网页里一模一样的球接替（单击或返回键退出、长按打开菜单、拖动换边）；
+  不在翻译时长按悬浮球，同一个网页以 menu 模式打开（退出 / 设置 / 译成 / 快捷回复，常用的在最下面）。回复助手复用桌面组件（`window.lens` 由 `replyHost.ts` 在网页内实现）。
+- **省电**：闲置时进程几乎不占 CPU（模拟器上实测每分钟约 40 ms，`.scratch/idle-cpu.sh`、`idle-threads.sh` 可复测）：
+  网页不在屏幕上时 `onPause` + `pauseTimers`（`LavaApp.webVisible`）；无障碍服务不订阅任何界面事件；ONNX Runtime 关掉线程自旋（每次识别少用约 20% CPU，速度不变）。
+  「退出」（菜单、通知、设置页）停掉前台服务并结束进程，WebView 引擎和 OCR 运行库的内存才会还给系统；开着无障碍时系统会以只带无障碍服务的小进程（约 40 MB）重新拉起。
+  长时间不用（`idleExit` 分钟，默认 60，`AlarmManager.setWindow` 允许推迟 10 分钟）或系统打开省电模式（`saverExit`）时自动退出，留一条点了就重新打开的通知。
+  `WebView.setWebContentsDebuggingEnabled` 会载入整个 WebView 引擎，所以放在 `createWebView` 里，不放 `Application.onCreate`。
 
 编译环境：JDK 17+、Android SDK（platform 37、build-tools 37），在 `android/local.properties` 写 `sdk.dir`。先 `npm install`、`npm run models`。
 

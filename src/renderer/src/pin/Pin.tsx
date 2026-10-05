@@ -71,13 +71,13 @@ export function Pin() {
       <motion.div
         className="pin-card"
         style={{ left: MARGIN, top: MARGIN, width: w * zoom, height: h * zoom }}
-        initial={{ boxShadow: '0 0 0 1px rgba(124,108,255,0.9), 0 0 0 0 rgba(124,108,255,0.5), 0 2px 6px rgba(0,0,0,0)' }}
+        initial={{ boxShadow: '0 0 0 1px rgba(255,90,31,0.9), 0 0 0 0 rgba(255,90,31,0.5), 0 2px 6px rgba(0,0,0,0)' }}
         animate={{
           opacity: closing ? 0 : 1,
           scale: closing ? 0.96 : 1,
           boxShadow: hover
-            ? '0 0 0 1px rgba(124,108,255,0.85), 0 0 0 4px rgba(124,108,255,0.18), 0 10px 26px rgba(0,0,0,0.38)'
-            : '0 0 0 1px rgba(255,255,255,0.22), 0 0 0 0 rgba(124,108,255,0), 0 8px 22px rgba(0,0,0,0.32)'
+            ? '0 0 0 1px rgba(255,90,31,0.85), 0 0 0 4px rgba(255,90,31,0.18), 0 10px 26px rgba(0,0,0,0.38)'
+            : '0 0 0 1px rgba(255,255,255,0.22), 0 0 0 0 rgba(255,90,31,0), 0 8px 22px rgba(0,0,0,0.32)'
         }}
         transition={{ duration: closing ? 0.15 : 0.35, ease: [0.22, 1, 0.36, 1] }}
         onMouseDown={(e) => {

@@ -17,6 +17,10 @@ export interface MobileSettings {
   firstRunDone: boolean
   /** 自动检查更新（Wi-Fi 下自动下载） */
   autoUpdate: boolean
+  /** 多久不用悬浮球就自动退出（分钟，0 = 从不） */
+  idleExit: number
+  /** 系统打开省电模式时自动退出 */
+  saverExit: boolean
 }
 
 export interface Resolved {

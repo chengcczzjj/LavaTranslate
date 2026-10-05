@@ -1,10 +1,10 @@
 :root {
   --font: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
   --font-display: 'Segoe UI Variable Display', 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
-  --accent: #7c6cff;
-  --accent-2: #b46bff;
-  --accent-3: #5ad1ff;
-  --pink: #ff6bb5;
+  --accent: #ff5a1f;
+  --accent-2: #ff3d2e;
+  --accent-3: #ffc24a;
+  --pink: #ff8a3d;
   --ok: #3ddc97;
   --danger: #ff5d6c;
   --glass: rgba(22, 22, 30, 0.74);

@@ -64,10 +64,11 @@ Press the hotkey **twice** (<kbd>Alt</kbd>+<kbd>Q</kbd> <kbd>Q</kbd>) to skip th
 
 Download **`LavaTranslate-Android-x.y.z.apk`** from [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest) (Android 10 or later, arm64). Open it and follow the on-screen steps to turn on the floating button and add an API key.
 
-- **Translate the whole screen.** Tap the floating button in any app and the translation appears in place over the original. **Tap the button again or press Back to exit**; **long-press** it for the menu (show original, change language, copy, reply, retranslate).
-- **Reply assistant.** Chat screenshots get a Reply button: write in your own language and get it in theirs, with a back-translation. Long-press the floating button on any screen to type something to translate.
+- **Translate the whole screen.** Tap the floating button in any app and the translation appears in place over the original. **Tap the button again or press Back to exit**; **long-press** it for the menu (show original, change language, copy, retranslate, reply).
+- **Reply assistant.** Chat screenshots get a Reply button: write in your own language and get it in theirs, with a back-translation. When you're not translating, long-press the floating button and pick "Quick reply" (the bottom item) to type something to translate.
 - **Two ways to capture the screen:** Android's screen-sharing permission (it has to be granted again after the phone is locked — an Android rule), or turn on "免授权截屏" once under Accessibility and it stays on.
 - Text recognition runs on the phone; only the captured screen goes to the translation service you configured.
+- **Easy on the battery.** While you're not using it, the floating button doesn't capture the screen or touch the network, and its interface is paused. Long-press it and pick "Exit" to quit completely; it also exits on its own after a period of disuse (1 hour by default) or when Battery Saver turns on, and a tap on the notification brings it back.
 - **In-app updates.** New versions are announced in the app, downloaded on Wi-Fi, and installed with one tap.
 
 ## Setup: sign in with ChatGPT, or bring any API key

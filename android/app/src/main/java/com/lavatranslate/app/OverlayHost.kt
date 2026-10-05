@@ -19,7 +19,7 @@ import org.json.JSONObject
 
 /**
  * 全屏翻译界面：一个覆盖全屏的窗口，里面是常驻（预热好）的 WebView（overlay.html）。
- * 平时不挂到屏幕上（透明的全屏窗口也会让部分应用认为被遮挡）；要用时先以透明度 0 挂上，
+ * 平时不挂到屏幕上（透明的全屏窗口也会让部分应用认为被遮挡），网页也暂停着；要用时先以透明度 0 挂上，
  * 网页把截图画好后通知 shown，再变为可见——看起来和原来的屏幕完全一样，然后译文就地浮现。
  */
 @SuppressLint("ViewConstructor")
@@ -98,6 +98,7 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, handle: (String, 
     /** 以透明、不可触摸的状态挂上屏幕，等网页画好 */
     fun attach() {
         if (attached) return
+        LavaApp.instance.webVisible(web, true)
         wm.addView(root, params(false))
         attached = true
         visible = false
@@ -123,5 +124,7 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, handle: (String, 
         wm.removeView(root)
         attached = false
         visible = false
+        // 不在屏幕上时暂停网页，不占 CPU
+        LavaApp.instance.webVisible(web, false)
     }
 }

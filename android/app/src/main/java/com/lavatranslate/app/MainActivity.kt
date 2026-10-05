@@ -30,6 +30,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        instance = this
         WindowCompat.setDecorFitsSystemWindows(window, false)
         web = createWebView(this, "settings.html", transparent = false)
         web.setBackgroundColor(0xFF0E0E14.toInt())
@@ -55,9 +56,16 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        app.webVisible(web, true)
         bridge.emit("status", status())
         // 刚从「安装未知应用」页面回来并且允许了：直接继续安装
         if (Updater.awaitingPermission && packageManager.canRequestPackageInstalls()) Updater.install(this)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // 设置页退到后台：网页暂停，不占 CPU
+        app.webVisible(web, false)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -74,6 +82,8 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         Updater.offChange(onUpdate)
+        if (instance === this) instance = null
+        app.webGone(web)
         web.destroy()
         super.onDestroy()
     }
@@ -164,6 +174,14 @@ class MainActivity : Activity() {
                 finish()
                 reply.ok()
             }
+            /** 彻底退出：关掉悬浮球（释放截屏授权、OCR 模型、翻译界面）和设置页 */
+            "quitApp" -> {
+                reply.ok()
+                FloatService.instance?.quit() ?: run {
+                    finishAndRemoveTask()
+                    app.endProcessSoon()
+                }
+            }
             // 调试：用最近一帧对比不同 OCR 配置的耗时
             "ocrBench" -> {
                 if (!BuildConfig.DEBUG) return reply.err("debug only")
@@ -172,6 +190,7 @@ class MainActivity : Activity() {
                     try {
                         val ocr = com.lavatranslate.app.ocr.PaddleOcr(this, a.optInt("threads", 4))
                         ocr.detLimit = a.optInt("detLimit", 1600)
+                        ocr.spinning = a.optBoolean("spin", false)
                         val crop = f.crop(f.content)
                         val t0 = android.os.SystemClock.elapsedRealtime()
                         ocr.init()
@@ -179,8 +198,10 @@ class MainActivity : Activity() {
                         val runs = org.json.JSONArray()
                         var n = 0
                         repeat(3) {
+                            // cpu：这一次识别整个进程用掉的 CPU 时间（各线程相加），看耗电
+                            val c0 = android.os.Process.getElapsedCpuTime()
                             n = ocr.recognize(crop, f.content.width(), f.content.height()).size
-                            runs.put(JSONObject(ocr.timing as Map<*, *>))
+                            runs.put(JSONObject(ocr.timing as Map<*, *>).put("cpu", android.os.Process.getElapsedCpuTime() - c0))
                         }
                         ocr.close()
                         reply.ok(JSONObject().put("init", init).put("lines", n).put("runs", runs).put("cores", Runtime.getRuntime().availableProcessors()))
@@ -208,6 +229,13 @@ class MainActivity : Activity() {
             "preconnect" -> app.net.preconnect(a.optString("url"))
             else -> reply.err("unknown method $m")
         }
+    }
+
+    companion object {
+        /** 退出时一起关掉 */
+        @Volatile
+        var instance: MainActivity? = null
+            private set
     }
 
     @Deprecated("onRequestPermissionsResult")

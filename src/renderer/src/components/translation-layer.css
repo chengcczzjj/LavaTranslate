@@ -40,9 +40,9 @@
 }
 
 .tl-block.is-hover {
-  outline: 2px solid color-mix(in srgb, #8b7bff 75%, transparent);
+  outline: 2px solid color-mix(in srgb, #ff7040 75%, transparent);
   outline-offset: 3px;
-  box-shadow: 0 0 22px 4px color-mix(in srgb, #8b7bff 30%, transparent);
+  box-shadow: 0 0 22px 4px color-mix(in srgb, #ff7040 30%, transparent);
   z-index: 2;
 }
 
@@ -52,14 +52,14 @@
   transform-origin: left center;
   background: linear-gradient(
     100deg,
-    rgba(124, 108, 255, 0.1) 0%,
-    rgba(124, 108, 255, 0.1) 35%,
-    rgba(196, 160, 255, 0.42) 50%,
-    rgba(124, 108, 255, 0.1) 65%,
-    rgba(124, 108, 255, 0.1) 100%
+    rgba(255, 90, 31, 0.1) 0%,
+    rgba(255, 90, 31, 0.1) 35%,
+    rgba(255, 190, 150, 0.42) 50%,
+    rgba(255, 90, 31, 0.1) 65%,
+    rgba(255, 90, 31, 0.1) 100%
   );
   background-size: 300% 100%;
-  box-shadow: inset 0 0 0 1px rgba(150, 132, 255, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(255, 128, 82, 0.45);
   animation: tl-shimmer 1.4s linear infinite;
 }
 
