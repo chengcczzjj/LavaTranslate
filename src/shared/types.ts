@@ -185,6 +185,8 @@ export interface CaptureFrame {
   replyTone: Settings['replyTone']
   /** 连按两次快捷键：不框选，直接输入一句话翻译 */
   quick: boolean
+  /** 按住 Alt 操作完下面的软件、松开后重新截的图（保留原来的选区） */
+  refresh: boolean
 }
 
 export interface PinPayload {

@@ -205,6 +205,7 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
       <div className="shortcuts">
         {[
           ['单击', '选中鼠标下的窗口'],
+          ['按住 Alt', '暂时操作下面的软件'],
           ['Space', '按住查看原文'],
           ['Tab', '切换 覆盖 / 并排'],
           ['单击译文', '复制该段译文'],
@@ -215,8 +216,7 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
           ['R', '用自己的语言回复对方'],
           ['快捷键连按两次', '直接输入文字翻译'],
           ['双击托盘图标', '打开设置'],
-          ['右键', '重新框选'],
-          ['Esc', '退出']
+          ['右键 / Esc', '退出']
         ].map(([k, d]) => (
           <div key={k} className="sc">
             <kbd>{k}</kbd>

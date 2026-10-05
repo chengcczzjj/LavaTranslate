@@ -50,14 +50,15 @@ function matchMonitors(displays: Display[]): Map<number, MonitorInfo> {
   return result
 }
 
-export async function captureAll(): Promise<DisplayCapture[]> {
+/** exclude：不参与窗口吸附的窗口句柄（按住 Alt 穿透时，透明的遮罩窗口还在最上面） */
+export async function captureAll(exclude: Set<number> = new Set()): Promise<DisplayCapture[]> {
   const displays = screen.getAllDisplays()
   const map = matchMonitors(displays)
   // 窗口列表要在遮罩窗口显示之前取
   let wins: { x: number; y: number; w: number; h: number }[] = []
   try {
     wins = Window.all()
-      .filter((w) => !w.isMinimized() && w.width() > 40 && w.height() > 24)
+      .filter((w) => !w.isMinimized() && w.width() > 40 && w.height() > 24 && !exclude.has(w.id()))
       .sort((a, b) => b.z() - a.z())
       .map((w) => ({ x: w.x(), y: w.y(), w: w.width(), h: w.height() }))
   } catch {

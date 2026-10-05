@@ -1,7 +1,7 @@
 {
   "name": "lavatranslate",
   "productName": "LavaTranslate",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "截图翻译：框选屏幕任意区域，译文按原排版就地显示；还能用自己的语言回复外语聊天",
   "main": "./out/main/index.js",
   "author": "chengcczzjj",
@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
+    "koffi": "^3.3.2",
     "node-screenshots": "^0.2.8",
     "onnxruntime-node": "^1.30.0",
     "openai": "^7.27.0"
@@ -57,7 +58,8 @@
     "asar": true,
     "asarUnpack": [
       "**/node_modules/onnxruntime-node/**",
-      "**/node_modules/node-screenshots*/**"
+      "**/node_modules/node-screenshots*/**",
+      "**/node_modules/@koromix/koffi-*/**"
     ],
     "extraResources": [
       {

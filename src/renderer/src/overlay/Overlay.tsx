@@ -39,6 +39,10 @@ const MIN_SIZE = 6
 const RP_W = 520
 const RP_RESERVE = 220
 const EDGES: Edge[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+/** Alt 按住多久才让遮罩让开：Alt+C 这类组合键按得快，不会触发 */
+const ALT_HOLD_MS = 150
+/** 选区里变化的像素不超过这么多，就算画面没变（闪烁的输入光标之类） */
+const SAME_LIMIT = 40
 
 export function Overlay() {
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -88,6 +92,14 @@ export function Overlay() {
   const replyRef = useRef<HTMLDivElement>(null)
   const [rpH, setRpH] = useState(0)
 
+  /** 每来一帧截图加一，并排面板据此重画 */
+  const [frameNo, setFrameNo] = useState(0)
+  /** 按住 Alt 回来后，要在新截图上重新翻译的选区 */
+  const resume = useRef<Rect | null>(null)
+  /** 帧回调只注册一次，靠它读当前状态 */
+  const live = useRef({ stage, sel, meta })
+  live.current = { stage, sel, meta }
+
   const scale = meta?.scale ?? window.devicePixelRatio
 
   // ------------------------------------------------------------ 帧
@@ -114,11 +126,17 @@ export function Overlay() {
     setReplyOpen(false)
     replyDraft.current = ''
     replyDismissed.current = false
+    resume.current = null
   }, [])
 
   useEffect(() => {
     const offFrame = window.lens.onFrame((f: CaptureFrame) => {
-      reset()
+      // 按住 Alt 操作完软件回来：这块屏上原来的选区留着；选区里的画面没变，译文也原样保留
+      const prev = live.current
+      const keep = f.refresh && !f.quick && prev.stage === 'selected' && prev.sel && prev.meta?.width === f.width && prev.meta.height === f.height ? prev.sel : null
+      const same = !!keep && !!pixels.current && sameRegion(pixels.current, f.pixels, f.width, selPhys.current)
+      const draft = replyDraft.current
+      if (!same) reset()
       pixels.current = f.pixels
       const c = canvas.current!
       c.width = f.width
@@ -126,6 +144,7 @@ export function Overlay() {
       const ctx = c.getContext('2d', { alpha: false })!
       const view = new Uint8ClampedArray(f.pixels.buffer as ArrayBuffer, f.pixels.byteOffset, f.pixels.byteLength)
       ctx.putImageData(new ImageData(view, f.width, f.height), 0, 0)
+      setFrameNo((n) => n + 1)
       setMeta({ displayId: f.displayId, width: f.width, height: f.height, scale: f.scale, windows: f.windows })
       setTarget(f.targetLang)
       setMode(f.displayMode)
@@ -138,6 +157,16 @@ export function Overlay() {
       if (f.quick) {
         setStage('quick')
         setQuickHere(!!f.cursor)
+        setTimeout(() => window.lens.frameReady(), 0)
+        return
+      }
+      if (keep) {
+        if (!same) {
+          replyDraft.current = draft
+          setSel(keep)
+          setStage('selected')
+          resume.current = keep
+        }
         setTimeout(() => window.lens.frameReady(), 0)
         return
       }
@@ -251,6 +280,14 @@ export function Overlay() {
     })
   }, [meta])
 
+  // 按住 Alt 回来、选区里的画面变了：在新截图上重新翻译同一块
+  useEffect(() => {
+    const r = resume.current
+    if (!r || !meta) return
+    resume.current = null
+    startTranslate(r)
+  }, [meta, startTranslate])
+
   const covered = useMemo(() => new Set(blocks.flatMap((b) => b.lineIds)), [blocks])
   const pending = useMemo(
     () => (phase === 'translating' ? new Set(lines.filter((l) => !covered.has(l.id)).map((l) => l.id)) : null),
@@ -271,21 +308,6 @@ export function Overlay() {
     },
     [startTranslate, vw, vh]
   )
-
-  const clearSelection = useCallback(() => {
-    reqId.current++
-    window.lens.cancel()
-    setSel(null)
-    setStage('idle')
-    setLines([])
-    setBlocks([])
-    setColors({})
-    setPhase('idle')
-    setError(null)
-    setLang(null)
-    setStats(null)
-    setReplyOpen(false)
-  }, [])
 
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0 || stage === 'hidden' || stage === 'quick') return
@@ -400,8 +422,7 @@ export function Overlay() {
 
   const onContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
-    if (stage === 'selected' || stage === 'drawing') clearSelection()
-    else window.lens.close()
+    window.lens.close()
   }
 
   // ------------------------------------------------------------ 操作
@@ -604,6 +625,39 @@ export function Overlay() {
     }
   }, [stage, mode, blocks, allText, copyAll, copyImage, copyOriginal, saveImage, pin, retry, changeMode, toggleReply])
 
+  // 按住 Alt：遮罩暂时透明、鼠标穿透，可以直接操作下面的软件；松开后主进程重新截图
+  useEffect(() => {
+    if (stage !== 'idle' && stage !== 'selected') return
+    let timer = 0
+    const cancel = () => {
+      clearTimeout(timer)
+      timer = 0
+    }
+    const down = (e: KeyboardEvent) => {
+      if (e.key !== 'Alt') return cancel()
+      if (e.repeat || timer || e.ctrlKey || e.shiftKey || e.metaKey) return
+      // 在输入框里打字时 Alt 常用来切输入法
+      if ((e.target as HTMLElement).closest?.('input, textarea')) return
+      timer = window.setTimeout(() => {
+        timer = 0
+        if (!drag.current) window.lens.passthrough()
+      }, ALT_HOLD_MS)
+    }
+    const up = (e: KeyboardEvent) => {
+      if (e.key === 'Alt') cancel()
+    }
+    // 捕获阶段：回复框会拦下大部分按键，这里也要看到，好及时取消
+    window.addEventListener('keydown', down, true)
+    window.addEventListener('keyup', up, true)
+    window.addEventListener('blur', cancel)
+    return () => {
+      cancel()
+      window.removeEventListener('keydown', down, true)
+      window.removeEventListener('keyup', up, true)
+      window.removeEventListener('blur', cancel)
+    }
+  }, [stage])
+
   // ------------------------------------------------------------ 布局
   useLayoutEffect(() => {
     const el = toolbarRef.current
@@ -738,6 +792,7 @@ export function Overlay() {
             sel={sel}
             phys={selPhys.current}
             source={canvas.current}
+            version={frameNo}
             capturing={capturing}
           >
             <TranslationLayer
@@ -897,11 +952,15 @@ export function Overlay() {
             <span>单击选中窗口</span>
             <span className="hint-dot" />
             <span>
+              按住 <kbd>Alt</kbd> 临时操作软件
+            </span>
+            <span className="hint-dot hint-quick" />
+            <span className="hint-quick">
               连按两次 <kbd>{hotkey.replace(/\+/g, ' + ')}</kbd> 输入文字翻译
             </span>
             <span className="hint-dot" />
             <span>
-              <kbd>Esc</kbd> 退出
+              右键或 <kbd>Esc</kbd> 退出
             </span>
           </motion.div>
         )}
@@ -935,6 +994,7 @@ function SidePanel({
   sel,
   phys,
   source,
+  version,
   capturing,
   children
 }: {
@@ -942,6 +1002,8 @@ function SidePanel({
   sel: Rect
   phys: Rect
   source: HTMLCanvasElement | null
+  /** 截图换了（按住 Alt 回来）要重画 */
+  version: number
   capturing: boolean
   children: React.ReactNode
 }) {
@@ -952,7 +1014,7 @@ function SidePanel({
     c.width = phys.w
     c.height = phys.h
     c.getContext('2d')!.drawImage(source, phys.x, phys.y, phys.w, phys.h, 0, 0, phys.w, phys.h)
-  }, [source, phys.x, phys.y, phys.w, phys.h])
+  }, [source, version, phys.x, phys.y, phys.w, phys.h])
   const off = { right: { x: -16, y: 0 }, left: { x: 16, y: 0 }, below: { x: 0, y: -16 }, above: { x: 0, y: 16 } }[panel.from]
   return (
     <motion.div
@@ -989,6 +1051,19 @@ function clampRect(r: Rect, vw: number, vh: number): Rect {
 
 function toCss(r: Rect, s: number): Rect {
   return { x: r.x / s, y: r.y / s, w: r.w / s, h: r.h / s }
+}
+
+/** 两帧截图在选区（物理像素）里是否一样；零星几个像素的变化不算 */
+function sameRegion(a: Uint8Array, b: Uint8Array, width: number, r: Rect) {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let y = r.y; y < r.y + r.h; y++) {
+    const end = (y * width + r.x + r.w) * 4
+    for (let i = (y * width + r.x) * 4; i < end; i += 4) {
+      if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 48 && ++diff > SAME_LIMIT) return false
+    }
+  }
+  return true
 }
 
 function sameRect(a: Rect | null, b: Rect | null) {

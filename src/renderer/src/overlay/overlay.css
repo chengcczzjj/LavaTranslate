@@ -316,6 +316,13 @@
   white-space: nowrap;
 }
 
+/* 竖屏等窄屏放不下整条提示：先省掉「连按两次」那一条 */
+@media (max-width: 960px) {
+  .hint-quick {
+    display: none;
+  }
+}
+
 .hint-mark {
   width: 18px;
   height: 18px;

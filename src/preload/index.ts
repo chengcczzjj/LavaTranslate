@@ -34,6 +34,8 @@ const api = {
   frameReady: () => ipcRenderer.send('overlay:frame-ready'),
   visible: () => ipcRenderer.send('overlay:visible'),
   focusOverlay: () => ipcRenderer.send('overlay:focus'),
+  /** 按住 Alt：遮罩暂时透明、鼠标穿透，松开后重新截图 */
+  passthrough: () => ipcRenderer.send('overlay:passthrough'),
   close: () => ipcRenderer.send('overlay:close'),
 
   // 翻译

@@ -109,6 +109,7 @@ LavaTranslate asks every model to skip "thinking" (each provider's own switch, f
 | Double-click the tray icon | Open Settings |
 | Drag / click | Select a region / select the window under the cursor |
 | Drag the selection or its handles | Move / resize — it translates again when you let go |
+| Hold <kbd>Alt</kbd> | The overlay steps aside so you can click and scroll the apps underneath; let go to capture again (an existing selection is re-translated if its content changed) |
 | Hold <kbd>Space</kbd> | Show the original |
 | <kbd>Tab</kbd> | Switch between *in place* and *side by side* |
 | Click a translated block | Copy that block |
@@ -117,7 +118,7 @@ LavaTranslate asks every model to skip "thinking" (each provider's own switch, f
 | <kbd>F3</kbd> | Pin the result on the desktop (drag to move, scroll to zoom, double-click to close) |
 | <kbd>R</kbd> | Open the reply assistant |
 | <kbd>Enter</kbd> or double-click | Copy all translations and close |
-| Right-click / <kbd>Esc</kbd> | Select again / exit |
+| Right-click or <kbd>Esc</kbd> | Exit |
 
 ## Privacy
 

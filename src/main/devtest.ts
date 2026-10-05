@@ -1,6 +1,9 @@
 // 开发自测：LENS_AUTOTEST=1 时用测试图伪造截屏，离屏渲染遮罩并模拟鼠标操作，逐步截图到 .scratch/shots
 // LENS_MOCK=1 时使用模拟翻译引擎（不消耗额度）
-import { app, BrowserWindow, nativeImage } from 'electron'
+import { app, BrowserWindow, nativeImage, screen } from 'electron'
+import { spawn } from 'node:child_process'
+import { load } from 'koffi'
+import { forceForeground, hwndOf } from './winapi'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -122,7 +125,8 @@ export class MockEngine implements Engine {
 interface Hooks {
   openSettings: () => BrowserWindow
   overlayWin: () => BrowserWindow
-  inject: (cap: DisplayCapture) => Promise<void>
+  /** refresh：模拟按住 Alt 操作完软件、松开后重新截的图 */
+  inject: (cap: DisplayCapture, refresh?: boolean) => Promise<void>
   waitDone: () => Promise<void>
   display: Electron.Display
   mock: MockEngine | null
@@ -227,6 +231,29 @@ export async function runAutotest(h: Hooks) {
     key('Tab')
     await sleep(500)
   }
+  // 按住 Alt 操作完回来：选区里画面没变 → 译文原样保留；变了 → 同一块重新翻译
+  {
+    const sc = scenarios[0]
+    if (h.mock) h.mock.scenario = sc.name
+    await h.inject(fakeCapture(h.display, sc.file, sc.at))
+    await sleep(600)
+    await drag(sc.at.x / s - 6, sc.at.y / s - 6, (sc.at.x + sc.size.w) / s + 6, (sc.at.y + sc.size.h) / s + 6)
+    await h.waitDone()
+    await sleep(700)
+    const blocks = () => wc().executeJavaScript(`document.querySelectorAll('[data-block]').length`) as Promise<number>
+    console.log('[autotest] alt before', await blocks())
+    const again = h.waitDone().then(() => true)
+    await h.inject(fakeCapture(h.display, sc.file, sc.at), true)
+    console.log('[autotest] alt same: retranslated', await Promise.race([again, sleep(1800).then(() => false)]), 'blocks', await blocks())
+    await shot('alt-1-same')
+    if (h.mock) h.mock.scenario = 'test2'
+    await h.inject(fakeCapture(h.display, scenarios[1].file, sc.at), true)
+    await again
+    await sleep(900)
+    console.log('[autotest] alt changed: blocks', await blocks())
+    await shot('alt-2-changed')
+  }
+
   // 钉图：重新框选 test1，完成后按 F3
   if (h.mock) h.mock.scenario = 'test1'
   await h.inject(fakeCapture(h.display, scenarios[0].file, scenarios[0].at))
@@ -465,4 +492,60 @@ export async function runReview(h: Hooks & { engine: FixtureEngine; setTarget: (
   }
   console.log('[review] done')
   app.quit()
+}
+
+/**
+ * LENS_PASSTEST=1：在真窗口上走一遍「按住 Alt 穿透」。模拟按下 Alt → 遮罩应透明、鼠标穿透；
+ * 打开另一个程序的窗口抢走焦点 → 松开 Alt → 遮罩应重新截图显示，并把焦点抢回来。屏幕会闪几秒。
+ */
+export async function runPassTest(h: { start: () => Promise<void>; hide: () => Promise<void>; overlays: () => BrowserWindow[] }) {
+  const u = load('user32.dll')
+  const keybd = u.func('void __stdcall keybd_event(uint8_t bVk, uint8_t bScan, uint32_t dwFlags, uintptr_t dwExtraInfo)')
+  // POINT 按值传：x64 下等同一个 64 位整数
+  const fromPoint = u.func('intptr_t __stdcall WindowFromPoint(int64_t pt)')
+  const rootOf = u.func('intptr_t __stdcall GetAncestor(intptr_t hwnd, uint32_t flags)')
+  const foreground = u.func('intptr_t __stdcall GetForegroundWindow()')
+  const VK_MENU = 0x12
+  const KEYUP = 2
+  const state = (tag: string) => {
+    for (const w of h.overlays()) {
+      if (!w.isVisible()) continue
+      const hwnd = hwndOf(w.getNativeWindowHandle())
+      const b = w.getBounds()
+      const c = screen.dipToScreenPoint({ x: b.x + Math.round(b.width / 2), y: b.y + Math.round(b.height / 2) })
+      const hit = Number(rootOf(fromPoint((BigInt(c.y) << 32n) | BigInt(c.x >>> 0)), 2))
+      console.log(`[passtest] ${tag}`, JSON.stringify({ opacity: +w.getOpacity().toFixed(2), focused: w.isFocused(), foreground: Number(foreground()) === hwnd, hitOverlay: hit === hwnd }))
+    }
+  }
+  let child: ReturnType<typeof spawn> | null = null
+  try {
+    await h.start()
+    await sleep(1500)
+    const cur = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).bounds
+    const mine = h.overlays().find((w) => w.isVisible() && w.getBounds().x === cur.x && w.getBounds().y === cur.y)
+    if (mine) {
+      forceForeground(hwndOf(mine.getNativeWindowHandle()))
+      mine.focus()
+      mine.webContents.focus()
+    }
+    await sleep(300)
+    state('shown')
+    keybd(VK_MENU, 0, 0, 0)
+    await sleep(500)
+    state('alt-down')
+    // 另一个进程的窗口抢走焦点（相当于按着 Alt 点进了别的软件）
+    child = spawn('powershell', ['-NoProfile', '-Command', "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object Windows.Forms.Form; $f.Text = 'passtest'; $f.Add_Shown({ $f.Activate() }); [Windows.Forms.Application]::Run($f)"], { stdio: 'ignore' })
+    const mineHwnd = mine ? hwndOf(mine.getNativeWindowHandle()) : 0
+    for (let i = 0; i < 60 && Number(foreground()) === mineHwnd; i++) await sleep(100)
+    await sleep(300)
+    state('other-app')
+    keybd(VK_MENU, 0, KEYUP, 0)
+    await sleep(1000)
+    state('alt-up')
+  } finally {
+    keybd(VK_MENU, 0, KEYUP, 0)
+    child?.kill()
+    await h.hide()
+    app.quit()
+  }
 }

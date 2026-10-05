@@ -48,9 +48,10 @@ import { PaddleOcr } from './ocr'
 import { refreshPrices, sortByPrice } from './pricing'
 import { check as checkUpdate, initUpdater, installNow, setAutoUpdate, updateState } from './updater'
 import { settings } from './settings'
+import { altDown, forceForeground, hwndOf } from './winapi'
 import { OpenAIEngine, TranslateError, type Engine } from '../core/translator'
 import { cancelSignIn, listPlanModels, refresh as refreshChatGPT, signIn as signInChatGPT } from './chatgpt'
-import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runReview } from './devtest'
+import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runPassTest, runReview } from './devtest'
 import { EventEmitter } from 'node:events'
 
 // 模型请求走 Chromium 网络栈（系统代理、HTTP/2）
@@ -70,7 +71,7 @@ const mockEngine = fixtureEngine ?? (process.env.LENS_MOCK ? new MockEngine() : 
 const pipeline = new EventEmitter()
 
 // 自测用独立的数据目录：不读写用户配置，也不和已安装、正在运行的版本抢单实例锁
-if (AUTOTEST || process.env.LENS_ENGINE_TEST || process.env.LENS_DETECT_TEST) app.setPath('userData', join(app.getPath('temp'), 'lens-autotest'))
+if (AUTOTEST || process.env.LENS_ENGINE_TEST || process.env.LENS_DETECT_TEST || process.env.LENS_PASSTEST) app.setPath('userData', join(app.getPath('temp'), 'lens-autotest'))
 // LENS_AUTOTEST_SEED=<settings.json>：自测前放一份指定的设置（检查旧格式迁移等）
 if (AUTOTEST && process.env.LENS_AUTOTEST_SEED) {
   mkdirSync(app.getPath('userData'), { recursive: true })
@@ -267,6 +268,7 @@ function startQuick() {
 
 async function startCapture() {
   tHotkey = Date.now()
+  refocus = false
   if (overlayActive) {
     hideOverlays()
     return
@@ -293,10 +295,11 @@ async function startCapture() {
   }
 }
 
-function presentCaptures(caps: DisplayCapture[]) {
+function presentCaptures(caps: DisplayCapture[], refresh = false) {
   const s = settings.get()
   overlayActive = true
   captures = new Map(caps.map((c) => [c.display.id, c]))
+  ocrCache.clear()
   const cursor = screen.getCursorScreenPoint()
   const cursorDisplay = screen.getDisplayNearestPoint(cursor)
   for (const cap of caps) {
@@ -316,7 +319,8 @@ function presentCaptures(caps: DisplayCapture[]) {
       hotkey: s.hotkey,
       replyAssist: s.replyAssist,
       replyTone: s.replyTone,
-      quick: quickPending
+      quick: quickPending,
+      refresh
     }
     o.win.webContents.send('overlay:frame', frame)
   }
@@ -336,10 +340,15 @@ ipcMain.on('overlay:frame-ready', (e) => {
     o.win.setBounds(display.bounds)
   }
   o.win.setOpacity(0)
+  o.win.setIgnoreMouseEvents(false)
   o.win.show()
   o.win.setAlwaysOnTop(true, 'screen-saver')
   const cursor = screen.getCursorScreenPoint()
   if (screen.getDisplayNearestPoint(cursor).id === o.displayId) {
+    if (refocus) {
+      refocus = false
+      forceForeground(hwndOf(o.win.getNativeWindowHandle()))
+    }
     o.win.focus()
     o.win.webContents.focus()
   }
@@ -363,10 +372,11 @@ ipcMain.on('overlay:focus', (e) => {
 function fadeOut(win: BrowserWindow, ms: number) {
   return new Promise<void>((resolve) => {
     const start = Date.now()
+    const from = win.getOpacity()
     const tick = () => {
       if (win.isDestroyed()) return resolve()
       const t = Math.min(1, (Date.now() - start) / ms)
-      win.setOpacity(1 - t * t)
+      win.setOpacity(from * (1 - t * t))
       if (t < 1) setTimeout(tick, 8)
       else resolve()
     }
@@ -378,6 +388,9 @@ function hideOverlays(immediate = false) {
   if (!overlayActive) return hiding ?? Promise.resolve()
   overlayActive = false
   framesShown = false
+  if (passthrough?.timer) clearTimeout(passthrough.timer)
+  passthrough = null
+  refocus = false
   hiding = doHide(immediate).finally(() => (hiding = null))
   return hiding
 }
@@ -389,6 +402,7 @@ async function doHide(immediate: boolean) {
   await Promise.all(visible.map((o) => (immediate ? Promise.resolve() : fadeOut(o.win, 140))))
   for (const o of visible) {
     o.win.hide()
+    o.win.setIgnoreMouseEvents(false)
     o.win.webContents.send('overlay:reset')
   }
   // 截图数据保留片刻，便于连续操作；之后释放内存
@@ -399,6 +413,45 @@ async function doHide(immediate: boolean) {
 }
 
 ipcMain.on('overlay:close', () => hideOverlays())
+
+// ------------------------------------------------------------------ 按住 Alt：遮罩暂时让开
+// 遮罩变成全透明、鼠标穿透，可以直接点、滚动下面的软件；松开 Alt 后重新截图。
+// 窗口不隐藏：键盘焦点留在遮罩上，按着 Alt 时顺手按到的 F4 之类不会落到别的软件里。
+let passthrough: { faded: Promise<unknown>; timer: NodeJS.Timeout | null } | null = null
+/** 穿透期间用户可能点进了别的软件，回来时要把焦点抢回来 */
+let refocus = false
+
+ipcMain.on('overlay:passthrough', () => {
+  // 只认此刻还按着的 Alt；读不到按键状态（没有 koffi）就不支持
+  if (!overlayActive || !framesShown || passthrough || hiding || altDown() !== true) return
+  const shown = [...overlays.values()].filter((o) => o.win.isVisible())
+  for (const o of shown) o.win.setIgnoreMouseEvents(true)
+  const p = { faded: Promise.all(shown.map((o) => fadeOut(o.win, 90))), timer: null as NodeJS.Timeout | null }
+  passthrough = p
+  const poll = () => {
+    if (passthrough !== p) return
+    if (altDown()) p.timer = setTimeout(poll, 16)
+    else void endPassthrough(p)
+  }
+  p.timer = setTimeout(poll, 16)
+})
+
+async function endPassthrough(p: NonNullable<typeof passthrough>) {
+  // 淡出还没走完就松开了：等它走完，免得截到半透明的遮罩，或淡出盖掉之后的显示
+  await p.faded
+  if (passthrough !== p) return
+  try {
+    const caps = await captureAll(new Set([...overlays.values()].map((o) => hwndOf(o.win.getNativeWindowHandle()))))
+    if (passthrough !== p) return
+    passthrough = null
+    refocus = true
+    presentCaptures(caps, true)
+  } catch (e) {
+    logError('capture', e)
+    passthrough = null
+    void hideOverlays(true)
+  }
+}
 
 // ------------------------------------------------------------------ 翻译流程
 const translations = new Map<number, AbortController>()
@@ -950,6 +1003,11 @@ app.whenReady().then(async () => {
     return
   }
 
+  if (process.env.LENS_PASSTEST) {
+    setTimeout(() => void runPassTest({ start: startCapture, hide: () => hideOverlays(), overlays: () => [...overlays.values()].map((o) => o.win) }), 1500)
+    return
+  }
+
   // LENS_DETECT_TEST=<Key1,Key2…>：只测识别 Key 属于哪家（不打印 Key 本身）
   if (process.env.LENS_DETECT_TEST) {
     for (const k of process.env.LENS_DETECT_TEST.split(',')) console.log('[detect]', k.slice(0, 7) + '…', JSON.stringify(await detectProvider(k)))
@@ -1011,9 +1069,9 @@ app.whenReady().then(async () => {
           return settingsWin!
         },
         overlayWin: () => overlays.get(display.id)!.win,
-        inject: async (cap) => {
+        inject: async (cap, refresh) => {
           syncOverlays()
-          presentCaptures([cap])
+          presentCaptures([cap], refresh)
         },
         waitDone: () => new Promise((resolve) => pipeline.once('end', () => resolve()))
       })
@@ -1037,9 +1095,9 @@ app.whenReady().then(async () => {
         },
         quick: () => startQuick(),
         overlayWin: () => overlays.get(display.id)!.win,
-        inject: async (cap) => {
+        inject: async (cap, refresh) => {
           syncOverlays()
-          presentCaptures([cap])
+          presentCaptures([cap], refresh)
         },
         waitDone: () =>
           new Promise((resolve) =>
