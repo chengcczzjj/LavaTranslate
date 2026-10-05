@@ -1,0 +1,459 @@
+/* 手机版全屏翻译 */
+:root {
+  --font: system-ui, 'Noto Sans CJK SC', 'Noto Sans SC', 'PingFang SC', sans-serif;
+  --font-display: var(--font);
+  /* 悬浮球：深色玻璃球，里面一滴熔岩（OrbGlyph），下方透出熔岩的暖光 */
+  --orb-grad: radial-gradient(circle at 50% 66%, rgba(255, 138, 0, 0.42), rgba(255, 138, 0, 0) 58%),
+    radial-gradient(circle at 50% 28%, #302825, #0d0b0a 78%);
+}
+
+html,
+body {
+  background: transparent;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}
+
+.m-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  color: var(--text);
+}
+.m-root.hidden {
+  visibility: hidden;
+}
+
+.m-shot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+}
+
+/* 关闭：译文与界面淡出，露出原截图，随后窗口移除，看到的就是实时屏幕 */
+.m-layer,
+.m-pill,
+.m-orb,
+.m-fan,
+.m-cta,
+.reply,
+.m-sheet,
+.m-scrim,
+.m-dim {
+  transition: opacity 0.16s var(--ease);
+}
+.m-root.closing .m-layer,
+.m-root.closing .m-orb,
+.m-root.closing .m-dim {
+  opacity: 0 !important;
+}
+
+.m-layer {
+  position: absolute;
+}
+
+/* 识别文字时的扫描光带 */
+.m-scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.m-scan::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 22%;
+  top: -22%;
+  background: linear-gradient(180deg, rgba(124, 108, 255, 0) 0%, rgba(124, 108, 255, 0.1) 55%, rgba(255, 107, 181, 0.22) 96%, rgba(255, 255, 255, 0.5) 100%);
+  animation: m-scan 1.15s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+}
+@keyframes m-scan {
+  to {
+    top: 100%;
+  }
+}
+
+.m-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 14, 0.55);
+  animation: m-fade 0.2s var(--ease);
+}
+@keyframes m-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.m-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 6, 12, 0.32);
+  z-index: 20;
+}
+/* 底部面板的遮罩：盖住悬浮球 */
+.m-scrim.top {
+  z-index: 44;
+  background: rgba(6, 6, 12, 0.45);
+}
+
+/* ---------------------------------------------------------------- 状态胶囊 */
+.m-pill {
+  position: absolute;
+  left: 50%;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 居中定位（left: 50%）时默认只能用到右半边的宽度，长提示会过早换行 */
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--glass-strong);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.m-pill.error {
+  height: auto;
+  min-height: 36px;
+  padding: 7px 8px 7px 14px;
+  white-space: normal;
+  border-color: rgba(255, 93, 108, 0.35);
+}
+.m-pill-num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--text-2);
+}
+.m-peek {
+  position: absolute;
+  left: 50%;
+  z-index: 31;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 18px;
+  width: max-content;
+  font-size: 13px;
+  font-weight: 650;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(110, 86, 255, 0.95), rgba(214, 64, 160, 0.95));
+  box-shadow: 0 10px 28px rgba(120, 50, 200, 0.35);
+}
+.m-pill-tip {
+  padding-left: 8px;
+  margin-left: 2px;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  font-weight: 500;
+  color: var(--text-2);
+}
+.m-pill-err {
+  font-weight: 500;
+  line-height: 1.35;
+}
+.m-pill-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.12);
+}
+.m-pill-btn:active {
+  background: rgba(255, 255, 255, 0.2);
+}
+.m-ok {
+  color: var(--ok);
+}
+.m-spin {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #c3b9ff;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ---------------------------------------------------------------- 悬浮球 */
+.m-orb {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 40;
+  touch-action: none;
+}
+.m-orb-ball {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--orb-grad);
+  box-shadow:
+    0 6px 18px rgba(255, 90, 31, 0.28),
+    0 2px 5px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  display: grid;
+  place-items: center;
+  transition: transform 0.25s var(--ease);
+}
+.m-orb.open .m-orb-ball {
+  transform: scale(0.9);
+  box-shadow:
+    0 0 0 6px rgba(255, 255, 255, 0.14),
+    0 6px 18px rgba(255, 90, 31, 0.3);
+}
+.m-orb-glyph {
+  height: 62%;
+  width: auto;
+}
+.m-orb-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  overflow: visible;
+}
+.m-orb-ring .spin {
+  transform-origin: 0 0;
+  animation: m-ring 0.9s linear infinite;
+}
+@keyframes m-ring {
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: rotate(270deg);
+  }
+}
+
+/* 菜单：胶囊（图标在弧上，文字朝屏幕内侧） */
+.m-fan {
+  position: absolute;
+  z-index: 39;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border-radius: 22px;
+  color: var(--text);
+  background: var(--glass-strong);
+  backdrop-filter: blur(22px) saturate(1.8);
+  -webkit-backdrop-filter: blur(22px) saturate(1.8);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.38);
+  white-space: nowrap;
+}
+.m-fan.right {
+  flex-direction: row-reverse;
+  padding-left: 16px;
+}
+.m-fan.left {
+  padding-right: 16px;
+}
+.m-fan-icon {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+}
+.m-fan-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.m-fan:active {
+  background: rgba(60, 56, 84, 0.95);
+}
+.m-fan.on {
+  color: #fff;
+  background: linear-gradient(135deg, rgba(124, 108, 255, 0.95), rgba(226, 62, 154, 0.95));
+}
+.m-fan:disabled {
+  opacity: 0.4;
+}
+
+/* ---------------------------------------------------------------- 回复提示 */
+.m-cta {
+  position: absolute;
+  left: 50%;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 18px 0 16px;
+  border-radius: 24px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+  background: linear-gradient(135deg, rgba(110, 86, 255, 0.96), rgba(214, 64, 160, 0.96));
+  box-shadow:
+    0 12px 32px rgba(120, 50, 200, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+.m-cta span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  text-align: left;
+}
+.m-cta small {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.78;
+}
+
+/* ---------------------------------------------------------------- 回复框（复用桌面组件，改成贴底的整宽卡片） */
+.m-root .reply {
+  position: absolute;
+  z-index: 45;
+  transform-origin: 50% 100%;
+}
+.m-root .rp-head {
+  height: 46px;
+  padding-left: 14px;
+}
+.m-root .rp-tones {
+  margin-left: auto;
+}
+.m-root .rp-tone {
+  height: 30px;
+}
+.m-root .rp-x {
+  width: 34px;
+  height: 34px;
+}
+.m-root .rp-input {
+  font-size: 16px;
+  min-height: 52px;
+}
+.m-root .rp-text {
+  font-size: 16px;
+}
+.m-root .rp-hint {
+  visibility: hidden;
+}
+.m-root .rp-btn {
+  height: 36px;
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+.m-root .rp-langs {
+  max-height: 46vh;
+}
+@media (max-width: 420px) {
+  .m-root .rp-route .rp-from,
+  .m-root .rp-route .rp-arrow {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------- 底部面板 */
+.m-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 46;
+  padding: 8px 16px 14px;
+  border-radius: 22px 22px 0 0;
+  background: rgba(20, 20, 28, 0.94);
+  backdrop-filter: blur(30px) saturate(1.8);
+  -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  border-top: 1px solid var(--glass-border);
+  box-shadow: 0 -16px 50px rgba(0, 0, 0, 0.4);
+}
+.m-sheet-grip {
+  width: 36px;
+  height: 4px;
+  margin: 0 auto 12px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.22);
+}
+.m-sheet-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 0 4px 10px;
+}
+.m-langs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.m-lang {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+}
+.m-lang:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+.m-lang.on {
+  background: rgba(124, 108, 255, 0.2);
+  border-color: rgba(150, 136, 255, 0.55);
+}
+.m-lang-native {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.m-sheet-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 44px;
+  margin-top: 10px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.m-sheet-link:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ---------------------------------------------------------------- 提示 */
+.m-toast {
+  position: absolute;
+  left: 50%;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 18px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #fff;
+  background: rgba(30, 150, 100, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}

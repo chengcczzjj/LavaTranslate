@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 仅调试版：自测用的演示页面（显示一个外语聊天网页，供悬浮球翻译） -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".DemoActivity"
+            android:exported="true"
+            android:label="Lava Demo"
+            android:taskAffinity="com.lavatranslate.app.demo" />
+    </application>
+</manifest>

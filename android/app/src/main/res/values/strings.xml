@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LavaTranslate</string>
+    <string name="a11y_label">LavaTranslate 免授权截屏</string>
+    <string name="a11y_desc">开启后，点悬浮球翻译屏幕时不再需要每次授权截屏。LavaTranslate 只在你点击悬浮球时截取一次屏幕用于翻译，不读取界面内容、不执行任何操作。</string>
+    <string name="tile_label">翻译屏幕</string>
+    <string name="channel_name">悬浮球</string>
+</resources>

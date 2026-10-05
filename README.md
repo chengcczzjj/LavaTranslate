@@ -60,6 +60,16 @@ Press the hotkey **twice** (<kbd>Alt</kbd>+<kbd>Q</kbd> <kbd>Q</kbd>) to skip th
 
 > The interface is currently in Simplified Chinese. You can translate between any languages the model supports.
 
+## Android
+
+Download **`LavaTranslate-Android-x.y.z.apk`** from [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest) (Android 10 or later, arm64). Open it and follow the on-screen steps to turn on the floating button and add an API key.
+
+- **Translate the whole screen.** Tap the floating button in any app and the translation appears in place over the original. **Tap the button again or press Back to exit**; **long-press** it for the menu (show original, change language, copy, reply, retranslate).
+- **Reply assistant.** Chat screenshots get a Reply button: write in your own language and get it in theirs, with a back-translation. Long-press the floating button on any screen to type something to translate.
+- **Two ways to capture the screen:** Android's screen-sharing permission (it has to be granted again after the phone is locked — an Android rule), or turn on "免授权截屏" once under Accessibility and it stays on.
+- Text recognition runs on the phone; only the captured screen goes to the translation service you configured.
+- **In-app updates.** New versions are announced in the app, downloaded on Wi-Fi, and installed with one tap.
+
 ## Setup: sign in with ChatGPT, or bring any API key
 
 LavaTranslate does not ship with a key. Open **Settings** (double-click the tray icon) → **翻译服务 (Translation service)**:

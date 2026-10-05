@@ -2,9 +2,7 @@
 import { app, net } from 'electron'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-
-/** [输入 $/百万 token, 输出 $/百万 token, 是否支持图片输入] */
-type Entry = [number, number, number]
+import { priceIn, sortByPriceIn, type ModelPrice, type PriceEntry as Entry } from '../core/prices'
 
 const TTL = 3 * 24 * 3600 * 1000
 const OFFICIAL = ['openai', 'anthropic', 'deepseek', 'zai', 'zhipuai', 'alibaba', 'moonshotai', 'google', 'xai', 'mistral', 'minimax']
@@ -80,28 +78,13 @@ export function refreshPrices(bundled: string) {
   return refreshing
 }
 
-export interface ModelPrice {
-  id: string
-  /** $ / 百万输入 token */
-  input: number | null
-  output: number | null
-  vision: boolean | null
-  /** 估算一次截图翻译的费用（$）：约 1500 输入 + 700 输出 token */
-  perCall: number | null
-}
+export type { ModelPrice }
 
 export function priceOf(id: string, bundled: string): ModelPrice {
-  const t = load(bundled)
-  const base = id.split('/').pop()!.toLowerCase()
-  // 兼容带日期后缀、":free" 之类的变体名
-  const e = t[base] ?? t[base.replace(/[-_]\d{4}-?\d{2}-?\d{2}$/, '')] ?? t[base.replace(/:.*$/, '')]
-  if (!e) return { id, input: null, output: null, vision: null, perCall: null }
-  return { id, input: e[0], output: e[1], vision: !!e[2], perCall: (1500 * e[0] + 700 * e[1]) / 1e6 }
+  return priceIn(load(bundled), id)
 }
 
 /** 价格从低到高；没有价格信息的排在最后 */
 export function sortByPrice(ids: string[], bundled: string): ModelPrice[] {
-  return ids
-    .map((id) => priceOf(id, bundled))
-    .sort((a, b) => (a.perCall ?? Infinity) - (b.perCall ?? Infinity) || a.id.localeCompare(b.id))
+  return sortByPriceIn(load(bundled), ids)
 }

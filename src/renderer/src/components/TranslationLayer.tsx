@@ -23,6 +23,8 @@ export interface LayerProps {
 }
 
 const PAD = 2
+/** emoji（含肤色、组合序列）；© ® ™ 这类默认按文字显示的符号不算 */
+const EMOJI = /(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F)(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F?))*/gu
 
 interface Piece extends Slot {
   text: string
@@ -168,7 +170,9 @@ function layoutBlock(
   // 行首的列表符号、序号、图标（① • □ 1.）被单独识别成一行时保留原样，不盖住也不往里排字
   const marks = findMarkers(own)
   const ls = own.filter((l) => !marks.has(l))
-  let text = block.translation
+  // OCR 一般认不出 emoji，原图里的 emoji 会保留可见；译文里再画一遍就重复了（OCR 认出来的才会被盖住，那些保留）
+  const ocrText = own.map((l) => l.text).join('')
+  let text = block.translation.replace(EMOJI, (e) => (ocrText.includes(e) ? e : '')).replace(/[ \t]{2,}/g, ' ').trim()
   for (const m of [...marks].sort((a, b) => a.box.x - b.box.x)) {
     const t = m.text.replace(/\s/g, '')
     const s = text.trimStart()

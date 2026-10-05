@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 由 scripts/make-icons.py 生成：熔岩滴剪影，两行文字挖空 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M54.00,24.22 L36.78,53.87 A19.91,19.91 0 1 0 71.22,53.87 Z M45.98,62.52 L62.02,62.52 A2.11,2.11 0 0 1 62.02,66.74 L45.98,66.74 A2.11,2.11 0 0 1 45.98,62.52 Z M45.98,69.61 L55.27,69.61 A2.11,2.11 0 0 1 55.27,73.83 L45.98,73.83 A2.11,2.11 0 0 1 45.98,69.61 Z" />
+</vector>

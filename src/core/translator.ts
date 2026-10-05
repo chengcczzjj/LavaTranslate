@@ -1,8 +1,8 @@
 // 模型翻译：所有服务（含 Claude、ChatGPT 会员）都走 OpenAI 兼容接口（Responses 或 Chat Completions），
-// 共用同一套提示词与 JSONL 流式解析；走 Chromium 网络栈（系统代理、HTTP/2），截图界面一打开就预连接
+// 共用同一套提示词与 JSONL 流式解析；网络由宿主注入（platform.ts），截图界面一打开就预连接。桌面与安卓共用
 import OpenAI from 'openai'
-import { net, session } from 'electron'
 import type { ErrorCode, Language, OcrLine, TranslatedBlock, TranslateEvent } from '../shared/types'
+import { env, pfetch, preconnect } from './platform'
 
 export interface EngineCredentials {
   baseURL: string
@@ -65,7 +65,7 @@ How to work:
 3. Translate each block into the target language the way a native speaker would phrase it in this context (UI, article, chat, game, code comment…). Keep it concise so it fits the original space: buttons and menu items short, same tone. Leave untranslated: code, commands, file paths, URLs, emails, @handles, numbers with units, version strings, and names of products, apps, websites, companies, projects, games and people — even when the name is made of ordinary words ("Apple Pass Designer", "Muse Gadgets") — in mixed lines translate only the prose around them. Feature, menu, tab and button names inside a product (e.g. "Pull requests", "Issues", "Settings", "Inbox") are not brand names — translate them the way that product's localized UI would.
 4. If a block is already in the target language, or has nothing translatable (pure code, numbers, symbols), add "keep":true and copy the corrected source as the translation.
 5. If one OCR line holds several separate UI items (e.g. a menu bar "Home   Products   About"), translate each item and keep the separators/spacing between them.
-6. OCR often reads icons as characters (▲ ☆ ① <> 田, a stray letter or digit next to an icon). Leave such icon glyphs out of both src and dst, and likewise leading list numbers and bullets ("1.", "•") — they stay visible as they are. Text that is part of a logo or stylized artwork gets "keep":true.
+6. OCR often reads icons as characters (▲ ☆ ① <> 田, a stray letter or digit next to an icon). Leave such icon glyphs out of both src and dst, and likewise emoji and leading list numbers and bullets ("1.", "•") — they stay visible as they are. Text that is part of a logo or stylized artwork gets "keep":true.
 
 Output JSON Lines only — one compact JSON object per line, no prose, no markdown, no code fences.
 Line 1: {"lang":"<BCP-47 code of the dominant source language>","name":"<that language's name in Simplified Chinese, e.g. 英语>","chat":<true if the screenshot is a conversation the user may want to answer — chat/IM window, DMs, comment or reply thread, email — else false>}
@@ -121,7 +121,11 @@ export function replyText(r: ReplyRequest) {
 // ------------------------------------------------------------------ 流式解析
 // 不依赖换行：逐字符跟踪字符串与括号深度，每闭合一个顶层 {...} 就解析一次。
 // 这样无论模型输出严格的 JSON Lines、数组，还是带缩进的多行对象都能边收边出。
+/** 每次翻译的块 key 加上序号前缀：换语言、重译时新旧两批块的 key 不会撞上（否则淡出动画会错乱，新文字不显示） */
+let runSeq = 0
+
 export class BlockParser {
+  private run = ++runSeq
   private buf = ''
   private depth = 0
   private inStr = false
@@ -192,7 +196,7 @@ export class BlockParser {
     // 不依赖模型自己标 keep——关掉思考后模型常常照抄原文却忘了标
     const same = !!source && o.dst.replace(/\s+/g, ' ').trim() === source.replace(/\s+/g, ' ').trim()
     const block: TranslatedBlock = {
-      key: `b${++this.n}`,
+      key: `r${this.run}b${++this.n}`,
       lineIds: ids,
       source,
       translation: o.dst,
@@ -210,7 +214,7 @@ export class BlockParser {
  */
 function effortsFor(_model: string): (string | null)[] {
   // 自测对照用：LENS_OPENAI_EFFORT=default 不传推理参数（模型默认会思考）
-  if (process.env.LENS_OPENAI_EFFORT === 'default') return [null]
+  if (env('LENS_OPENAI_EFFORT') === 'default') return [null]
   return ['none', 'minimal', 'low', null]
 }
 
@@ -249,26 +253,24 @@ export class OpenAIEngine implements Engine {
   constructor(
     private creds: EngineCredentials,
     private model: string,
-    opts: { api?: 'responses' | 'chat' | 'auto'; chatExtra?: Record<string, unknown> } = {}
+    opts: { api?: 'responses' | 'chat' | 'auto'; chatExtra?: Record<string, unknown>; timeout?: number; maxRetries?: number } = {}
   ) {
     this.name = model
-    this.api = opts.api === 'chat' || process.env.LENS_OPENAI_API === 'chat' ? 'chat' : 'responses'
-    this.extra = process.env.LENS_OPENAI_EFFORT === 'default' ? null : (opts.chatExtra ?? null)
+    this.api = opts.api === 'chat' || env('LENS_OPENAI_API') === 'chat' ? 'chat' : 'responses'
+    this.extra = env('LENS_OPENAI_EFFORT') === 'default' ? null : (opts.chatExtra ?? null)
     this.client = new OpenAI({
       apiKey: creds.apiKey,
       baseURL: creds.baseURL,
-      maxRetries: 1,
-      timeout: 60_000,
-      fetch: ((input: any, init?: any) => net.fetch(input, init)) as any
+      maxRetries: opts.maxRetries ?? 1,
+      timeout: opts.timeout ?? 60_000,
+      fetch: pfetch,
+      // 安卓版在 WebView 里运行；Key 是用户自己的，只发给用户配置的服务
+      dangerouslyAllowBrowser: true
     })
   }
 
   warm() {
-    try {
-      session.defaultSession.preconnect({ url: this.creds.baseURL, numSockets: 2 })
-    } catch {
-      /* 忽略 */
-    }
+    preconnect(this.creds.baseURL)
   }
 
   /** 模型不支持当前推理强度时自动换下一档 */
@@ -440,14 +442,14 @@ export class OpenAIEngine implements Engine {
     const url = new URL(this.creds.baseURL)
     // Gemini 的 OpenAI 兼容接口不一定提供模型列表，改用原生接口，只保留能生成内容的模型
     if (url.host === 'generativelanguage.googleapis.com') {
-      const res = await net.fetch(`${url.origin}/v1beta/models?pageSize=1000`, { headers: { 'x-goog-api-key': this.creds.apiKey } })
+      const res = await pfetch(`${url.origin}/v1beta/models?pageSize=1000`, { headers: { 'x-goog-api-key': this.creds.apiKey } })
       const json = (await res.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[]; error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`)
       return (json.models ?? []).filter((m) => m.supportedGenerationMethods?.includes('generateContent')).map((m) => m.name.replace(/^models\//, ''))
     }
     // Claude 的兼容接口只覆盖对话，模型列表用 Anthropic 原生接口（x-api-key）
     if (url.host === 'api.anthropic.com') {
-      const res = await net.fetch(`${url.origin}/v1/models?limit=1000`, { headers: { 'x-api-key': this.creds.apiKey, 'anthropic-version': '2023-06-01' } })
+      const res = await pfetch(`${url.origin}/v1/models?limit=1000`, { headers: { 'x-api-key': this.creds.apiKey, 'anthropic-version': '2023-06-01' } })
       const json = (await res.json()) as { data?: { id: string }[]; error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`)
       return (json.data ?? []).map((m) => m.id)

@@ -1,0 +1,3 @@
+# 安卓 Gradle 启动脚本：在 Linux / macOS 上要 LF 换行才能执行
+android/gradlew text eol=lf
+*.bat text eol=crlf

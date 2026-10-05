@@ -9,7 +9,8 @@
     "skipLibCheck": true,
     "noEmit": true,
     "composite": true,
-    "paths": { "@shared/*": ["./src/shared/*"] }
+    "resolveJsonModule": true,
+    "paths": { "@shared/*": ["./src/shared/*"], "@core/*": ["./src/core/*"], "@renderer/*": ["./src/renderer/src/*"] }
   },
-  "include": ["src/renderer/**/*", "src/shared/**/*", "src/preload/*.d.ts"]
+  "include": ["src/renderer/**/*", "src/shared/**/*", "src/preload/*.d.ts", "src/core/**/*", "src/mobile/**/*"]
 }

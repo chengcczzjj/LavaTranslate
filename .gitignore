@@ -9,3 +9,12 @@ resources/models/
 
 # 本地测试草稿、截图、回放数据
 .scratch/
+
+# 安卓工程（android/）的本机配置与构建产物
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/.kotlin/
+android/keystore.properties
+__pycache__/

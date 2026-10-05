@@ -7,7 +7,7 @@ import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import type { OcrLine, SettingsPatch, TranslatedBlock } from '../shared/types'
 import type { DisplayCapture } from './capture'
-import type { Emit, Engine, ReplyRequest, TranslateRequest, TranslateResult } from './translator'
+import type { Emit, Engine, ReplyRequest, TranslateRequest, TranslateResult } from '../core/translator'
 
 /** 自测用的回复：逐字流式输出，模拟模型的节奏 */
 async function mockReply(req: ReplyRequest, onText: (d: string) => void, signal: AbortSignal) {
@@ -389,7 +389,7 @@ export class FixtureEngine implements Engine {
   dispose() {}
   reply = mockReply
   async translate(req: TranslateRequest, emit: Emit, signal: AbortSignal): Promise<TranslateResult> {
-    const { BlockParser, userText } = await import('./translator')
+    const { BlockParser, userText } = await import('../core/translator')
     const fx = join(this.root, '.scratch', 'fixtures')
     mkdirSync(fx, { recursive: true })
     writeFileSync(join(fx, `${this.scenario}.prompt.txt`), userText(req))

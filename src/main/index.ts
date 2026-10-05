@@ -9,8 +9,10 @@ import {
   Menu,
   nativeImage,
   nativeTheme,
+  net,
   Notification,
   screen,
+  session,
   shell,
   Tray,
   type Display,
@@ -24,7 +26,6 @@ import {
   providerInfo,
   type CaptureFrame,
   type EngineStatus,
-  type Language,
   type OcrLine,
   type ModelInfo,
   type ReplyEvent,
@@ -39,15 +40,24 @@ import {
   type TranslateRequestMsg
 } from '../shared/types'
 import { captureAll, cropRgba, rgbaToBgra, type DisplayCapture } from './capture'
-import { chatgptSession, detectProvider, findOpenAISources, resolveProvider } from './credentials'
+import { chatgptSession, findOpenAISources, resolveProvider } from './credentials'
+import { detectProvider } from '../core/detect'
+import { langFor } from '../core/lang'
+import { setPlatform } from '../core/platform'
 import { PaddleOcr } from './ocr'
 import { refreshPrices, sortByPrice } from './pricing'
 import { check as checkUpdate, initUpdater, installNow, setAutoUpdate, updateState } from './updater'
 import { settings } from './settings'
-import { OpenAIEngine, TranslateError, type Engine } from './translator'
+import { OpenAIEngine, TranslateError, type Engine } from '../core/translator'
 import { cancelSignIn, listPlanModels, refresh as refreshChatGPT, signIn as signInChatGPT } from './chatgpt'
 import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runReview } from './devtest'
 import { EventEmitter } from 'node:events'
+
+// 模型请求走 Chromium 网络栈（系统代理、HTTP/2）
+setPlatform({
+  fetch: ((input: any, init?: any) => net.fetch(input, init)) as typeof fetch,
+  preconnect: (url) => session.defaultSession.preconnect({ url, numSockets: 2 })
+})
 
 const isDev = !app.isPackaged
 const resources = isDev ? join(__dirname, '../../resources') : process.resourcesPath
@@ -454,16 +464,6 @@ ipcMain.on('translate:start', async (e, msg: TranslateRequestMsg) => {
 // ------------------------------------------------------------------ 回复助手
 const replies = new Map<number, AbortController>()
 
-/** 把模型识别出的语言代码对应到语言表；表里没有的直接用代码与模型给的名字 */
-function langFor(code: string, name?: string): Language {
-  const c = code.toLowerCase()
-  const exact = LANGUAGES.find((l) => l.code.toLowerCase() === c)
-  if (exact) return exact
-  if (c.startsWith('zh')) return LANGUAGES.find((l) => l.code === (/(tw|hk|hant|mo)/.test(c) ? 'zh-Hant' : 'zh-Hans'))!
-  const base = LANGUAGES.find((l) => l.code === c.split('-')[0])
-  return base ?? { code, name: name ?? code, native: name ?? code }
-}
-
 ipcMain.on('reply:start', async (e, msg: ReplyStartMsg) => {
   const sender = e.sender
   const send = (event: ReplyEvent) => {
@@ -772,7 +772,7 @@ ipcMain.handle('engine:test', async () => {
   if (!eng) return { ok: false, message: engineStatus().detail }
   const t0 = Date.now()
   const ctl = new AbortController()
-  // 一张写着 "Hello, world" 的小图走一遍完整流程
+  // 一张写着 "Good morning!" 的小图走一遍完整流程（不用 Hello, world：模型常把它当成代码里的固定写法原样保留）
   const img = nativeImage.createFromPath(join(resources, 'test.png'))
   const size = img.getSize()
   try {
@@ -780,7 +780,7 @@ ipcMain.handle('engine:test', async () => {
     await eng.translate(
       {
         image: { base64: img.toPNG().toString('base64'), mediaType: 'image/png', width: size.width, height: size.height },
-        lines: [{ id: 1, text: 'Hello, world', score: 1, box: { x: 8, y: 8, w: size.width - 16, h: size.height - 16 } }],
+        lines: [{ id: 1, text: 'Good morning!', score: 1, box: { x: 8, y: 8, w: size.width - 16, h: size.height - 16 } }],
         target: LANGUAGES.find((l) => l.code === s.targetLang) ?? LANGUAGES[0],
         styleHint: ''
       },
@@ -789,7 +789,7 @@ ipcMain.handle('engine:test', async () => {
       },
       ctl.signal
     )
-    return { ok: true, message: `「Hello, world」→「${got}」 · ${((Date.now() - t0) / 1000).toFixed(1)}s` }
+    return { ok: true, message: `「Good morning!」→「${got}」 · ${((Date.now() - t0) / 1000).toFixed(1)}s` }
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) }
   }
