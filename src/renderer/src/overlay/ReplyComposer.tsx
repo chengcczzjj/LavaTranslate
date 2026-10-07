@@ -44,7 +44,7 @@ const MARK = '⟲'
 const HISTORY_KEY = 'lens.reply.history'
 const LAST_TO_KEY = 'lens.reply.lastTo'
 /** 停顿多久才开始翻译：不追求实时，等一句话写完再翻（Enter 立即翻译） */
-const DEBOUNCE = { reply: 1100, quick: 1400 }
+const DEBOUNCE = { reply: 1800, quick: 2200 }
 let seq = 0
 
 export function langBase(code: string) {
