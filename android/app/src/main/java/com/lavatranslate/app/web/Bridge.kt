@@ -87,6 +87,7 @@ object FrameStore {
 fun createWebView(ctx: Context, page: String, transparent: Boolean): WebView {
     // 放在这里而不是 Application.onCreate：它会载入整个 WebView 引擎，只开着无障碍截屏的进程用不到
     WebView.setWebContentsDebuggingEnabled(com.lavatranslate.app.BuildConfig.DEBUG)
+    com.lavatranslate.app.LavaApp.instance.webEngineLoaded = true
     val assets = WebViewAssetLoader.AssetsPathHandler(ctx)
     val loader = WebViewAssetLoader.Builder()
         // 路径相对于前缀：/web/x → assets/web/x

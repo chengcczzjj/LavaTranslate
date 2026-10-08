@@ -13,6 +13,10 @@ class LavaApp : Application() {
     val ocr by lazy { PaddleOcr(this) }
     val net by lazy { NetBridge() }
 
+    /** 这个进程里创建过 WebView（网页引擎已载入，之后即使网页都销毁了也还占着内存） */
+    @Volatile
+    var webEngineLoaded = false
+
     /** OCR、编码图片等耗时工作 */
     val worker = Executors.newFixedThreadPool(2)
 
@@ -49,7 +53,8 @@ class LavaApp : Application() {
 
     /**
      * 退出后结束进程：WebView 引擎、OCR 运行库占的几百 MB 内存要进程结束才会还给系统
-     * （开着免授权截屏时，系统会立刻以最小的样子重新拉起进程，只带无障碍服务）。正在检查、下载或安装更新时不结束。
+     * （开着无障碍时，系统会立刻以最小的样子重新拉起进程，只带无障碍服务）。正在检查、下载或安装更新、
+     * 或翻译界面正开着时不结束。
      */
     fun endProcessSoon() {
         main.postDelayed({
@@ -57,7 +62,8 @@ class LavaApp : Application() {
             val updating = s == "checking" || s == "downloading" || s == "installing"
             // 这期间又打开了悬浮球或设置页：不结束
             val settingsOpen = MainActivity.instance?.isFinishing == false
-            if (!updating && FloatService.instance == null && !settingsOpen) android.os.Process.killProcess(android.os.Process.myPid())
+            val translating = com.lavatranslate.app.capture.LavaAccessibilityService.instance?.active == true
+            if (!updating && FloatService.instance == null && !settingsOpen && !translating) android.os.Process.killProcess(android.os.Process.myPid())
         }, 800)
     }
 

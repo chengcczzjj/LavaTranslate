@@ -106,12 +106,14 @@ class SettingsStore(ctx: Context) {
             .put("replyAssist", true)
             .put("replyTone", "auto")
             .put("styleHint", "")
-            // projection：每次会话授权一次（系统截屏授权）；accessibility：无障碍服务截屏，开一次一直有效
-            .put("captureMode", "projection")
+            // accessibility：无障碍模式（推荐，Android 11+），开一次一直有效、不常驻后台；projection：悬浮窗 + 系统截屏授权
+            .put("captureMode", if (android.os.Build.VERSION.SDK_INT >= 30) "accessibility" else "projection")
             .put("bubbleEnabled", false)
             .put("bubbleSide", "right")
             .put("bubbleY", 0.38)
             .put("firstRunDone", false)
+            // 无障碍模式第一次连上时按是否有系统无障碍按钮决定要不要显示悬浮球（只做一次）
+            .put("a11yIntroDone", false)
             // 应用内更新：自动检查（Wi-Fi 下自动下载）、上次检查时间
             .put("autoUpdate", true)
             .put("updateCheckedAt", 0)

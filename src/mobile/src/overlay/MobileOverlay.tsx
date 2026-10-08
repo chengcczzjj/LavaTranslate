@@ -16,6 +16,10 @@ import { installReplyHost } from './replyHost'
 
 interface OpenMsg {
   mode: 'translate' | 'quick' | 'menu'
+  /** 宿主：a11y = 无障碍服务（推荐，不常驻）；float = 截屏授权模式的悬浮球服务 */
+  host: 'a11y' | 'float'
+  /** 悬浮球是否显示（无障碍模式可以只用系统无障碍按钮、快捷开关） */
+  bubble: boolean
   density: number
   orb: { x: number; y: number; size: number }
   side: 'left' | 'right'
@@ -246,6 +250,9 @@ export function MobileOverlay() {
     [reset, startTranslate]
   )
 
+  const closeRef = useRef(close)
+  closeRef.current = close
+
   // 返回键：先收起最上层的东西
   const back = useRef<() => void>(() => {})
   back.current = () => {
@@ -261,6 +268,8 @@ export function MobileOverlay() {
     const offs = [
       on<OpenMsg>('open', (o) => void open(o)),
       on('back', () => back.current()),
+      // 无障碍按钮再点一下：直接关掉
+      on('dismiss', () => void closeRef.current()),
       on<{ top: number; bottom: number; ime: number }>('insets', (v) => setInsets(v)),
     ]
     const resize = () => {
@@ -361,8 +370,9 @@ export function MobileOverlay() {
     }
   }
 
+  // 无障碍模式没有常驻后台、无需退出：「退出」换成隐藏悬浮球（仍可用系统无障碍按钮、快捷开关翻译）
   const idleItems: OrbItem[] = [
-    { id: 'quit', label: '退出', icon: <Power size={18} />, danger: true },
+    sess?.host === 'a11y' ? { id: 'quit', label: '隐藏悬浮球', icon: <EyeOff size={18} /> } : { id: 'quit', label: '退出', icon: <Power size={18} />, danger: true },
     { id: 'settings', label: '设置', icon: <Settings2 size={19} /> },
     { id: 'lang', label: `译成${LANGUAGES.find((l) => l.code === target)?.name ?? target}`, icon: <Languages size={19} /> },
     { id: 'quick', label: '快捷回复', icon: <MessageSquareReply size={19} /> }

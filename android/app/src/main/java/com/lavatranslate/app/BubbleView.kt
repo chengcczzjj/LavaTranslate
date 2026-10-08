@@ -35,18 +35,19 @@ import kotlin.math.roundToInt
 class BubbleView(
     ctx: Context,
     private val wm: WindowManager,
+    windowType: Int,
     private val onTap: () -> Unit,
     private val onLongPress: () -> Unit,
     private val onMoved: (side: String, yFraction: Double) -> Unit
 ) : View(ctx) {
     private val density = resources.displayMetrics.density
-    val orb = (52 * density).roundToInt()
-    private val pad = (14 * density).roundToInt() // 留给阴影
-    private val margin = (6 * density).roundToInt()
+    val orb = (ORB_DP * density).roundToInt()
+    private val pad = (PAD_DP * density).roundToInt() // 留给阴影
+    private val margin = (MARGIN_DP * density).roundToInt()
 
     val params = WindowManager.LayoutParams(
         orb + pad * 2, orb + pad * 2,
-        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        windowType,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
         PixelFormat.TRANSLUCENT
     ).apply {
@@ -156,12 +157,9 @@ class BubbleView(
         if (isAttachedToWindow) wm.updateViewLayout(this, params)
     }
 
-    private fun edgeX(side: String, screenW: Int) = if (side == "left") margin - pad else screenW - margin - orb - pad
+    private fun edgeX(side: String, screenW: Int) = edgeX(side, screenW, orb, pad, margin)
 
-    private fun clampY(y: Int, screenH: Int): Int {
-        val top = Screen.content(context, Screen.size(context).x, screenH).top
-        return y.coerceIn(top + margin - pad, screenH - Screen.navBottom(context) - orb - margin - pad)
-    }
+    private fun clampY(y: Int, screenH: Int) = clampY(context, y, screenH, orb, pad, margin)
 
     /** 球在屏幕上的位置（物理像素） */
     fun orbRect() = android.graphics.Rect(params.x + pad, params.y + pad, params.x + pad + orb, params.y + pad + orb)
@@ -269,6 +267,31 @@ class BubbleView(
                 if (isAttachedToWindow) wm.updateViewLayout(this@BubbleView, params)
             }
             start()
+        }
+    }
+
+    companion object {
+        private const val ORB_DP = 52
+        private const val PAD_DP = 14
+        private const val MARGIN_DP = 6
+
+        private fun edgeX(side: String, screenW: Int, orb: Int, pad: Int, margin: Int) = if (side == "left") margin - pad else screenW - margin - orb - pad
+
+        private fun clampY(ctx: Context, y: Int, screenH: Int, orb: Int, pad: Int, margin: Int): Int {
+            val top = Screen.content(ctx, Screen.size(ctx).x, screenH).top
+            return y.coerceIn(top + margin - pad, screenH - Screen.navBottom(ctx) - orb - margin - pad)
+        }
+
+        /** 悬浮球没显示时（用无障碍按钮、快捷开关打开），翻译界面里的球放在它平时停靠的位置 */
+        fun restingRect(ctx: Context, side: String, yFraction: Double): android.graphics.Rect {
+            val d = ctx.resources.displayMetrics.density
+            val orb = (ORB_DP * d).roundToInt()
+            val pad = (PAD_DP * d).roundToInt()
+            val margin = (MARGIN_DP * d).roundToInt()
+            val size = Screen.size(ctx)
+            val x = edgeX(side, size.x, orb, pad, margin) + pad
+            val y = clampY(ctx, (yFraction * size.y).roundToInt() - pad, size.y, orb, pad, margin) + pad
+            return android.graphics.Rect(x, y, x + orb, y + orb)
         }
     }
 }

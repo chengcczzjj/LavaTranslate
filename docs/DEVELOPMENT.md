@@ -118,26 +118,44 @@ src/core/        两端共用、与平台无关：translator（提示词、JSONL
                  网络由宿主注入（platform.ts）：桌面用 Electron net.fetch，安卓用原生 OkHttp 代发
 src/mobile/      手机版网页：overlay.html（全屏翻译）、settings.html（设置），vite.mobile.config.ts 构建到 out/mobile
 android/         Kotlin 原生壳（Gradle）：
-  FloatService     前台服务：悬浮球、全屏翻译窗口、截屏 → OCR → 交给网页
-  BubbleView       原生悬浮球（贴边、拖动、单击翻译、长按打开菜单）
-  OverlayHost      全屏覆盖窗口 + 常驻 WebView；平时不挂到屏幕上（网页暂停），用时先透明挂上、网页画好截图再显示
-  capture/         截屏：ProjectionCapturer（系统截屏授权）、A11yCapturer（无障碍免授权，Android 11+）
+  ScreenHost       翻译界面的宿主（两种模式共用）：悬浮球、全屏翻译窗口、截屏 → OCR → 交给网页，空闲释放
+  capture/LavaAccessibilityService
+                   无障碍模式（推荐，Android 11+）：悬浮球和翻译界面都是无障碍图层，接系统无障碍按钮 / 音量键快捷方式，
+                   takeScreenshot 截屏；没有前台服务、通知，不需要悬浮窗权限
+  FloatService     截屏授权模式（备用）：前台服务 + 悬浮窗 + 系统截屏授权（ProjectionCapturer）
+  BubbleView       原生悬浮球（贴边、拖动、单击翻译、长按打开菜单）；窗口类型由宿主决定
+  OverlayHost      全屏覆盖窗口 + WebView：用时才创建；平时不挂到屏幕上（网页暂停），用时先透明挂上、网页画好截图再显示
+  TranslateTileService / QuickReplyTileService
+                   下拉快捷开关「翻译屏幕」「快捷回复」：无障碍模式由服务自己收起通知栏（全局操作），否则经由透明中转页
   ocr/PaddleOcr    ocr.ts 的逐行移植（同一套 PP-OCRv6 模型，ONNX Runtime CPU 后端）
   web/Bridge       原生 ↔ 网页消息通道（WebMessageListener）；截图像素走 /frame/<id> 直接取，不走消息
   web/NetBridge    网页的模型请求由 OkHttp 代发并流式回传（WebView 里直接请求会被跨域拦截）
 ```
 
-- **截屏**：系统截屏授权在 Android 14 起每个会话都要用户同意一次，Android 15 QPR1 起锁屏会结束会话、状态栏有共享标识；
-  会话期间虚拟显示器平时不接画面（`setSurface(null)`），截屏时才接上取一帧。无障碍模式开一次一直有效，但开启步骤多（侧载应用还要先「允许受限制的设置」）。
+- **两种模式**（`captureMode`）：无障碍模式开一次一直有效，开机由系统拉起；系统截屏授权在 Android 14 起每个会话都要用户同意一次，
+  Android 15 QPR1 起锁屏会结束会话，授权期间状态栏的共享计时每秒刷新一次（静止画面上每分钟多合成约 60 帧，屏幕降不到最低刷新率），
+  所以关掉翻译 5 分钟后主动结束会话。会话期间虚拟显示器平时不接画面（`setSurface(null)`），截屏时才接上取一帧。
+- **无障碍按钮**：服务带 `flagRequestAccessibilityButton` 时，Android 12+ 的无障碍页面只有「快捷方式」开关（打开它就是开启服务，
+  默认选无障碍按钮）；点按钮、音量键快捷方式都走 `AccessibilityButtonCallback.onClicked`。全面屏手势下的悬浮按钮
+  `isAccessibilityButtonAvailable` 总是 false，所以用可读的 `accessibility_button_targets` / `accessibility_shortcut_target_service` 判断有没有指给本应用。
+  第一次开启时如果系统给了无障碍按钮，就先藏起自己的悬浮球（`a11yIntroDone`），免得两个球挤在一起。
+  翻译界面是全屏不透明的无障碍图层，会盖住系统按钮，所以翻译时用返回键或熔岩球关闭。
+  侧载应用开启无障碍要先解除「受限制的设置」（vivo 是「风险受限 → 解除限制」，同时解除悬浮窗权限的限制）。
+  调研过「默认数字助理」入口：Android 17 实测第三方助理拿不到截图和屏幕文字，vivo 上也藏起了该设置，不可用。
 - **识别范围**：去掉顶部状态栏；底部不去（Android 15 起应用都画到导航条下面）。
-- **OCR 性能**：检测图最长边 1280（手机截图字大，够用）；首次推理前预热。XNNPACK 后端在 ORT 1.30 会崩溃，NNAPI 已弃用，只用 CPU。
+- **OCR 性能**：检测图最长边 1280（手机截图字大，够用）；用时才载入，不预热（预热要多跑一遍完整识别）。XNNPACK 后端在 ORT 1.30 会崩溃，NNAPI 已弃用，只用 CPU。
+  ORT 内存池开着：识别后按最大输入尺寸留着约 500 MB，但关掉它识别慢约 1.7 倍、CPU 多用约 50%（模拟器实测，`ocrBench` 的 `arena` 参数可复测），所以开着、用完整个释放。
   模拟器（x86_64，4 线程）上 20 行聊天截图检测约 270 ms、识别约 600 ms；真机待测。
 - **界面**：翻译时原生悬浮球藏起，由网页里一模一样的球接替（单击或返回键退出、长按打开菜单、拖动换边）；
   不在翻译时长按悬浮球，同一个网页以 menu 模式打开（退出 / 设置 / 译成 / 快捷回复，常用的在最下面）。回复助手复用桌面组件（`window.lens` 由 `replyHost.ts` 在网页内实现）。
 - **省电**：闲置时进程几乎不占 CPU（模拟器上实测每分钟约 40 ms，`.scratch/idle-cpu.sh`、`idle-threads.sh` 可复测）：
   网页不在屏幕上时 `onPause` + `pauseTimers`（`LavaApp.webVisible`）；无障碍服务不订阅任何界面事件；ONNX Runtime 关掉线程自旋（每次识别少用约 20% CPU，速度不变）。
-  「退出」（菜单、通知、设置页）停掉前台服务并结束进程，WebView 引擎和 OCR 运行库的内存才会还给系统；开着无障碍时系统会以只带无障碍服务的小进程（约 40 MB）重新拉起。
-  长时间不用（`idleExit` 分钟，默认 60，`AlarmManager.setWindow` 允许推迟 10 分钟）或系统打开省电模式（`saverExit`）时自动退出，留一条点了就重新打开的通知。
+  内存（模拟器实测）：翻译一次后进程约 680 MB PSS（OCR 内存池约 500 MB）+ 网页渲染进程约 250 MB。`ScreenHost` 在翻译界面关掉 3 分钟后（或关屏时）
+  销毁 WebView、关掉 OCR 会话，降到约 200 MB、渲染进程退出；无障碍模式下关屏时再结束进程（网页引擎载入后只有结束进程才释放），
+  系统立刻以只带无障碍服务的小进程（约 45 MB）重新拉起，悬浮球自动回来。代价是之后第一次翻译要重新载入：模拟器上界面出现约 0.8 s（平时约 0.4 s）。
+  设置页 `autoRemoveFromRecents`：不留在最近任务里，免得「一键清理」把应用强行停止（强行停止会连带关掉无障碍）。
+  截屏授权模式：「退出」（菜单、通知、设置页）停掉前台服务并结束进程；长时间不用（`idleExit` 分钟，默认 60，`AlarmManager.setWindow` 允许推迟 10 分钟）
+  或系统打开省电模式（`saverExit`）时自动退出，留一条点了就重新打开的通知。
   `WebView.setWebContentsDebuggingEnabled` 会载入整个 WebView 引擎，所以放在 `createWebView` 里，不放 `Application.onCreate`。
 
 编译环境：JDK 17+、Android SDK（platform 37、build-tools 37），在 `android/local.properties` 写 `sdk.dir`。先 `npm install`、`npm run models`。
@@ -152,7 +170,7 @@ cd android
   应用内更新要求每个版本签名相同，**密钥和密码丢了就再也发不了能覆盖安装的更新**，务必备份。没有这个文件时正式版退回调试签名（只能自己装）。
 - **应用内更新**（`update/Updater.kt`）：读 `https://github.com/<owner>/<repo>/releases/latest/download/latest-android.json`
   （版本号、versionCode、APK 地址、大小、SHA-256、更新说明），有新版本就下载（断点续传、校验 SHA-256），交给系统安装器。
-  打开应用、悬浮球开着时每天自动检查；Wi-Fi 下自动下载好并发通知，流量下只提示。第一次要允许「安装未知应用」并确认一次；
+  打开应用、截屏授权模式的悬浮球开着时、无障碍模式每次用完时，至多每天自动检查一次；Wi-Fi 下自动下载好并发通知，流量下只提示。第一次要允许「安装未知应用」并确认一次；
   装过一次之后应用就是自己的安装来源，之后的更新不再弹确认（`UPDATE_PACKAGES_WITHOUT_USER_ACTION`，Android 12+）。
   装好后自动恢复悬浮球、回到设置页（`ReplacedReceiver`）。
 - **发版**：`npm run release` 同时打安卓正式包，把 `LavaTranslate-Android-<版本>.apk` 和 `latest-android.json` 一起传到同一个 Release

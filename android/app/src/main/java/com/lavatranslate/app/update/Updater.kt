@@ -309,11 +309,11 @@ class ReplacedReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         File(ctx.cacheDir, "updates").deleteRecursively()
         val app = LavaApp.instance
-        if (app.settings.bool("bubbleEnabled") && Settings.canDrawOverlays(ctx)) runCatching { FloatService.start(ctx) }
+        if (FloatService.wanted(ctx)) runCatching { FloatService.start(ctx) }
         // 用户在设置页点的更新：装好后回到设置页（有「显示在其他应用上层」权限才允许从后台打开界面）
         if (app.settings.bool("updateRelaunch")) {
             app.settings.update(JSONObject().put("updateRelaunch", false))
-            if (Settings.canDrawOverlays(ctx)) runCatching {
+            if (Settings.canDrawOverlays(ctx) || com.lavatranslate.app.capture.LavaAccessibilityService.enabled(ctx)) runCatching {
                 ctx.startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }

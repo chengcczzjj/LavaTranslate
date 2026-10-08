@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import {
+  Accessibility,
   AlertCircle,
   BatteryCharging,
   BatteryLow,
@@ -11,6 +12,7 @@ import {
   KeyRound,
   Languages,
   MessageSquareReply,
+  PanelTop,
   Power,
   RefreshCw,
   Search,
@@ -38,6 +40,10 @@ interface Status {
   a11ySupported: boolean
   a11yEnabled: boolean
   a11yConnected: boolean
+  /** 系统无障碍按钮（或音量键快捷方式）已指给 LavaTranslate */
+  a11yButton: boolean
+  /** 「同时按住两个音量键」快捷方式已指给 LavaTranslate */
+  a11yVolume: boolean
   running: boolean
   projection: boolean
   battery: boolean
@@ -65,7 +71,7 @@ export function MobileSettings() {
     void call<Status>('hello').then(setSt)
     void call<S>('getSettings').then(setS)
     void call<UpdateInfo>('update.state').then(setUpd)
-    const offs = [on<Status>('status', setSt), on<typeof insets>('insets', setInsets), on<UpdateInfo>('update', setUpd)]
+    const offs = [on<Status>('status', setSt), on<S>('settings', setS), on<typeof insets>('insets', setInsets), on<UpdateInfo>('update', setUpd)]
     return () => offs.forEach((f) => f())
   }, [])
 
@@ -117,12 +123,12 @@ export function MobileSettings() {
         )}
       </AnimatePresence>
 
-      <BubbleCard s={s} st={st} update={update} />
-      <CaptureCard s={s} st={st} update={update} />
+      {s.captureMode === 'accessibility' ? <A11yCard s={s} st={st} update={update} /> : <BubbleCard s={s} st={st} update={update} />}
+      <ModeCard s={s} st={st} update={update} />
       <ServiceCard s={s} update={update} openModels={() => setModelSheet(true)} />
       <PrefsCard s={s} update={update} />
       <PowerCard s={s} st={st} update={update} />
-      <KeepAliveCard st={st} />
+      <KeepAliveCard s={s} st={st} />
       <UpdateCard s={s} u={upd} update={update} />
 
       <footer className="s-foot">
@@ -137,10 +143,130 @@ export function MobileSettings() {
   )
 }
 
-// ------------------------------------------------------------------ 悬浮球
+// ------------------------------------------------------------------ 无障碍模式（推荐）
+// 开一次一直可用：悬浮球和翻译界面都由无障碍服务显示，不需要悬浮窗权限、截屏授权和常驻通知
+function A11yCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => Promise<void> }) {
+  const ready = st.a11yConnected
+  const vivo = /vivo|iqoo/i.test(st.brand)
+  const [tile, setTile] = useState<Record<string, string>>({})
+
+  const addTile = async (quick: boolean) => {
+    const id = quick ? 'quick' : 'translate'
+    try {
+      const r = await call<string>('addTile', { quick })
+      setTile((t) => ({ ...t, [id]: r === 'declined' ? '' : 'added' }))
+    } catch {
+      setTile((t) => ({ ...t, [id]: 'manual' }))
+    }
+  }
+
+  const line = ready ? '已就绪 · 不常驻后台，不用授权截屏' : st.a11yEnabled ? '无障碍已打开，正在连接…（一直这样的话，到无障碍里关掉再打开一次）' : '还差一步：在系统「无障碍」里打开 LavaTranslate'
+
+  return (
+    <section className={`s-card s-hero${ready ? ' on' : ''}`}>
+      <div className="s-hero-top">
+        <div className={`s-orb${ready ? ' on' : ''}`}>
+          <OrbGlyph />
+        </div>
+        <div className="s-hero-text">
+          <div className="s-hero-title">屏幕翻译</div>
+          <div className="s-hero-line">{line}</div>
+        </div>
+      </div>
+
+      {!ready && (
+        <div className="s-enable">
+          <ol className="s-enable-steps">
+            <li>
+              找到 <b>LavaTranslate 屏幕翻译</b>，打开开关（有的手机这里只有「快捷方式」开关，打开它就是开启）
+            </li>
+            {st.sdk >= 33 && (
+              <li>
+                {vivo ? (
+                  <>
+                    弹出「风险受限」时点 <b>解除限制</b>（需要输入锁屏密码）
+                  </>
+                ) : (
+                  <>
+                    提示「受限制的设置」时：先到 <button onClick={() => void call('openAppDetails')}>应用信息</button> → 右上角 ⋮ → <b>允许受限制的设置</b>，再回来打开
+                  </>
+                )}
+              </li>
+            )}
+            <li>
+              快捷方式选 <b>无障碍按钮</b>：屏幕边上会出现系统的小按钮，点一下就翻译（也可以选同时按住两个音量键）
+            </li>
+          </ol>
+          <button className="s-btn primary wide" onClick={() => void call('openAccessibility')}>
+            <Accessibility size={16} /> 去无障碍里开启
+          </button>
+          <p className="s-small">系统会提示该权限可以控制设备。LavaTranslate 只在你点击时截一次屏用于翻译，不读取界面内容、不执行任何操作。</p>
+        </div>
+      )}
+
+      {ready && (
+        <div className="s-ways">
+          <div className="s-ways-title">从这些地方唤出翻译</div>
+          <Way icon={<span className="s-way-orb"><OrbGlyph /></span>} title="悬浮球" desc="贴在屏幕边上，单击翻译，长按打开菜单（快捷回复、译成、设置）">
+            <Switch on={s.bubbleEnabled} onClick={() => void update({ bubbleEnabled: !s.bubbleEnabled })} />
+          </Way>
+          <Way
+            icon={<Accessibility size={18} />}
+            title="系统无障碍按钮"
+            desc={
+              st.a11yButton
+                ? `由系统显示，不用时自动变淡；点一下翻译，按返回键关闭${st.a11yVolume ? '。也可以同时按住两个音量键' : ''}`
+                : st.a11yVolume
+                  ? '已设为同时按住两个音量键。也可以在 LavaTranslate 的无障碍页面「快捷方式」里加上「无障碍按钮」'
+                  : '由系统显示，不用时自动变淡，可以代替悬浮球。在 LavaTranslate 的无障碍页面打开「快捷方式」，选「无障碍按钮」或「同时按住两个音量键」'
+            }
+          >
+            {st.a11yButton || st.a11yVolume ? (
+              <span className="s-chip ok">
+                <Check size={12} strokeWidth={3} /> 已设置
+              </span>
+            ) : (
+              <button className="s-btn sm" onClick={() => void call('openAccessibility')}>
+                去设置
+              </button>
+            )}
+          </Way>
+          <Way icon={<PanelTop size={18} />} title="下拉快捷开关" desc="在任何应用里下拉通知栏，点一下就翻译当前屏幕，或打开快捷回复">
+            <></>
+          </Way>
+          <div className="s-way-btns">
+            {(['translate', 'quick'] as const).map((id) => (
+              <button key={id} className="s-btn sm" disabled={tile[id] === 'added'} onClick={() => void addTile(id === 'quick')}>
+                {tile[id] === 'added' ? <Check size={13} strokeWidth={3} /> : id === 'quick' ? <MessageSquareReply size={14} /> : <Languages size={14} />}
+                {tile[id] === 'added' ? '已添加' : id === 'quick' ? '添加「快捷回复」' : '添加「翻译屏幕」'}
+              </button>
+            ))}
+          </div>
+          {(tile.translate === 'manual' || tile.quick === 'manual') && (
+            <p className="s-small s-way-note">这台手机需要手动添加：下拉通知栏 → 点编辑（铅笔图标）→ 把「翻译屏幕」「快捷回复」拖进上方</p>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function Way({ icon, title, desc, children }: { icon: React.ReactNode; title: string; desc: string; children: React.ReactNode }) {
+  return (
+    <div className="s-way">
+      <span className="s-way-icon">{icon}</span>
+      <div className="s-way-text">
+        <div className="s-toggle-title">{title}</div>
+        <div className="s-small">{desc}</div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------ 截屏授权模式的悬浮球
 function BubbleCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => Promise<void> }) {
   const on = s.bubbleEnabled && st.running
-  const a11y = s.captureMode === 'accessibility'
   const toggle = async () => {
     if (on) {
       await call('stopBubble')
@@ -153,13 +279,9 @@ function BubbleCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) =>
   }
   const line = !on
     ? '打开后，在任何应用里点悬浮球就能翻译整个屏幕'
-    : a11y
-      ? st.a11yConnected
-        ? '已就绪 · 免授权截屏'
-        : '免授权截屏还没开启，见下方「截屏方式」'
-      : st.projection
-        ? '已就绪 · 截屏已授权'
-        : '点悬浮球时会先请你授权截屏（锁屏后需要重新授权）'
+    : st.projection
+      ? '已就绪 · 截屏已授权'
+      : '点悬浮球时会先请你授权截屏（锁屏或几分钟不用后需要重新授权）'
 
   return (
     <section className={`s-card s-hero${on ? ' on' : ''}`}>
@@ -178,7 +300,7 @@ function BubbleCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) =>
         {st.sdk >= 33 && (
           <Check2 ok={st.notifications} label="通知" hint="显示「悬浮球已开启」的常驻通知，可以从通知栏翻译、退出" action="允许" onAction={() => void call('requestNotifications')} />
         )}
-        {on && !a11y && !st.projection && <Check2 ok={false} label="截屏授权" hint="授权一次后一直有效，直到锁屏或你在状态栏停止共享" action="授权" onAction={() => void call('authorize')} />}
+        {on && !st.projection && <Check2 ok={false} label="截屏授权" hint="授权后一直有效，直到锁屏、几分钟不用，或你在状态栏停止共享" action="授权" onAction={() => void call('authorize')} />}
       </div>
       {on && (
         <div className="s-tip">
@@ -190,25 +312,25 @@ function BubbleCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) =>
   )
 }
 
-// ------------------------------------------------------------------ 截屏方式
-function CaptureCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => Promise<void> }) {
+// ------------------------------------------------------------------ 启动方式
+function ModeCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => Promise<void> }) {
   const modes = [
+    {
+      id: 'accessibility' as const,
+      title: '无障碍',
+      tag: '推荐',
+      desc: '在系统「无障碍」里打开一次，之后一直可用：不需要悬浮窗权限和截屏授权，没有常驻通知，开机自动就绪，不用时不在后台运行。'
+    },
     {
       id: 'projection' as const,
       title: '截屏授权',
-      tag: '推荐',
-      desc: '系统的屏幕共享授权：开启悬浮球时点一次「开始」。锁屏后系统会结束授权，解锁后第一次翻译要再点一次；授权期间状态栏会显示共享标识。'
-    },
-    {
-      id: 'accessibility' as const,
-      title: '免授权（无障碍）',
       tag: '',
-      desc: '在系统「无障碍」里打开一次，之后一直有效：不弹授权、没有共享标识、锁屏也不失效。系统会提示该权限可以控制设备，LavaTranslate 只用它截屏。'
+      desc: '悬浮窗 + 系统的屏幕共享授权：悬浮球开着时有常驻通知；锁屏或几分钟不用后授权会结束，下次翻译要再点一次「开始」。'
     }
   ]
   return (
     <section className="s-card">
-      <h2>截屏方式</h2>
+      <h2>启动方式</h2>
       <div className="s-modes">
         {modes.map((m) => {
           const disabled = m.id === 'accessibility' && !st.a11ySupported
@@ -226,22 +348,6 @@ function CaptureCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) =
           )
         })}
       </div>
-      {s.captureMode === 'accessibility' && st.a11ySupported && (
-        <div className="s-a11y">
-          <Check2
-            ok={st.a11yConnected}
-            label={st.a11yConnected ? '无障碍已开启' : st.a11yEnabled ? '无障碍已打开，正在连接…' : '无障碍未开启'}
-            hint="系统设置 → 无障碍 → 已下载的应用 → LavaTranslate 免授权截屏"
-            action="去开启"
-            onAction={() => void call('openAccessibility')}
-          />
-          {!st.a11yConnected && st.sdk >= 33 && (
-            <p className="s-small">
-              开关是灰色、提示「受限制的设置」时：先到 <button onClick={() => void call('openAppDetails')}>应用信息</button> → 右上角 ⋮ →「允许受限制的设置」，再回来打开。
-            </p>
-          )}
-        </div>
-      )}
     </section>
   )
 }
@@ -663,6 +769,15 @@ const IDLE_EXIT = [
 ]
 
 function PowerCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => Promise<void> }) {
+  if (s.captureMode === 'accessibility')
+    return (
+      <section className="s-card">
+        <h2>省电</h2>
+        <p className="s-small s-note">
+          无障碍模式不在后台运行：没有前台服务和常驻通知，不用时不截屏、不联网。翻译界面和文字识别模型用时才载入，关掉 3 分钟后释放，不长期占着内存。
+        </p>
+      </section>
+    )
   return (
     <section className="s-card">
       <h2>省电</h2>
@@ -687,7 +802,9 @@ function PowerCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => 
         </div>
         <Switch on={s.saverExit} onClick={() => void update({ saverExit: !s.saverExit })} />
       </div>
-      <p className="s-small s-power-note">悬浮球不用时不截屏、不联网，界面也会暂停，几乎不耗电。退出后点 LavaTranslate 图标，或下拉快捷开关里的「翻译屏幕」，就能重新打开。</p>
+      <p className="s-small s-power-note">
+        悬浮球不用时不截屏、不联网，界面也会暂停；关掉翻译 5 分钟后结束截屏授权、释放翻译界面和文字识别模型。想更省电，可以换成上面的「无障碍」启动方式。
+      </p>
       {st.running && (
         <button className="s-btn s-quit" onClick={() => void call('quitApp')}>
           <Power size={14} /> 立即退出 LavaTranslate
@@ -721,12 +838,14 @@ const BRAND_TIPS: { match: RegExp; name: string; steps: string[] }[] = [
   }
 ]
 
-function KeepAliveCard({ st }: { st: Status }) {
+function KeepAliveCard({ s, st }: { s: S; st: Status }) {
   const tip = BRAND_TIPS.find((b) => b.match.test(st.brand))
+  const a11y = s.captureMode === 'accessibility'
   return (
     <section className="s-card">
-      <h2>让悬浮球不被系统清理</h2>
-      <Check2 ok={st.battery} label="不受电池优化限制" hint="否则系统可能在后台关掉悬浮球" action="去设置" onAction={() => void call('requestBattery')} />
+      <h2>{a11y ? '防止无障碍被系统关掉' : '让悬浮球不被系统清理'}</h2>
+      {a11y && <p className="s-small s-note">部分手机「一键清理」后台时会连带关掉无障碍，下面几项可以避免。它们只是不让系统强行结束 LavaTranslate，不用时它本来就不运行，不会因此多耗电。</p>}
+      <Check2 ok={st.battery} label="不受电池优化限制" hint={a11y ? '否则系统可能在清理后台时关掉无障碍' : '否则系统可能在后台关掉悬浮球'} action="去设置" onAction={() => void call('requestBattery')} />
       {tip && (
         <div className="s-brand">
           <div className="s-brand-title">

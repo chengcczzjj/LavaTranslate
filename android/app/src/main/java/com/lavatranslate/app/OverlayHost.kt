@@ -18,12 +18,13 @@ import com.lavatranslate.app.web.createWebView
 import org.json.JSONObject
 
 /**
- * 全屏翻译界面：一个覆盖全屏的窗口，里面是常驻（预热好）的 WebView（overlay.html）。
+ * 全屏翻译界面：一个覆盖全屏的窗口，里面是 WebView（overlay.html）。窗口类型由宿主决定：
+ * 无障碍图层（无障碍服务）或悬浮窗（悬浮球服务）。用时才创建，用完一段时间后由 [ScreenHost] 释放。
  * 平时不挂到屏幕上（透明的全屏窗口也会让部分应用认为被遮挡），网页也暂停着；要用时先以透明度 0 挂上，
  * 网页把截图画好后通知 shown，再变为可见——看起来和原来的屏幕完全一样，然后译文就地浮现。
  */
 @SuppressLint("ViewConstructor")
-class OverlayHost(ctx: Context, private val wm: WindowManager, handle: (String, JSONObject, Bridge.Reply) -> Unit) {
+class OverlayHost(ctx: Context, private val wm: WindowManager, private val windowType: Int, handle: (String, JSONObject, Bridge.Reply) -> Unit) {
     private val density = ctx.resources.displayMetrics.density
     private var backCallback: Any? = null
 
@@ -76,7 +77,7 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, handle: (String, 
 
     private fun params(show: Boolean) = WindowManager.LayoutParams(
         WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        windowType,
         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
             (if (show) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE),
@@ -126,5 +127,12 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, handle: (String, 
         visible = false
         // 不在屏幕上时暂停网页，不占 CPU
         LavaApp.instance.webVisible(web, false)
+    }
+
+    /** 释放网页（几百 MB 内存）；之后这个对象不能再用 */
+    fun destroy() {
+        detach()
+        LavaApp.instance.webGone(web)
+        web.destroy()
     }
 }

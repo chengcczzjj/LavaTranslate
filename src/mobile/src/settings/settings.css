@@ -922,3 +922,117 @@ body {
 .s-langs + .s-small {
   margin: 8px 2px 0;
 }
+
+/* ---------------------------------------------------------------- 无障碍模式 */
+.s-note {
+  margin: 0 2px 12px;
+}
+.s-card > .s-note:last-child {
+  margin-bottom: 0;
+}
+.s-enable {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+.s-enable-steps {
+  margin: 0;
+  padding: 12px 14px 12px 32px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-2);
+}
+.s-enable-steps li + li {
+  margin-top: 6px;
+}
+.s-enable-steps b {
+  color: var(--text);
+  font-weight: 650;
+}
+.s-enable-steps button {
+  color: #ffaa8c;
+  text-decoration: underline;
+}
+.s-enable .s-small {
+  margin: 0 4px;
+}
+.s-ways {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+.s-ways-title {
+  margin: 0 2px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text-3);
+}
+.s-way {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 2px;
+}
+.s-way + .s-way {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.s-way-icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  color: #ffb496;
+  background: rgba(255, 122, 74, 0.1);
+}
+.s-way-orb {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--orb-grad);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+.s-way-orb svg {
+  height: 62%;
+  width: auto;
+}
+.s-way-icon:has(.s-way-orb) {
+  background: none;
+}
+.s-way-text {
+  flex: 1;
+  min-width: 0;
+}
+.s-way-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 2px 2px 48px;
+}
+.s-way-note {
+  margin: 8px 2px 0 48px;
+}
+.s-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.07);
+}
+.s-chip.ok {
+  color: var(--ok);
+  background: rgba(61, 220, 151, 0.1);
+}

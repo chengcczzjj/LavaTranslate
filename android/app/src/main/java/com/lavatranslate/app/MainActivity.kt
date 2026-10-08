@@ -50,14 +50,16 @@ class MainActivity : Activity() {
         Updater.onChange(onUpdate)
         Updater.autoCheck(this, 6 * 3600_000L)
         handleIntent(intent)
-        // 进程被杀后重新打开：之前开着悬浮球就恢复
-        if (app.settings.bool("bubbleEnabled") && Settings.canDrawOverlays(this) && FloatService.instance == null) FloatService.start(this)
+        // 进程被杀后重新打开：截屏授权模式之前开着悬浮球就恢复（无障碍模式的悬浮球由系统拉起的无障碍服务负责）
+        if (FloatService.wanted(this) && FloatService.instance == null) FloatService.start(this)
     }
 
     override fun onResume() {
         super.onResume()
         app.webVisible(web, true)
         bridge.emit("status", status())
+        // 在翻译界面里改过的设置（隐藏悬浮球、译成…）
+        bridge.emit("settings", app.settings.public())
         // 刚从「安装未知应用」页面回来并且允许了：直接继续安装
         if (Updater.awaitingPermission && packageManager.canRequestPackageInstalls()) Updater.install(this)
     }
@@ -99,6 +101,8 @@ class MainActivity : Activity() {
         .put("a11ySupported", LavaAccessibilityService.supported)
         .put("a11yEnabled", LavaAccessibilityService.enabled(this))
         .put("a11yConnected", LavaAccessibilityService.instance != null)
+        .put("a11yButton", LavaAccessibilityService.buttonAssigned(this))
+        .put("a11yVolume", LavaAccessibilityService.volumeAssigned(this))
         .put("running", FloatService.instance != null)
         .put("projection", FloatService.instance?.projection?.active == true)
         .put("battery", getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName))
@@ -119,7 +123,11 @@ class MainActivity : Activity() {
             "hello" -> reply.ok(status())
             "status" -> reply.ok(status())
             "getSettings" -> reply.ok(app.settings.public())
-            "setSettings" -> reply.ok(app.settings.update(a))
+            "setSettings" -> {
+                val r = app.settings.update(a)
+                if (a.has("captureMode")) applyMode()
+                reply.ok(r)
+            }
             /** 某个服务的明文配置：设置页要用它拉模型列表、测试连接 */
             "provider" -> reply.ok(app.settings.plain().optJSONObject("providers")?.optJSONObject(a.optString("id")) ?: JSONObject())
             "requestOverlay" -> {
@@ -131,9 +139,10 @@ class MainActivity : Activity() {
                 reply.ok()
             }
             "openAccessibility" -> {
-                open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                openAccessibility()
                 reply.ok()
             }
+            "addTile" -> addTile(a.optBoolean("quick"), reply)
             "requestBattery" -> {
                 @Suppress("BatteryLife")
                 open(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
@@ -149,11 +158,16 @@ class MainActivity : Activity() {
                 reply.ok()
             }
             "startBubble" -> {
+                // 无障碍模式：悬浮球由无障碍服务显示，只要它开着
+                if (LavaAccessibilityService.mode) {
+                    app.settings.update(JSONObject().put("bubbleEnabled", true))
+                    return if (LavaAccessibilityService.instance == null) reply.err("a11y") else reply.ok()
+                }
                 if (!Settings.canDrawOverlays(this)) return reply.err("overlay")
                 app.settings.update(JSONObject().put("bubbleEnabled", true))
                 FloatService.start(this)
                 // 截屏授权模式：开启时顺便授权一次，之后点悬浮球直接翻译
-                if (app.settings.str("captureMode") != "accessibility") startActivity(Intent(this, ConsentActivity::class.java))
+                startActivity(Intent(this, ConsentActivity::class.java))
                 reply.ok()
             }
             "stopBubble" -> {
@@ -191,6 +205,7 @@ class MainActivity : Activity() {
                         val ocr = com.lavatranslate.app.ocr.PaddleOcr(this, a.optInt("threads", 4))
                         ocr.detLimit = a.optInt("detLimit", 1600)
                         ocr.spinning = a.optBoolean("spin", false)
+                        ocr.arena = a.optBoolean("arena", true)
                         val crop = f.crop(f.content)
                         val t0 = android.os.SystemClock.elapsedRealtime()
                         ocr.init()
@@ -203,8 +218,10 @@ class MainActivity : Activity() {
                             n = ocr.recognize(crop, f.content.width(), f.content.height()).size
                             runs.put(JSONObject(ocr.timing as Map<*, *>).put("cpu", android.os.Process.getElapsedCpuTime() - c0))
                         }
+                        // heap：识别完、还没释放时原生堆占用（MB），看内存池留了多少
+                        val heap = android.os.Debug.getNativeHeapAllocatedSize() / 1048576
                         ocr.close()
-                        reply.ok(JSONObject().put("init", init).put("lines", n).put("runs", runs).put("cores", Runtime.getRuntime().availableProcessors()))
+                        reply.ok(JSONObject().put("init", init).put("lines", n).put("runs", runs).put("heap", heap).put("cores", Runtime.getRuntime().availableProcessors()))
                     } catch (e: Throwable) {
                         reply.err(e.toString())
                     }
@@ -228,6 +245,47 @@ class MainActivity : Activity() {
             "net.abort" -> app.net.abort(a.optString("rid"))
             "preconnect" -> app.net.preconnect(a.optString("url"))
             else -> reply.err("unknown method $m")
+        }
+    }
+
+    /** 切换了启动方式：截屏授权模式的悬浮球服务按需开关（无障碍服务自己根据设置显示或藏起悬浮球） */
+    private fun applyMode() {
+        if (LavaAccessibilityService.mode) stopService(Intent(this, FloatService::class.java))
+        else if (FloatService.wanted(this) && FloatService.instance == null) FloatService.start(this)
+    }
+
+    /** 直接打开本应用的无障碍设置页（不支持时退回无障碍列表） */
+    private fun openAccessibility() {
+        if (Build.VERSION.SDK_INT >= 31) try {
+            val me = android.content.ComponentName(this, LavaAccessibilityService::class.java).flattenToString()
+            return startActivity(Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS").putExtra(Intent.EXTRA_COMPONENT_NAME, me))
+        } catch (_: Exception) {
+        }
+        open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    /** 请系统把快捷开关加到下拉菜单（Android 13 起）；更早的系统要用户自己在编辑快捷开关里拖进去 */
+    private fun addTile(quick: Boolean, reply: Bridge.Reply) {
+        if (Build.VERSION.SDK_INT < 33) return reply.err("manual")
+        val cls = if (quick) QuickReplyTileService::class.java else TranslateTileService::class.java
+        val sbm = getSystemService(android.app.StatusBarManager::class.java)
+        try {
+            sbm.requestAddTileService(
+                android.content.ComponentName(this, cls),
+                getString(if (quick) R.string.tile_quick_label else R.string.tile_label),
+                android.graphics.drawable.Icon.createWithResource(this, if (quick) R.drawable.ic_tile_reply else R.drawable.ic_tile),
+                mainExecutor
+            ) { result ->
+                when (result) {
+                    android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED,
+                    android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED -> reply.ok("added")
+                    android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_NOT_ADDED -> reply.ok("declined")
+                    else -> reply.err("manual")
+                }
+            }
+        } catch (_: Exception) {
+            // 部分系统（定制 ROM）不支持：让用户手动添加
+            reply.err("manual")
         }
     }
 

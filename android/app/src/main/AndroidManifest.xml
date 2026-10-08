@@ -28,6 +28,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:autoRemoveFromRecents="true"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
@@ -55,7 +56,7 @@
                 android:value="Floating translate button shown over other apps until the user turns it off" />
         </service>
 
-        <!-- 免授权截屏：用户在系统设置里打开一次后一直有效（Android 11+） -->
+        <!-- 无障碍模式（推荐）：悬浮球、翻译界面、截屏都在这个服务里；用户在系统设置里打开一次后一直有效 -->
         <service
             android:name=".capture.LavaAccessibilityService"
             android:exported="true"
@@ -85,6 +86,20 @@
             android:exported="true"
             android:icon="@drawable/ic_tile"
             android:label="@string/tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.ACTIVE_TILE"
+                android:value="false" />
+        </service>
+
+        <service
+            android:name=".QuickReplyTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_reply"
+            android:label="@string/tile_quick_label"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />

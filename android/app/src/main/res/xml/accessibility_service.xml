@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 只申请截屏能力：不读取界面内容、不执行手势，也不订阅任何界面事件（系统里切换应用、弹窗都不会唤醒 LavaTranslate） -->
+<!--
+  无障碍模式：截屏 + 在无障碍图层上显示悬浮球和翻译界面，并接收系统无障碍按钮 / 音量键快捷方式的点击。
+  不读取界面内容、不执行手势，也不订阅任何界面事件（系统里切换应用、弹窗都不会唤醒 LavaTranslate）。
+  tileService：Android 15 起可在无障碍设置里把「翻译屏幕」快捷开关加到下拉菜单
+-->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRequestAccessibilityButton"
     android:canRetrieveWindowContent="false"
     android:canTakeScreenshot="true"
-    android:description="@string/a11y_desc" />
+    android:description="@string/a11y_desc"
+    android:settingsActivity="com.lavatranslate.app.MainActivity"
+    android:tileService="com.lavatranslate.app.TranslateTileService" />

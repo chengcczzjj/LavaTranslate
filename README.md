@@ -62,13 +62,15 @@ Press the hotkey **twice** (<kbd>Alt</kbd>+<kbd>Q</kbd> <kbd>Q</kbd>) to skip th
 
 ## Android
 
-Download **`LavaTranslate-Android-x.y.z.apk`** from [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest) (Android 10 or later, arm64). Open it and follow the on-screen steps to turn on the floating button and add an API key.
+Download **`LavaTranslate-Android-x.y.z.apk`** from [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest) (Android 10 or later, arm64). Open it and follow the on-screen steps to turn LavaTranslate on under Accessibility and add an API key.
 
-- **Translate the whole screen.** Tap the floating button in any app and the translation appears in place over the original. **Tap the button again or press Back to exit**; **long-press** it for the menu (show original, change language, copy, retranslate, reply).
-- **Reply assistant.** Chat screenshots get a Reply button: write in your own language and get it in theirs, with a back-translation. When you're not translating, long-press the floating button and pick "Quick reply" (the bottom item) to type something to translate.
-- **Two ways to capture the screen:** Android's screen-sharing permission (it has to be granted again after the phone is locked — an Android rule), or turn on "免授权截屏" once under Accessibility and it stays on.
+- **Turn it on once.** (Android 11+, recommended.) After you enable LavaTranslate under Accessibility, it needs no overlay permission, no screen-sharing prompt each time and no persistent notification, and it's ready again after a reboot.
+- **Call it up from anywhere:** the system accessibility button (it fades when idle) or holding both volume keys, LavaTranslate's own floating button (optional), or the Quick Settings tiles "翻译屏幕 (Translate screen)" and "快捷回复 (Quick reply)".
+- **Translate the whole screen.** The translation appears in place over the original. **Press Back or tap the lava orb to exit**; **long-press** the orb for the menu (show original, change language, copy, retranslate, reply).
+- **Reply assistant.** Chat screenshots get a Reply button: write in your own language and get it in theirs, with a back-translation. The "Quick reply" tile (or a long-press on the floating button) lets you type something to translate.
 - Text recognition runs on the phone; only the captured screen goes to the translation service you configured.
-- **Easy on the battery.** While you're not using it, the floating button doesn't capture the screen or touch the network, and its interface is paused. Long-press it and pick "Exit" to quit completely; it also exits on its own after a period of disuse (1 hour by default) or when Battery Saver turns on, and a tap on the notification brings it back.
+- **Easy on the battery.** Nothing runs while you're not using it: no screen capture, no network. The translation interface and the text-recognition model load on demand and are released 3 minutes after you close them (or when the screen turns off), instead of holding hundreds of MB of memory.
+- **Fallback.** On Android 10, or if you'd rather not use Accessibility, switch to "截屏授权 (screen sharing)": a floating button in an overlay window plus Android's screen-sharing permission (granted again after the phone is locked or after a few idle minutes, with a persistent notification).
 - **In-app updates.** New versions are announced in the app, downloaded on Wi-Fi, and installed with one tap.
 
 ## Setup: sign in with ChatGPT, or bring any API key

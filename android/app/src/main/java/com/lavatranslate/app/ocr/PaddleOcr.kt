@@ -33,6 +33,12 @@ class PaddleOcr(private val ctx: Context, private val threads: Int = min(4, Runt
     /** 线程池空等时是否自旋（默认不自旋：省电，几乎不影响速度；调试对比用） */
     var spinning = false
 
+    /**
+     * ORT 的内存池：开着时按用过的最大输入尺寸留着几百 MB 不还，但识别快近一倍、CPU 少用约三分之一（实测）。
+     * 所以开着，靠 [close]（翻译界面关掉几分钟后）整个还给系统
+     */
+    var arena = true
+
     /** 最近一次识别各阶段耗时（ms） */
     @Volatile
     var timing: Map<String, Long> = emptyMap()
@@ -60,6 +66,8 @@ class PaddleOcr(private val ctx: Context, private val threads: Int = min(4, Runt
             setIntraOpNumThreads(threads)
             // 默认各线程做完一段工作后会空转等下一段，白白占着 CPU
             addConfigEntry("session.intra_op.allow_spinning", if (spinning) "1" else "0")
+            setCPUArenaAllocator(arena)
+            setMemoryPatternOptimization(arena)
         }
         det = env.createSession(asset("models/det.onnx"), opts)
         rec = env.createSession(asset("models/rec.onnx"), opts)
@@ -68,18 +76,8 @@ class PaddleOcr(private val ctx: Context, private val threads: Int = min(4, Runt
         if (lines.isNotEmpty() && lines.last().isEmpty()) lines.removeAt(lines.size - 1)
         // CTC: 0 = blank, 1..N = 字典, N+1 = 空格
         dict = (listOf("") + lines + listOf(" ")).toTypedArray()
+        // 不预热：现在用时才载入，预热要多跑一遍完整识别，反而更慢
         initialized = true
-        // 预热：第一次推理要分配内存、选算法，比之后慢一倍；用一张有几行"字"的假图先跑一遍
-        val w = 720
-        val h = 1280
-        val img = ByteArray(w * h * 4) { -1 }
-        for (row in 0 until 6) for (y in 200 + row * 160 until 200 + row * 160 + 28) for (x in 60 until 660 step 3) {
-            val i = (y * w + x) * 4
-            img[i] = 0
-            img[i + 1] = 0
-            img[i + 2] = 0
-        }
-        runCatching { recognize(img, w, h) }
     }
 
     @Synchronized
