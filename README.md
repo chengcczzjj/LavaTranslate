@@ -65,11 +65,12 @@ Press the hotkey **twice** (<kbd>Alt</kbd>+<kbd>Q</kbd> <kbd>Q</kbd>) to skip th
 Download **`LavaTranslate-Android-x.y.z.apk`** from [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest) (Android 10 or later, arm64). Open it and follow the on-screen steps to turn LavaTranslate on under Accessibility and add an API key.
 
 - **Turn it on once.** (Android 11+, recommended.) After you enable LavaTranslate under Accessibility, it needs no overlay permission, no screen-sharing prompt each time and no persistent notification, and it's ready again after a reboot.
-- **Call it up from anywhere:** the system accessibility button (it fades when idle) or holding both volume keys, LavaTranslate's own floating button (optional), or the Quick Settings tiles "翻译屏幕 (Translate screen)" and "快捷回复 (Quick reply)".
-- **Translate the whole screen.** The translation appears in place over the original. **Press Back or tap the lava orb to exit**; **long-press** the orb for the menu (show original, change language, copy, retranslate, reply).
-- **Reply assistant.** Chat screenshots get a Reply button: write in your own language and get it in theirs, with a back-translation. The "Quick reply" tile (or a long-press on the floating button) lets you type something to translate.
-- Text recognition runs on the phone; only the captured screen goes to the translation service you configured.
-- **Easy on the battery.** Nothing runs while you're not using it: no screen capture, no network. The translation interface and the text-recognition model load on demand and are released 3 minutes after you close them (or when the screen turns off), instead of holding hundreds of MB of memory.
+- **The app icon opens a floating panel.** Tap the LavaTranslate icon and a frosted-glass panel appears (Translate / Reply / Settings, close in the corner); drag it anywhere. The system accessibility button and the Quick Settings tiles "翻译屏幕 (Translate screen)" and "快捷回复 (Quick reply)" work too.
+- **Live translation.** Tap Translate: the panel shrinks into a small capsule at the screen edge and the translation appears in place over the original, without getting in the way: you can still scroll and tap the app. **The translation hides while you scroll and comes back when you stop**; text you have already seen is cached and shows up instantly.
+- **The capsule:** **hold Compare to see the original**, let go for the translation; Reply opens the reply box; Exit returns to the panel.
+- **Reply assistant.** Write in your own language and get it in the language of the conversation on screen, with a back-translation. Reply on the panel (or the Quick reply tile) translates whatever you type.
+- Ordinary app screens are read as text directly (faster and more accurate); text in games and images is recognized on the phone. Only the screen content goes to the translation service you configured.
+- **Easy on the battery.** Nothing runs while you're not translating: no screen capture, no network, no UI events. The translation interface and the text-recognition model load on demand and are released 3 minutes after use (or when the screen turns off).
 - **Fallback.** On Android 10, or if you'd rather not use Accessibility, switch to "截屏授权 (screen sharing)": a floating button in an overlay window plus Android's screen-sharing permission (granted again after the phone is locked or after a few idle minutes, with a persistent notification).
 - **In-app updates.** New versions are announced in the app, downloaded on Wi-Fi, and installed with one tap.
 

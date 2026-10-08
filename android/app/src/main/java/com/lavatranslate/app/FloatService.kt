@@ -122,7 +122,7 @@ class FloatService : Service(), ScreenHost.Owner {
      */
     fun quit(reason: String?) {
         if (reason != null) notifyAutoExit(reason)
-        MainActivity.instance?.finishAndRemoveTask()
+        SettingsActivity.instance?.finishAndRemoveTask()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         app.endProcessSoon()
@@ -254,7 +254,7 @@ class FloatService : Service(), ScreenHost.Owner {
 
     // ------------------------------------------------------------ 杂项
     private fun openMain() {
-        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        startActivity(Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     private fun toast(text: String) = main.post { Toast.makeText(this, text, Toast.LENGTH_SHORT).show() }
@@ -268,7 +268,7 @@ class FloatService : Service(), ScreenHost.Owner {
 
     private fun notification(): Notification {
         val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), flags)
+        val open = PendingIntent.getActivity(this, 0, Intent(this, SettingsActivity::class.java), flags)
         // 从通知栏点「翻译屏幕」要先收起通知栏：经由透明页面中转，它会让通知栏收起
         val translate = PendingIntent.getActivity(this, 1, Intent(this, ConsentActivity::class.java).putExtra(ConsentActivity.EXTRA_TRANSLATE, true), flags)
         val stop = PendingIntent.getService(this, 2, Intent(this, FloatService::class.java).setAction(ACTION_STOP), flags)

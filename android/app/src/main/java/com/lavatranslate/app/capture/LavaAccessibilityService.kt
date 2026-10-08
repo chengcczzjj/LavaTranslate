@@ -11,74 +11,42 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.Display
-import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.widget.Toast
 import com.lavatranslate.app.LavaApp
-import com.lavatranslate.app.ScreenHost
-import com.lavatranslate.app.update.Updater
-import org.json.JSONObject
+import com.lavatranslate.app.LiveHost
 import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * 无障碍模式（推荐）：整个翻译功能都在这个服务里，用户在系统「无障碍」里打开一次后一直可用。
- * - 不需要悬浮窗权限、前台服务和常驻通知：悬浮球与翻译界面都是无障碍图层，开机后系统自动拉起本服务；
- * - 唤出方式：自己的悬浮球（可关）、系统的无障碍按钮 / 音量键快捷方式、下拉快捷开关；
- * - 截屏用无障碍的 takeScreenshot，不弹授权、没有共享标识，锁屏也不失效。
- * 不订阅任何界面事件、不读取界面内容（见 res/xml/accessibility_service.xml）：不用时进程里什么都不跑，
- * 翻译界面和 OCR 模型也在用完几分钟后释放（[ScreenHost.WARM_MS]）。
+ * 无障碍模式（推荐）：整个翻译功能都在这个服务里，用户在系统「无障碍」里打开一次后一直可用，开机由系统拉起。
+ * 不需要悬浮窗权限、前台服务和常驻通知；界面（悬浮面板、小胶囊、译文层）都在无障碍图层上，见 [LiveHost]。
+ * 唤出：点 LavaTranslate 图标、系统无障碍按钮（音量键快捷方式）、下拉快捷开关。
+ * 截屏用 takeScreenshot（不弹授权）；文字优先直接从界面节点读，只在翻译时读。
+ * 平时不订阅任何界面事件，只在实时翻译时订阅滚动、换页（LiveHost.subscribe）。
  */
-class LavaAccessibilityService : AccessibilityService(), ScreenHost.Owner {
-    private val app get() = LavaApp.instance
+class LavaAccessibilityService : AccessibilityService() {
     private val main = Handler(Looper.getMainLooper())
-    private var host: ScreenHost? = null
-    private val capturer by lazy { A11yCapturer(this) }
-    private val onSettings: () -> Unit = { main.post { syncBubble() } }
+    var host: LiveHost? = null
+        private set
 
     private val button = object : AccessibilityButtonController.AccessibilityButtonCallback() {
         override fun onClicked(controller: AccessibilityButtonController) {
-            host?.toggle()
-        }
-
-        override fun onAvailabilityChanged(controller: AccessibilityButtonController, available: Boolean) {
-            if (available) firstButton()
+            host?.togglePanel()
         }
     }
 
-    override val kind = "a11y"
-
-    /** 翻译界面开着 */
+    /** 正在翻译或写回复 */
     val active get() = host?.active == true
 
     override fun onServiceConnected() {
         instance = this
-        host = ScreenHost(this, getSystemService(WindowManager::class.java), WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, this)
+        host = LiveHost(this)
         accessibilityButtonController.registerAccessibilityButtonCallback(button, main)
-        app.settings.onChange(onSettings)
-        syncBubble()
-        // 系统往往在服务连上之后才把按钮指过来
-        main.postDelayed({ if (buttonAssigned(this)) firstButton() }, 1500)
-    }
-
-    /**
-     * 第一次开启时系统同时给了无障碍按钮：两个球挤在屏幕边上没必要，先只用系统的（它不用时会自动变淡），
-     * 悬浮球可以在设置里再打开。之后完全按用户的选择。
-     */
-    private fun firstButton() {
-        if (app.settings.bool("a11yIntroDone")) return
-        val patch = JSONObject().put("a11yIntroDone", true)
-        if (mode && app.settings.bool("bubbleEnabled")) {
-            patch.put("bubbleEnabled", false)
-            toast("已用系统的无障碍按钮翻译屏幕 · 想用悬浮球可以在 LavaTranslate 里打开")
-        }
-        app.settings.update(patch)
     }
 
     override fun onDestroy() {
-        app.settings.offChange(onSettings)
         runCatching { accessibilityButtonController.unregisterAccessibilityButtonCallback(button) }
         host?.destroy()
         host = null
@@ -86,64 +54,30 @@ class LavaAccessibilityService : AccessibilityService(), ScreenHost.Owner {
         super.onDestroy()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event != null) host?.onEvent(event)
+    }
+
     override fun onInterrupt() {}
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        host?.placeBubble()
-    }
-
-    /** 无障碍模式下才显示自己的悬浮球（截屏授权模式的悬浮球在 FloatService 里） */
-    private fun syncBubble() {
-        host?.bubbleVisible(mode && app.settings.bool("bubbleEnabled"))
+        host?.onConfigurationChanged()
     }
 
     // ------------------------------------------------------------ 唤出
-    /** 下拉快捷开关、通知等：先收起通知栏，等它收完再截屏 */
-    fun translateFromShade() = fromShade { it.translate() }
+    /** 下拉快捷开关：先收起通知栏，等它收完再开始 */
+    fun translateFromShade() = fromShade { it.startLive() }
 
     fun quickFromShade() = fromShade { it.quick() }
 
     /** 稍后打开（等中转页面、通知栏收起） */
-    fun later(quick: Boolean, delay: Long) = main.postDelayed({ host?.let { if (quick) it.quick() else it.translate() } }, delay)
+    fun later(quick: Boolean, delay: Long) = main.postDelayed({ host?.let { if (quick) it.quick() else it.startLive() } }, delay)
 
-    private fun fromShade(run: (ScreenHost) -> Unit) {
+    private fun fromShade(run: (LiveHost) -> Unit) {
         if (Build.VERSION.SDK_INT >= 31) performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
         main.postDelayed({ host?.let(run) }, SHADE_MS)
     }
-
-    // ------------------------------------------------------------ ScreenHost.Owner
-    override fun capturer(): ScreenCapturer? {
-        if (Build.VERSION.SDK_INT < 30) {
-            toast("免授权截屏需要 Android 11 或更高版本")
-            return null
-        }
-        return capturer
-    }
-
-    /** 菜单里的「隐藏悬浮球」：翻译仍可以用系统无障碍按钮、快捷开关唤出 */
-    override fun quit() {
-        app.settings.update(JSONObject().put("bubbleEnabled", false))
-        host?.release()
-        toast(if (buttonAssigned(this) || volumeAssigned(this)) "悬浮球已隐藏 · 仍可用无障碍按钮翻译" else "悬浮球已隐藏 · 可用下拉快捷开关翻译，或在 LavaTranslate 里重新打开")
-    }
-
-    /**
-     * 关屏时：如果这个进程载入过网页引擎，就结束进程。网页释放后引擎本身还占着一两百 MB，
-     * 只有结束进程才能还给系统；系统会立刻以最小的样子（几十 MB，只有本服务）重新拉起它，悬浮球也会回来。
-     * 选在关屏时做，用户看不到悬浮球消失又出现。
-     */
-    override fun screenOff() {
-        if (app.webEngineLoaded) app.endProcessSoon()
-    }
-
-    override fun closed() {
-        // 不常驻的模式没有定时检查更新：用完时顺便看一眼（至多每天一次）
-        Updater.autoCheck(this, 20 * 3600_000L)
-    }
-
-    private fun toast(text: String) = main.post { Toast.makeText(this, text, Toast.LENGTH_SHORT).show() }
 
     companion object {
         /** 等通知栏收起的时间 */

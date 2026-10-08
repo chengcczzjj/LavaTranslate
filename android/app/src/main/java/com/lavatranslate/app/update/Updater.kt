@@ -16,7 +16,7 @@ import android.provider.Settings
 import com.lavatranslate.app.BuildConfig
 import com.lavatranslate.app.FloatService
 import com.lavatranslate.app.LavaApp
-import com.lavatranslate.app.MainActivity
+import com.lavatranslate.app.SettingsActivity
 import com.lavatranslate.app.R
 import okhttp3.Call
 import okhttp3.OkHttpClient
@@ -274,7 +274,7 @@ object Updater {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "更新", NotificationManager.IMPORTANCE_DEFAULT))
         val open = PendingIntent.getActivity(
-            ctx, 3, Intent(ctx, MainActivity::class.java).putExtra(EXTRA_UPDATE, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            ctx, 3, Intent(ctx, SettingsActivity::class.java).putExtra(EXTRA_UPDATE, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val n = Notification.Builder(ctx, CHANNEL)
@@ -314,7 +314,7 @@ class ReplacedReceiver : BroadcastReceiver() {
         if (app.settings.bool("updateRelaunch")) {
             app.settings.update(JSONObject().put("updateRelaunch", false))
             if (Settings.canDrawOverlays(ctx) || com.lavatranslate.app.capture.LavaAccessibilityService.enabled(ctx)) runCatching {
-                ctx.startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                ctx.startActivity(Intent(ctx, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }
     }

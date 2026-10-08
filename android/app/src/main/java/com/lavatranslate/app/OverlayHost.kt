@@ -75,7 +75,11 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, private val windo
         })
     }
 
-    private fun params(show: Boolean) = WindowManager.LayoutParams(
+    /** 实时翻译：译文层可见，但触摸、按键都穿过去交给下面的应用（能照常滑动、点按） */
+    var passthrough = false
+        private set
+
+    private fun params(show: Boolean, alpha: Float = if (show) 1f else 0f) = WindowManager.LayoutParams(
         WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
         windowType,
         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
@@ -85,7 +89,7 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, private val windo
     ).apply {
         gravity = Gravity.TOP or Gravity.START
         title = "LavaTranslate overlay"
-        alpha = if (show) 1f else 0f
+        this.alpha = alpha
         windowAnimations = 0
         softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
         layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30) WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
@@ -107,6 +111,7 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, private val windo
 
     fun reveal() {
         if (!attached) return
+        passthrough = false
         wm.updateViewLayout(root, params(true))
         visible = true
         // 拿到焦点，返回手势 / 返回键才会交给这个窗口
@@ -120,11 +125,26 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, private val windo
         else root.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java).showSoftInput(web, 0)
     }
 
+    /**
+     * 实时翻译的译文层：可见与否只改窗口透明度（滑动时立刻藏起、按住对比时看原文），不经过网页，最快。
+     * 不可触摸、不抢焦点，返回手势也交给下面的应用
+     */
+    fun passthrough(shown: Boolean) {
+        if (!attached) {
+            LavaApp.instance.webVisible(web, true)
+            wm.addView(root, params(false, if (shown) 1f else 0f))
+            attached = true
+        } else wm.updateViewLayout(root, params(false, if (shown) 1f else 0f))
+        passthrough = true
+        visible = shown
+    }
+
     fun detach() {
         if (!attached) return
         wm.removeView(root)
         attached = false
         visible = false
+        passthrough = false
         // 不在屏幕上时暂停网页，不占 CPU
         LavaApp.instance.webVisible(web, false)
     }

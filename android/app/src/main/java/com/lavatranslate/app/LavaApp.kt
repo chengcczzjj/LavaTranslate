@@ -53,15 +53,15 @@ class LavaApp : Application() {
 
     /**
      * 退出后结束进程：WebView 引擎、OCR 运行库占的几百 MB 内存要进程结束才会还给系统
-     * （开着无障碍时，系统会立刻以最小的样子重新拉起进程，只带无障碍服务）。正在检查、下载或安装更新、
-     * 或翻译界面正开着时不结束。
+     * （开着无障碍时，系统会以只带无障碍服务的小进程重新拉起，但有延迟，见 LiveHost.recycle）。
+     * 正在检查、下载或安装更新、或翻译界面正开着时不结束。
      */
     fun endProcessSoon() {
         main.postDelayed({
             val s = com.lavatranslate.app.update.Updater.state().optString("state")
             val updating = s == "checking" || s == "downloading" || s == "installing"
             // 这期间又打开了悬浮球或设置页：不结束
-            val settingsOpen = MainActivity.instance?.isFinishing == false
+            val settingsOpen = SettingsActivity.instance?.isFinishing == false
             val translating = com.lavatranslate.app.capture.LavaAccessibilityService.instance?.active == true
             if (!updating && FloatService.instance == null && !settingsOpen && !translating) android.os.Process.killProcess(android.os.Process.myPid())
         }, 800)

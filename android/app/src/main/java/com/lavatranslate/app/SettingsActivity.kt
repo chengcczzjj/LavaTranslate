@@ -22,7 +22,7 @@ import com.lavatranslate.app.web.createWebView
 import org.json.JSONObject
 
 /** 设置页：网页（settings.html）+ 各种系统权限的跳转 */
-class MainActivity : Activity() {
+class SettingsActivity : Activity() {
     private val app get() = LavaApp.instance
     private lateinit var web: WebView
     private lateinit var bridge: Bridge
@@ -62,6 +62,17 @@ class MainActivity : Activity() {
         bridge.emit("settings", app.settings.public())
         // 刚从「安装未知应用」页面回来并且允许了：直接继续安装
         if (Updater.awaitingPermission && packageManager.canRequestPackageInstalls()) Updater.install(this)
+    }
+
+    // 设置页在屏幕上时，无障碍模式的悬浮面板先藏起来，离开后再出来
+    override fun onStart() {
+        super.onStart()
+        LavaAccessibilityService.instance?.host?.settingsVisible(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        LavaAccessibilityService.instance?.host?.settingsVisible(false)
     }
 
     override fun onPause() {
@@ -143,6 +154,13 @@ class MainActivity : Activity() {
                 reply.ok()
             }
             "addTile" -> addTile(a.optBoolean("quick"), reply)
+            /** 关掉设置页，弹出悬浮面板 */
+            "showPanel" -> {
+                val host = LavaAccessibilityService.instance?.host ?: return reply.err("a11y")
+                reply.ok()
+                host.showPanel()
+                finishAndRemoveTask()
+            }
             "requestBattery" -> {
                 @Suppress("BatteryLife")
                 open(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
@@ -251,7 +269,10 @@ class MainActivity : Activity() {
     /** 切换了启动方式：截屏授权模式的悬浮球服务按需开关（无障碍服务自己根据设置显示或藏起悬浮球） */
     private fun applyMode() {
         if (LavaAccessibilityService.mode) stopService(Intent(this, FloatService::class.java))
-        else if (FloatService.wanted(this) && FloatService.instance == null) FloatService.start(this)
+        else {
+            LavaAccessibilityService.instance?.host?.hideAll()
+            if (FloatService.wanted(this) && FloatService.instance == null) FloatService.start(this)
+        }
     }
 
     /** 直接打开本应用的无障碍设置页（不支持时退回无障碍列表） */
@@ -292,7 +313,7 @@ class MainActivity : Activity() {
     companion object {
         /** 退出时一起关掉 */
         @Volatile
-        var instance: MainActivity? = null
+        var instance: SettingsActivity? = null
             private set
     }
 

@@ -9,13 +9,15 @@ import { call, notify, on } from '../bridge'
 import { engineFor, engineProblem, type MobileSettings } from '../engine'
 import { Orb, type OrbItem } from './Orb'
 import { installReplyHost } from './replyHost'
+import { Live } from './Live'
 
 // 手机版全屏翻译：原生截一帧 → 这里画出截图（与屏幕一模一样）→ 取 OCR 结果 → 调模型流式翻译，译文按原排版就地浮现。
 // 悬浮球：单击退出翻译，长按打开菜单（看原文 / 语言 / 复制 / 回复 / 重译 / 关闭）；返回键也直接退出（先收起打开的面板）。
 // 不在翻译时长按悬浮球：以 menu 模式打开，只有球和菜单（退出 / 设置 / 译成 / 快捷回复，最常用的放在最下面，拇指最好够到）。
 
 interface OpenMsg {
-  mode: 'translate' | 'quick' | 'menu'
+  /** live：无障碍模式的实时翻译（窗口不接触摸，只画译文，见 Live.tsx） */
+  mode: 'translate' | 'quick' | 'menu' | 'live'
   /** 宿主：a11y = 无障碍服务（推荐，不常驻）；float = 截屏授权模式的悬浮球服务 */
   host: 'a11y' | 'float'
   /** 悬浮球是否显示（无障碍模式可以只用系统无障碍按钮、快捷开关） */
@@ -37,7 +39,7 @@ interface OcrResult {
   image: { base64: string; mediaType: 'image/png' | 'image/jpeg'; width: number; height: number; factor: number }
 }
 
-type Stage = 'hidden' | 'translate' | 'quick' | 'menu'
+type Stage = 'hidden' | 'translate' | 'quick' | 'menu' | 'live'
 type Sheet = 'lang' | null
 
 const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
@@ -222,6 +224,11 @@ export function MobileOverlay() {
       setInsets((v) => ({ ...v, top: o.insets.top, bottom: o.insets.bottom }))
       // OCR 的同时先和翻译服务建立连接
       engineFor(o.settings)?.warm()
+      if (o.mode === 'live') {
+        setStage('live')
+        setShown(true)
+        return
+      }
       if (o.mode === 'quick' || o.mode === 'menu') {
         setStage(o.mode)
         setMenu(o.mode === 'menu')
@@ -256,6 +263,8 @@ export function MobileOverlay() {
   // 返回键：先收起最上层的东西
   const back = useRef<() => void>(() => {})
   back.current = () => {
+    // 实时翻译：返回键只在写回复时才到这里，由 Live 自己收起回复框
+    if (stage === 'live') return
     if (stage === 'menu') return sheet ? setSheet(null) : void close()
     if (menu) return setMenu(false)
     if (sheet) return setSheet(null)
@@ -268,6 +277,10 @@ export function MobileOverlay() {
     const offs = [
       on<OpenMsg>('open', (o) => void open(o)),
       on('back', () => back.current()),
+      on('live.stop', () => {
+        setStage('hidden')
+        setShown(false)
+      }),
       // 无障碍按钮再点一下：直接关掉
       on('dismiss', () => void closeRef.current()),
       on<{ top: number; bottom: number; ime: number }>('insets', (v) => setInsets(v)),
@@ -407,6 +420,13 @@ export function MobileOverlay() {
   }, [showTip])
   const sheetBottom = (keyboard ? insets.ime : insets.bottom) + 10
   const showCta = stage === 'translate' && !!lang?.chat && !!settings.current?.replyAssist && !replyOpen && !menu && !sheet && (phase === 'translating' || phase === 'done')
+
+  if (stage === 'live')
+    return (
+      <div className="m-root live shown">
+        <Live density={sess?.density ?? window.devicePixelRatio} settings={() => settings.current} insets={insets} />
+      </div>
+    )
 
   if (stage === 'hidden')
     return (

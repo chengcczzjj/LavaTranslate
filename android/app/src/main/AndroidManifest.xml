@@ -26,17 +26,34 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Lava">
 
+        <!-- 设置页（无障碍设置里「设置」也指向它） -->
         <activity
-            android:name=".MainActivity"
+            android:name=".SettingsActivity"
             android:autoRemoveFromRecents="true"
             android:exported="true"
             android:launchMode="singleTask"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- 点图标：就绪时直接弹出悬浮面板，否则打开设置页（没有界面） -->
+        <activity
+            android:name=".LaunchActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity="com.lavatranslate.app.launch"
+            android:theme="@android:style/Theme.NoDisplay" />
+
+        <!-- 桌面图标：组件名保持 .MainActivity（老版本的设置页），已经放在桌面上的图标继续有效 -->
+        <activity-alias
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:targetActivity=".LaunchActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
 
         <!-- 截屏授权：透明的中转页，弹出系统授权框，拿到结果交给悬浮服务 -->
         <activity

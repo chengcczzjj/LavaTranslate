@@ -118,13 +118,18 @@ src/core/        两端共用、与平台无关：translator（提示词、JSONL
                  网络由宿主注入（platform.ts）：桌面用 Electron net.fetch，安卓用原生 OkHttp 代发
 src/mobile/      手机版网页：overlay.html（全屏翻译）、settings.html（设置），vite.mobile.config.ts 构建到 out/mobile
 android/         Kotlin 原生壳（Gradle）：
-  ScreenHost       翻译界面的宿主（两种模式共用）：悬浮球、全屏翻译窗口、截屏 → OCR → 交给网页，空闲释放
   capture/LavaAccessibilityService
-                   无障碍模式（推荐，Android 11+）：悬浮球和翻译界面都是无障碍图层，接系统无障碍按钮 / 音量键快捷方式，
-                   takeScreenshot 截屏；没有前台服务、通知，不需要悬浮窗权限
+                   无障碍模式（推荐，Android 11+）的服务：界面全在 LiveHost；接系统无障碍按钮 / 音量键快捷方式、界面事件；
+                   没有前台服务、通知，不需要悬浮窗权限
+  LiveHost         无障碍模式的界面与状态：毛玻璃面板 → 实时翻译（小胶囊 + 不接触摸的译文层）→ 回复；读屏、滑动检测、释放、锁屏
+  capture/NodeText 从无障碍节点读屏幕文字：逐行、带每个字的位置（EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY），被上层窗口盖住的不读
+  ui/Glass, Views  毛玻璃小窗（无障碍图层上的透明主题 Dialog + 背景模糊、可拖动）、面板与小胶囊（原生，点图标立刻出现）
+  LaunchActivity   点图标：就绪时直接弹面板、否则打开设置页（SettingsActivity）；桌面图标的组件名仍是 .MainActivity（别名）
+  ScreenHost       截屏授权模式的翻译界面宿主：悬浮球、全屏冻结截图、截屏 → OCR → 交给网页，空闲释放
   FloatService     截屏授权模式（备用）：前台服务 + 悬浮窗 + 系统截屏授权（ProjectionCapturer）
-  BubbleView       原生悬浮球（贴边、拖动、单击翻译、长按打开菜单）；窗口类型由宿主决定
-  OverlayHost      全屏覆盖窗口 + WebView：用时才创建；平时不挂到屏幕上（网页暂停），用时先透明挂上、网页画好截图再显示
+  BubbleView       原生悬浮球（截屏授权模式；贴边、拖动、单击翻译、长按打开菜单）
+  OverlayHost      全屏覆盖窗口 + WebView：用时才创建；三种状态：透明不接触摸（等网页画好）、可交互（冻结截图、回复框）、
+                   穿透（实时翻译的译文层：可见但触摸和返回键都交给下面的应用，显示与隐藏只改窗口透明度）
   TranslateTileService / QuickReplyTileService
                    下拉快捷开关「翻译屏幕」「快捷回复」：无障碍模式由服务自己收起通知栏（全局操作），否则经由透明中转页
   ocr/PaddleOcr    ocr.ts 的逐行移植（同一套 PP-OCRv6 模型，ONNX Runtime CPU 后端）
@@ -138,21 +143,34 @@ android/         Kotlin 原生壳（Gradle）：
 - **无障碍按钮**：服务带 `flagRequestAccessibilityButton` 时，Android 12+ 的无障碍页面只有「快捷方式」开关（打开它就是开启服务，
   默认选无障碍按钮）；点按钮、音量键快捷方式都走 `AccessibilityButtonCallback.onClicked`。全面屏手势下的悬浮按钮
   `isAccessibilityButtonAvailable` 总是 false，所以用可读的 `accessibility_button_targets` / `accessibility_shortcut_target_service` 判断有没有指给本应用。
-  第一次开启时如果系统给了无障碍按钮，就先藏起自己的悬浮球（`a11yIntroDone`），免得两个球挤在一起。
-  翻译界面是全屏不透明的无障碍图层，会盖住系统按钮，所以翻译时用返回键或熔岩球关闭。
+  无障碍模式里按钮的作用是打开 / 收起面板，翻译中按一下退出。
   侧载应用开启无障碍要先解除「受限制的设置」（vivo 是「风险受限 → 解除限制」，同时解除悬浮窗权限的限制）。
   调研过「默认数字助理」入口：Android 17 实测第三方助理拿不到截图和屏幕文字，vivo 上也藏起了该设置，不可用。
+- **实时翻译**（`LiveHost` + 网页 `Live.tsx`）：只在实时翻译时用 `setServiceInfo` 订阅滚动、换页、内容变化事件（原生和网页应用
+  在手指一动后约 50 ms 就发滚动事件，`canRetrieveWindowContent` 关着也会发），退出就取消。滚动 / 换页：立刻把译文层窗口透明度设为 0、
+  停掉翻译请求，停下 450 ms 后重新读屏；内容变化（没滑动）：700 ms 后重读节点比较指纹，文字变了才重译（视频、动画不会触发）。
+  读屏：先让译文层消失两帧再截屏，小胶囊所在的区域抹成旁边的颜色；文字优先用 `NodeText`（读不到逐字位置的多行节点多了、
+  或一行都没有，才对截图做 OCR）。用 OCR 的界面（游戏、自绘）往往没有事件，靠小胶囊窗口的 `FLAG_WATCH_OUTSIDE_TOUCH`
+  知道「碰了屏幕」（ACTION_OUTSIDE 只送到 `Dialog.onTouchEvent`，到不了里面的视图）。
+  网页 `liveCache.ts`：按「块」缓存译文（几行原文 → 译文），新屏幕上连续几行与缓存块的原文一致就直接套用，只把剩下的行发给模型
+  （带整屏截图作上下文），换目标语言时清空。
+  译文层用的是不接触摸的无障碍图层，不画截图，只在文字位置画带背景色的译文块，所以下面的应用照常可以操作。
+- **毛玻璃**：只有半透明窗口（`windowIsTranslucent`）才有 `setBackgroundBlurRadius` 背景模糊，所以面板、胶囊用透明主题的 Dialog；
+  普通 Dialog 不模糊（模拟器实测）。系统关掉跨窗口模糊（省电模式、不支持）时换成更不透明的深色底。
+- **锁屏**：无障碍图层会显示在锁屏上面，所以关屏时收起所有窗口、退出实时翻译，解锁（`USER_PRESENT`，由系统界面发出，
+  接收要 `RECEIVER_EXPORTED`）后再显示；锁屏期间按钮、快捷开关都不响应。
 - **识别范围**：去掉顶部状态栏；底部不去（Android 15 起应用都画到导航条下面）。
 - **OCR 性能**：检测图最长边 1280（手机截图字大，够用）；用时才载入，不预热（预热要多跑一遍完整识别）。XNNPACK 后端在 ORT 1.30 会崩溃，NNAPI 已弃用，只用 CPU。
   ORT 内存池开着：识别后按最大输入尺寸留着约 500 MB，但关掉它识别慢约 1.7 倍、CPU 多用约 50%（模拟器实测，`ocrBench` 的 `arena` 参数可复测），所以开着、用完整个释放。
   模拟器（x86_64，4 线程）上 20 行聊天截图检测约 270 ms、识别约 600 ms；真机待测。
-- **界面**：翻译时原生悬浮球藏起，由网页里一模一样的球接替（单击或返回键退出、长按打开菜单、拖动换边）；
+- **截屏授权模式的界面**：翻译时原生悬浮球藏起，由网页里一模一样的球接替（单击或返回键退出、长按打开菜单、拖动换边）；
   不在翻译时长按悬浮球，同一个网页以 menu 模式打开（退出 / 设置 / 译成 / 快捷回复，常用的在最下面）。回复助手复用桌面组件（`window.lens` 由 `replyHost.ts` 在网页内实现）。
 - **省电**：闲置时进程几乎不占 CPU（模拟器上实测每分钟约 40 ms，`.scratch/idle-cpu.sh`、`idle-threads.sh` 可复测）：
   网页不在屏幕上时 `onPause` + `pauseTimers`（`LavaApp.webVisible`）；无障碍服务不订阅任何界面事件；ONNX Runtime 关掉线程自旋（每次识别少用约 20% CPU，速度不变）。
-  内存（模拟器实测）：翻译一次后进程约 680 MB PSS（OCR 内存池约 500 MB）+ 网页渲染进程约 250 MB。`ScreenHost` 在翻译界面关掉 3 分钟后（或关屏时）
-  销毁 WebView、关掉 OCR 会话，降到约 200 MB、渲染进程退出；无障碍模式下关屏时再结束进程（网页引擎载入后只有结束进程才释放），
-  系统立刻以只带无障碍服务的小进程（约 45 MB）重新拉起，悬浮球自动回来。代价是之后第一次翻译要重新载入：模拟器上界面出现约 0.8 s（平时约 0.4 s）。
+  内存（模拟器实测）：翻译一次后进程约 680 MB PSS（OCR 内存池约 500 MB）+ 网页渲染进程约 250 MB。翻译界面关掉 3 分钟后（或关屏时）
+  销毁 WebView、关掉 OCR 会话，降到约 200 MB、渲染进程退出（面板出现时预先载入网页，点「翻译」时不用等）。
+  网页引擎载入后只有结束进程才释放，系统会以只带无障碍服务的小进程（约 45 MB）重新拉起；但重新拉起有延迟，反复结束时越来越长
+  （模拟器上第二次就等了约 30 s，期间点图标没反应），所以只在关屏 30 分钟后才结束进程（`AlarmManager` 唤醒一次）。
   设置页 `autoRemoveFromRecents`：不留在最近任务里，免得「一键清理」把应用强行停止（强行停止会连带关掉无障碍）。
   截屏授权模式：「退出」（菜单、通知、设置页）停掉前台服务并结束进程；长时间不用（`idleExit` 分钟，默认 60，`AlarmManager.setWindow` 允许推迟 10 分钟）
   或系统打开省电模式（`saverExit`）时自动退出，留一条点了就重新打开的通知。

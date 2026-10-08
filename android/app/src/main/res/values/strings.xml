@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">LavaTranslate</string>
     <string name="a11y_label">LavaTranslate 屏幕翻译</string>
-    <string name="a11y_desc">开启后，点悬浮球或系统的无障碍按钮就能翻译当前屏幕：不需要悬浮窗权限、截屏授权和常驻通知。LavaTranslate 只在你点击时截取一次屏幕用于翻译，不读取界面内容、不执行任何操作；不用时不在后台运行。</string>
+    <string name="a11y_desc">开启后，点 LavaTranslate 图标就会出现悬浮面板，一点就翻译当前屏幕：不需要悬浮窗权限、截屏授权和常驻通知。LavaTranslate 只在你点「翻译」后读取屏幕上的文字、截取屏幕用于翻译，不执行任何操作；不翻译时不在后台运行。</string>
     <string name="tile_label">翻译屏幕</string>
     <string name="tile_quick_label">快捷回复</string>
     <string name="channel_name">悬浮球</string>

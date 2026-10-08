@@ -160,7 +160,7 @@ function A11yCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => P
     }
   }
 
-  const line = ready ? '已就绪 · 不常驻后台，不用授权截屏' : st.a11yEnabled ? '无障碍已打开，正在连接…（一直这样的话，到无障碍里关掉再打开一次）' : '还差一步：在系统「无障碍」里打开 LavaTranslate'
+  const line = ready ? '已就绪 · 点 LavaTranslate 图标打开悬浮面板' : st.a11yEnabled ? '无障碍已打开，正在连接…（一直这样的话，到无障碍里关掉再打开一次）' : '还差一步：在系统「无障碍」里打开 LavaTranslate'
 
   return (
     <section className={`s-card s-hero${ready ? ' on' : ''}`}>
@@ -206,19 +206,25 @@ function A11yCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => P
 
       {ready && (
         <div className="s-ways">
-          <div className="s-ways-title">从这些地方唤出翻译</div>
-          <Way icon={<span className="s-way-orb"><OrbGlyph /></span>} title="悬浮球" desc="贴在屏幕边上，单击翻译，长按打开菜单（快捷回复、译成、设置）">
-            <Switch on={s.bubbleEnabled} onClick={() => void update({ bubbleEnabled: !s.bubbleEnabled })} />
+          <button className="s-btn primary wide s-panel-btn" onClick={() => void call('showPanel')}>
+            <Sparkles size={16} /> 打开悬浮面板
+          </button>
+          <p className="s-small s-way-lead">
+            面板上点「翻译」就开始实时翻译：译文盖在原文上，滑动时自动藏起、停下后接着翻译；面板缩成贴边的小胶囊，按住 <b>对比</b> 看原文、<b>回复</b> 写回复、<b>退出</b> 回到面板。
+          </p>
+          <div className="s-ways-title">从这些地方打开</div>
+          <Way icon={<img className="s-way-app" src={appIcon} alt="" />} title="LavaTranslate 图标" desc="点桌面上的图标就弹出悬浮面板（不再打开这个设置页，设置在面板上）">
+            <></>
           </Way>
           <Way
             icon={<Accessibility size={18} />}
             title="系统无障碍按钮"
             desc={
               st.a11yButton
-                ? `由系统显示，不用时自动变淡；点一下翻译，按返回键关闭${st.a11yVolume ? '。也可以同时按住两个音量键' : ''}`
+                ? `由系统显示，不用时自动变淡；点一下打开或收起面板，翻译时点一下退出${st.a11yVolume ? '。也可以同时按住两个音量键' : ''}`
                 : st.a11yVolume
-                  ? '已设为同时按住两个音量键。也可以在 LavaTranslate 的无障碍页面「快捷方式」里加上「无障碍按钮」'
-                  : '由系统显示，不用时自动变淡，可以代替悬浮球。在 LavaTranslate 的无障碍页面打开「快捷方式」，选「无障碍按钮」或「同时按住两个音量键」'
+                  ? '已设为同时按住两个音量键：按一下打开或收起面板。也可以在 LavaTranslate 的无障碍页面「快捷方式」里加上「无障碍按钮」'
+                  : '可选：在 LavaTranslate 的无障碍页面打开「快捷方式」，选「无障碍按钮」或「同时按住两个音量键」，用来打开或收起面板'
             }
           >
             {st.a11yButton || st.a11yVolume ? (
@@ -231,7 +237,7 @@ function A11yCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => P
               </button>
             )}
           </Way>
-          <Way icon={<PanelTop size={18} />} title="下拉快捷开关" desc="在任何应用里下拉通知栏，点一下就翻译当前屏幕，或打开快捷回复">
+          <Way icon={<PanelTop size={18} />} title="下拉快捷开关" desc="在任何应用里下拉通知栏：「翻译屏幕」直接开始实时翻译，「快捷回复」直接打开回复">
             <></>
           </Way>
           <div className="s-way-btns">
@@ -319,7 +325,7 @@ function ModeCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => P
       id: 'accessibility' as const,
       title: '无障碍',
       tag: '推荐',
-      desc: '在系统「无障碍」里打开一次，之后一直可用：不需要悬浮窗权限和截屏授权，没有常驻通知，开机自动就绪，不用时不在后台运行。'
+      desc: '在系统「无障碍」里打开一次，之后一直可用：点图标弹出悬浮面板，实时翻译，滑动后自动重译；不需要悬浮窗权限和截屏授权，没有常驻通知，不翻译时不在后台运行。'
     },
     {
       id: 'projection' as const,
@@ -774,7 +780,7 @@ function PowerCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => 
       <section className="s-card">
         <h2>省电</h2>
         <p className="s-small s-note">
-          无障碍模式不在后台运行：没有前台服务和常驻通知，不用时不截屏、不联网。翻译界面和文字识别模型用时才载入，关掉 3 分钟后释放，不长期占着内存。
+          无障碍模式不在后台运行：没有前台服务和常驻通知，不翻译时不截屏、不联网，也不接收任何界面事件。实时翻译时优先直接读屏幕上的文字（不做 OCR），翻过的内容有缓存；翻译界面和文字识别模型用时才载入，用完 3 分钟后（或关屏时）释放。
         </p>
       </section>
     )

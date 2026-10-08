@@ -30,7 +30,7 @@ class ConsentActivity : Activity() {
         }
         if (LavaAccessibilityService.mode && (thenTranslate || quick) || !Settings.canDrawOverlays(this)) {
             // 选了无障碍模式但还没开启、或没有悬浮窗权限：去设置页
-            startActivity(Intent(this, MainActivity::class.java))
+            startActivity(Intent(this, SettingsActivity::class.java))
             return finish()
         }
         val svc = FloatService.instance

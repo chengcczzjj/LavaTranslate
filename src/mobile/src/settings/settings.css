@@ -1036,3 +1036,22 @@ body {
   color: var(--ok);
   background: rgba(61, 220, 151, 0.1);
 }
+.s-panel-btn {
+  margin-bottom: 10px;
+}
+.s-way-lead {
+  margin: 0 2px 14px;
+  line-height: 1.6;
+}
+.s-way-lead b {
+  color: var(--text);
+  font-weight: 650;
+}
+.s-way-app {
+  width: 30px;
+  height: 30px;
+  display: block;
+}
+.s-way-icon:has(.s-way-app) {
+  background: none;
+}

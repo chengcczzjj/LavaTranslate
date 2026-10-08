@@ -1,8 +1,7 @@
 package com.lavatranslate.app
 
+import android.app.KeyguardManager
 import android.content.BroadcastReceiver
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -14,7 +13,6 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Base64
 import android.view.Choreographer
-import android.view.HapticFeedbackConstants
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -22,6 +20,7 @@ import com.lavatranslate.app.capture.Frame
 import com.lavatranslate.app.capture.Screen
 import com.lavatranslate.app.capture.ScreenCapturer
 import com.lavatranslate.app.web.Bridge
+import com.lavatranslate.app.web.CommonBridge
 import com.lavatranslate.app.web.FrameStore
 import org.json.JSONArray
 import org.json.JSONObject
@@ -93,17 +92,48 @@ class ScreenHost(
     /** 翻译界面开着（或正在打开） */
     val active get() = busy || overlay?.attached == true
 
-    /** 关屏就释放，不必再等 [WARM_MS] */
-    private val screenOff = object : BroadcastReceiver() {
+    /**
+     * 锁屏界面在显示：无障碍图层会盖在锁屏上面，这时什么都不显示、不响应。
+     * 自己记状态：解锁广播到达时 isKeyguardLocked 有时还是 true（锁屏正在退场）
+     */
+    private var locked = ctx.getSystemService(KeyguardManager::class.java).isKeyguardLocked
+
+    /**
+     * 关屏：收起翻译界面和悬浮球（不然亮屏后会盖在锁屏上），并立即释放网页和模型，不必再等 [WARM_MS]；
+     * 解锁后悬浮球再出来。
+     */
+    private val screen = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (active) return
-            release()
-            owner.screenOff()
+            when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    locked = true
+                    if (overlay?.attached == true) closeOverlay()
+                    // 撤掉窗口而不只是藏起来：透明的窗口在锁屏上照样会挡住触摸
+                    bubble?.let { if (it.isAttachedToWindow) wm.removeView(it) }
+                    if (active) return
+                    release()
+                    owner.screenOff()
+                }
+                // 没有设锁屏（或刚关屏马上亮屏，还没锁上）时亮屏就算解锁
+                Intent.ACTION_SCREEN_ON -> if (!context.getSystemService(KeyguardManager::class.java).isKeyguardLocked) unlocked()
+                Intent.ACTION_USER_PRESENT -> unlocked()
+            }
         }
     }
 
     init {
-        ContextCompat.registerReceiver(app, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        // 要 EXPORTED：解锁广播由系统界面（另一个应用）发出，NOT_EXPORTED 收不到；三个都是受保护的系统广播，别的应用发不了
+        ContextCompat.registerReceiver(app, screen, filter, ContextCompat.RECEIVER_EXPORTED)
+    }
+
+    private fun unlocked() {
+        locked = false
+        if (bubbleOn) bubbleVisible(true)
     }
 
     // ------------------------------------------------------------ 悬浮球
@@ -120,6 +150,7 @@ class ScreenHost(
             used()
             app.settings.update(JSONObject().put("bubbleSide", side).put("bubbleY", y))
         }).also { bubble = it }
+        if (locked) return
         if (!b.isAttachedToWindow) {
             // 先算好位置再挂窗口（刚 addView 时还没 attach，之后改位置不会生效）
             b.place(app.settings.str("bubbleSide"), app.settings.num("bubbleY"))
@@ -149,7 +180,7 @@ class ScreenHost(
     }
 
     fun translate() {
-        if (active || !owner.ready()) return
+        if (active || locked || !owner.ready()) return
         val capturer = owner.capturer() ?: return
         start()
         // 模型和截屏一起准备：冷启动时省下载入模型的时间
@@ -163,7 +194,7 @@ class ScreenHost(
 
     /** 输入翻译（快捷回复）：不截屏 */
     fun quick() {
-        if (active || !owner.ready()) return
+        if (active || locked || !owner.ready()) return
         start()
         bubble?.hideNow()
         overlay().attach()
@@ -172,7 +203,7 @@ class ScreenHost(
 
     /** 长按悬浮球：菜单（网页里画一个一模一样的球和菜单，画好后再藏起原生的球，看不出切换） */
     fun menu() {
-        if (active || !owner.ready()) return
+        if (active || locked || !owner.ready()) return
         start()
         overlay().attach()
         present(null, "menu")
@@ -254,7 +285,7 @@ class ScreenHost(
         FrameStore.current = null
         ocrJob = null
         imageJob = null
-        if (bubbleOn) {
+        if (bubbleOn && !locked) {
             placeBubble()
             bubble?.show()
         }
@@ -283,7 +314,7 @@ class ScreenHost(
 
     /** 宿主销毁：撤掉所有窗口 */
     fun destroy() {
-        runCatching { app.unregisterReceiver(screenOff) }
+        runCatching { app.unregisterReceiver(screen) }
         main.removeCallbacksAndMessages(null)
         bubbleVisible(false)
         overlay?.destroy()
@@ -345,35 +376,17 @@ class ScreenHost(
                     }
                 }
             }
-            "copy" -> {
-                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("LavaTranslate", a.optString("text")))
-                reply.ok()
-            }
-            "settings" -> reply.ok(app.settings.update(a))
             "orb" -> {
                 val y = a.optDouble("y") * ctx.resources.displayMetrics.density / Screen.size(ctx).y
                 app.settings.update(JSONObject().put("bubbleSide", a.optString("side")).put("bubbleY", y))
                 reply.ok()
             }
-            "haptic" -> {
-                overlay.root.performHapticFeedback(
-                    when (a.optString("kind")) {
-                        "long" -> HapticFeedbackConstants.LONG_PRESS
-                        "confirm" -> if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY
-                        else -> HapticFeedbackConstants.CLOCK_TICK
-                    }
-                )
-                reply.ok()
-            }
             "openSettings" -> {
                 closeOverlay()
-                ctx.startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                ctx.startActivity(Intent(ctx, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 reply.ok()
             }
-            "net.req" -> app.net.request(overlay.bridge, a)
-            "net.abort" -> app.net.abort(a.optString("rid"))
-            "preconnect" -> app.net.preconnect(a.optString("url"))
-            else -> reply.err("unknown method $m")
+            else -> if (!CommonBridge.handle(ctx, overlay.root, overlay.bridge, m, a, reply)) reply.err("unknown method $m")
         }
     }
 
