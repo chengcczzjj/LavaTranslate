@@ -19,19 +19,22 @@ object NodeText {
 
     class Result(
         val lines: List<Line>,
-        /** 读不到逐字位置、又不止一行的文字节点数（多了就该退回 OCR） */
+        /**
+         * 读不到逐字位置的文字节点数。这时只知道整个节点的框（常常把名字、时间、消息合在一起），
+         * 排版会乱，所以只要有一个就整屏改用 OCR
+         */
         val unknown: Int,
-        /** 内容指纹：文字和位置都没变就不必重新翻译 */
+        /** 内容指纹（包括读不到逐字位置的节点）：文字和位置都没变就不必重新翻译 */
         val signature: Int
     )
 
     private const val MAX_NODES = 4000
     private const val MAX_CHARS = 4000
 
-    /** content：要翻译的区域（屏幕坐标）；skip：自己的窗口（小胶囊等）挡住的地方，不读 */
+    /** content：要翻译的区域（屏幕坐标） */
     fun read(svc: AccessibilityService, content: Rect, density: Float): Result {
         val lines = ArrayList<Line>()
-        var unknown = 0
+        val unknownBoxes = ArrayList<Line>()
         // 窗口按层级从上到下：被上层窗口（弹窗、菜单）盖住的字不读
         val covered = Region()
         val wb = Rect()
@@ -40,19 +43,19 @@ object NodeText {
             val app = w.type == AccessibilityWindowInfo.TYPE_APPLICATION
             if (app) {
                 val root = if (Build.VERSION.SDK_INT >= 33) w.getRoot(AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS_HYBRID) else w.root
-                if (root != null && root.packageName != svc.packageName) unknown += walk(root, content, covered, density, lines)
+                if (root != null && root.packageName != svc.packageName) walk(root, content, covered, lines, unknownBoxes)
             }
             // 输入法、系统栏也会挡住下面的字；自己的无障碍图层（翻译层、胶囊）不算
             if (w.type != AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) covered.union(wb)
         }
         lines.sortWith(compareBy<Line>({ it.box.top.toInt() / (8 * density).toInt() }, { it.box.left }))
         var sig = 17
-        for (l in lines) sig = sig * 31 + l.text.hashCode() * 7 + l.box.top.toInt() / 4 * 3 + l.box.left.toInt() / 4
-        return Result(lines, unknown, sig)
+        for (l in lines + unknownBoxes) sig = sig * 31 + l.text.hashCode() * 7 + l.box.top.toInt() / 4 * 3 + l.box.left.toInt() / 4
+        return Result(lines, unknownBoxes.size, sig)
     }
 
-    private fun walk(root: AccessibilityNodeInfo, content: Rect, covered: Region, density: Float, out: MutableList<Line>): Int {
-        var unknown = 0
+    /** unknown：读不到逐字位置的节点（整个节点一个框，只用来算指纹） */
+    private fun walk(root: AccessibilityNodeInfo, content: Rect, covered: Region, out: MutableList<Line>, unknown: MutableList<Line>) {
         var visited = 0
         val stack = ArrayDeque<AccessibilityNodeInfo>()
         stack.add(root)
@@ -69,15 +72,8 @@ object NodeText {
             if (!r.intersect(content) || r.isEmpty) continue
             if (covered.contains(r.centerX(), r.centerY())) continue
             val got = byChars(n, text.toString(), r, covered)
-            if (got != null) {
-                out.addAll(got)
-                continue
-            }
-            // 读不到逐字位置：单行的短文字就用整个节点的框，多行的算作读不到
-            if ('\n' !in text && r.height() < 56 * density) out.add(Line(text.toString().trim(), RectF(r)))
-            else unknown++
+            if (got != null) out.addAll(got) else unknown.add(Line(text.toString(), RectF(r)))
         }
-        return unknown
     }
 
     /** 用每个字的位置把节点文字拆成行；应用不提供时返回 null */

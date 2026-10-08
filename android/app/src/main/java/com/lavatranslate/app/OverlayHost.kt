@@ -44,6 +44,9 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, private val windo
         private set
     var visible = false
         private set
+    /** 接触摸（可交互）；看得见但不接触摸时，触摸和返回键都交给下面的应用（无障碍模式的译文） */
+    var touchable = false
+        private set
 
     init {
         root.addView(web, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -75,16 +78,12 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, private val windo
         })
     }
 
-    /** 实时翻译：译文层可见，但触摸、按键都穿过去交给下面的应用（能照常滑动、点按） */
-    var passthrough = false
-        private set
-
-    private fun params(show: Boolean, alpha: Float = if (show) 1f else 0f) = WindowManager.LayoutParams(
+    private fun params(show: Boolean, alpha: Float = if (show) 1f else 0f, touch: Boolean = show) = WindowManager.LayoutParams(
         WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
         windowType,
         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
-            (if (show) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE),
+            (if (touch) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE),
         PixelFormat.TRANSLUCENT
     ).apply {
         gravity = Gravity.TOP or Gravity.START
@@ -102,41 +101,48 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, private val windo
 
     /** 以透明、不可触摸的状态挂上屏幕，等网页画好 */
     fun attach() {
-        if (attached) return
         LavaApp.instance.webVisible(web, true)
+        if (attached) return
         wm.addView(root, params(false))
         attached = true
         visible = false
+        touchable = false
     }
 
-    fun reveal() {
+    /** 显示出来。touch = false：穿透，看得见但触摸、返回键、焦点都留给下面的应用 */
+    fun reveal(touch: Boolean = true) {
         if (!attached) return
-        passthrough = false
-        wm.updateViewLayout(root, params(true))
+        wm.updateViewLayout(root, params(true, 1f, touch))
         visible = true
+        touchable = touch
+        LavaApp.instance.webVisible(web, true)
         // 拿到焦点，返回手势 / 返回键才会交给这个窗口
-        root.post { if (!web.requestFocus()) root.requestFocus() }
+        if (touch) root.post { if (!web.requestFocus()) root.requestFocus() }
     }
 
     fun showKeyboard() {
-        if (!visible) return
+        if (!visible || !touchable) return
         web.requestFocus()
         if (Build.VERSION.SDK_INT >= 30) root.windowInsetsController?.show(WindowInsets.Type.ime())
         else root.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java).showSoftInput(web, 0)
     }
 
     /**
-     * 实时翻译的译文层：可见与否只改窗口透明度（滑动时立刻藏起、按住对比时看原文），不经过网页，最快。
-     * 不可触摸、不抢焦点，返回手势也交给下面的应用
+     * 收起但不撤掉窗口（无障碍模式的翻译过程中一直挂着，保证小胶囊始终在它上面）：
+     * 完全透明、不接触摸、不抢焦点，下面的应用照常操作；网页暂停
      */
-    fun passthrough(shown: Boolean) {
-        if (!attached) {
-            LavaApp.instance.webVisible(web, true)
-            wm.addView(root, params(false, if (shown) 1f else 0f))
-            attached = true
-        } else wm.updateViewLayout(root, params(false, if (shown) 1f else 0f))
-        passthrough = true
-        visible = shown
+    fun conceal(pauseWeb: Boolean = true) {
+        if (!attached) return
+        wm.updateViewLayout(root, params(false))
+        visible = false
+        touchable = false
+        if (pauseWeb) LavaApp.instance.webVisible(web, false)
+    }
+
+    /** 按住「对比」：只改透明度看下面的原文，其余不变 */
+    fun peek(on: Boolean) {
+        if (!attached || !visible) return
+        wm.updateViewLayout(root, params(true, if (on) 0f else 1f, touchable))
     }
 
     fun detach() {
@@ -144,7 +150,7 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, private val windo
         wm.removeView(root)
         attached = false
         visible = false
-        passthrough = false
+        touchable = false
         // 不在屏幕上时暂停网页，不占 CPU
         LavaApp.instance.webVisible(web, false)
     }

@@ -9,15 +9,14 @@ import { call, notify, on } from '../bridge'
 import { engineFor, engineProblem, type MobileSettings } from '../engine'
 import { Orb, type OrbItem } from './Orb'
 import { installReplyHost } from './replyHost'
-import { Live } from './Live'
+import { LiveCache } from './liveCache'
 
 // 手机版全屏翻译：原生截一帧 → 这里画出截图（与屏幕一模一样）→ 取 OCR 结果 → 调模型流式翻译，译文按原排版就地浮现。
 // 悬浮球：单击退出翻译，长按打开菜单（看原文 / 语言 / 复制 / 回复 / 重译 / 关闭）；返回键也直接退出（先收起打开的面板）。
 // 不在翻译时长按悬浮球：以 menu 模式打开，只有球和菜单（退出 / 设置 / 译成 / 快捷回复，最常用的放在最下面，拇指最好够到）。
 
 interface OpenMsg {
-  /** live：无障碍模式的实时翻译（窗口不接触摸，只画译文，见 Live.tsx） */
-  mode: 'translate' | 'quick' | 'menu' | 'live'
+  mode: 'translate' | 'quick' | 'menu'
   /** 宿主：a11y = 无障碍服务（推荐，不常驻）；float = 截屏授权模式的悬浮球服务 */
   host: 'a11y' | 'float'
   /** 悬浮球是否显示（无障碍模式可以只用系统无障碍按钮、快捷开关） */
@@ -39,7 +38,10 @@ interface OcrResult {
   image: { base64: string; mediaType: 'image/png' | 'image/jpeg'; width: number; height: number; factor: number }
 }
 
-type Stage = 'hidden' | 'translate' | 'quick' | 'menu' | 'live'
+type Stage = 'hidden' | 'translate' | 'quick' | 'menu'
+
+/** 译文缓存（无障碍模式应用滚动后重新翻译时，翻过的内容立刻出现，只把新的行发给模型）；网页释放时清空 */
+const cache = new LiveCache()
 type Sheet = 'lang' | null
 
 const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
@@ -158,6 +160,7 @@ export function MobileOverlay() {
         if (id !== reqId.current) return
         setPhase('error')
         setError({ message: (e as Error).message, code: 'unknown' })
+        notify('translated', { error: 'unknown' })
         return
       }
       if (id !== reqId.current) return
@@ -175,29 +178,47 @@ export function MobileOverlay() {
     if (!ocr.lines.length) {
       setPhase('error')
       setError({ message: '没有识别到文字', code: 'no-text' })
+      notify('translated', { error: 'no-text' })
       return
     }
     const eng = engineFor(st)
     if (!eng) {
       setPhase('error')
       setError({ message: engineProblem(st) ?? '翻译服务还没有配置', code: 'config' })
+      notify('translated', { error: 'config' })
+      return
+    }
+    const tgt = LANGUAGES.find((l) => l.code === (opts.lang ?? st.targetLang)) ?? LANGUAGES[0]
+    // 翻过的块直接用；重译（retry）时不用缓存
+    cache.useTarget(tgt.code)
+    const lines = ocr.lines
+    const { blocks: hit, rest } = opts.reuseOcr ? { blocks: [], rest: lines } : cache.match(lines, s.frame.id)
+    setBlocks(hit)
+    if (!rest.length) {
+      setPhase('done')
+      setStats({ ms: performance.now() - t0, engine: '缓存' })
+      notify('translated')
+      window.setTimeout(() => setPillOpen(false), 1600)
       return
     }
     setPhase('translating')
-    const tgt = LANGUAGES.find((l) => l.code === (opts.lang ?? st.targetLang)) ?? LANGUAGES[0]
     const { factor, ...image } = ocr.image
-    const promptLines = factor === 1 ? ocr.lines : ocr.lines.map((l) => ({ ...l, box: { x: l.box.x * factor, y: l.box.y * factor, w: l.box.w * factor, h: l.box.h * factor } }))
+    const promptLines = factor === 1 ? rest : rest.map((l) => ({ ...l, box: { x: l.box.x * factor, y: l.box.y * factor, w: l.box.w * factor, h: l.box.h * factor } }))
     try {
       const res = await eng.translate(
         { image, lines: promptLines, target: tgt, styleHint: st.styleHint },
         (ev) => {
           if (id !== reqId.current) return
           if (ev.type === 'lang') setLang({ code: ev.code, name: ev.name, chat: ev.chat })
-          else if (ev.type === 'block') setBlocks((bs) => [...bs, ev.block])
+          else if (ev.type === 'block') {
+            cache.add(lines, ev.block)
+            setBlocks((bs) => [...bs, ev.block])
+          }
         },
         ctl.signal
       )
       if (id !== reqId.current) return
+      notify('translated')
       setPhase('done')
       setStats({ ms: performance.now() - t0, engine: eng.name })
       console.info('[lava] done', JSON.stringify({ total: Math.round(performance.now() - t0), engine: eng.name, ...res }))
@@ -208,6 +229,7 @@ export function MobileOverlay() {
       const err = e as Error & { code?: ErrorCode }
       setPhase('error')
       setError({ message: err.message, code: err.code })
+      notify('translated', { error: err.code ?? 'error' })
     }
   }, [])
 
@@ -224,11 +246,6 @@ export function MobileOverlay() {
       setInsets((v) => ({ ...v, top: o.insets.top, bottom: o.insets.bottom }))
       // OCR 的同时先和翻译服务建立连接
       engineFor(o.settings)?.warm()
-      if (o.mode === 'live') {
-        setStage('live')
-        setShown(true)
-        return
-      }
       if (o.mode === 'quick' || o.mode === 'menu') {
         setStage(o.mode)
         setMenu(o.mode === 'menu')
@@ -263,8 +280,6 @@ export function MobileOverlay() {
   // 返回键：先收起最上层的东西
   const back = useRef<() => void>(() => {})
   back.current = () => {
-    // 实时翻译：返回键只在写回复时才到这里，由 Live 自己收起回复框
-    if (stage === 'live') return
     if (stage === 'menu') return sheet ? setSheet(null) : void close()
     if (menu) return setMenu(false)
     if (sheet) return setSheet(null)
@@ -277,9 +292,11 @@ export function MobileOverlay() {
     const offs = [
       on<OpenMsg>('open', (o) => void open(o)),
       on('back', () => back.current()),
-      on('live.stop', () => {
-        setStage('hidden')
-        setShown(false)
+      // 无障碍模式：小胶囊上的「回复」
+      on('reply', () => {
+        setMenu(false)
+        setSheet(null)
+        setReplyOpen(true)
       }),
       // 无障碍按钮再点一下：直接关掉
       on('dismiss', () => void closeRef.current()),
@@ -414,19 +431,39 @@ export function MobileOverlay() {
   }, [blocks])
   const keyboard = insets.ime > 0
   // 前几次翻译完成时提示：单击悬浮球退出、长按打开菜单
+  // 无障碍模式：没有网页里的悬浮球（原生小胶囊在上面）。译文平时是穿透的（触摸直接给下面的应用，由原生收起译文）；
+  // 出错提示可以点的时候，手指在译文上一滑收起
+  const a11y = sess?.host === 'a11y'
+  const swipe = useRef<{ id: number; x: number; y: number } | null>(null)
+  const swipeDown = (e: React.PointerEvent) => {
+    // 回复框、语言列表、状态胶囊、按钮上的触摸不算
+    const t = e.target as HTMLElement
+    swipe.current = stage === 'translate' && !replyOpen && !sheet && !menu && !t.closest('button, .reply, .m-sheet, .m-pill, .m-cta, .m-peek') ? { id: e.pointerId, x: e.clientX, y: e.clientY } : null
+  }
+  const swipeMove = (e: React.PointerEvent) => {
+    const d = swipe.current
+    if (!d || d.id !== e.pointerId || Math.hypot(e.clientX - d.x, e.clientY - d.y) < 18) return
+    swipe.current = null
+    // 原生立刻把窗口收起；这里停掉翻译请求
+    reqId.current++
+    abort.current?.abort()
+    notify('swipe')
+  }
+  const swipeEnd = () => {
+    swipe.current = null
+  }
+  // 回复框打开时原生把小胶囊收起来（不挡回复框），关上再放回来
+  useEffect(() => {
+    if (a11y && stage === 'translate') notify('composer', { open: replyOpen })
+  }, [a11y, stage, replyOpen])
+
   const showTip = useMemo(() => phase === 'done' && Number(localStorage.getItem('lava.tipShown') ?? 0) < 3, [phase])
   useEffect(() => {
     if (showTip) localStorage.setItem('lava.tipShown', String(Number(localStorage.getItem('lava.tipShown') ?? 0) + 1))
   }, [showTip])
   const sheetBottom = (keyboard ? insets.ime : insets.bottom) + 10
-  const showCta = stage === 'translate' && !!lang?.chat && !!settings.current?.replyAssist && !replyOpen && !menu && !sheet && (phase === 'translating' || phase === 'done')
-
-  if (stage === 'live')
-    return (
-      <div className="m-root live shown">
-        <Live density={sess?.density ?? window.devicePixelRatio} settings={() => settings.current} insets={insets} />
-      </div>
-    )
+  // 无障碍模式的译文是穿透的（点不到），回复在小胶囊上
+  const showCta = !a11y && stage === 'translate' && !!lang?.chat && !!settings.current?.replyAssist && !replyOpen && !menu && !sheet && (phase === 'translating' || phase === 'done')
 
   if (stage === 'hidden')
     return (
@@ -436,8 +473,15 @@ export function MobileOverlay() {
     )
 
   return (
-    <div className={`m-root ${stage}${closing ? ' closing' : ''}${shown ? ' shown' : ''}`}>
-      <canvas ref={canvas} className="m-shot" style={f ? { width: f.w / d, height: f.h / d } : undefined} />
+    <div
+      className={`m-root ${stage}${closing ? ' closing' : ''}${shown ? ' shown' : ''}`}
+      onPointerDown={a11y ? swipeDown : undefined}
+      onPointerMove={a11y ? swipeMove : undefined}
+      onPointerUp={a11y ? swipeEnd : undefined}
+      onPointerCancel={a11y ? swipeEnd : undefined}
+    >
+      {/* 快捷回复没有截图：别把上一次的截图按原始像素画出来 */}
+      <canvas ref={canvas} className="m-shot" style={f ? { width: f.w / d, height: f.h / d } : { display: 'none' }} />
 
       {stage === 'quick' && <div className="m-dim" onClick={() => void close()} />}
 
@@ -490,7 +534,7 @@ export function MobileOverlay() {
                 <Check size={14} strokeWidth={3} className="m-ok" />
                 {lang ? `${lang.name} → ${targetName}` : '完成'}
                 {stats && <span className="m-pill-num">{(stats.ms / 1000).toFixed(1)} s</span>}
-                {showTip && <span className="m-pill-tip">单击悬浮球退出 · 长按打开菜单</span>}
+                {showTip && <span className="m-pill-tip">{a11y ? '照常滑动、点按，译文自动让开 · 按住 👁 看原文' : '单击悬浮球退出 · 长按打开菜单'}</span>}
               </>
             )}
             {phase === 'error' && error && (
@@ -535,7 +579,7 @@ export function MobileOverlay() {
         )}
       </AnimatePresence>
 
-      {sess && (stage === 'translate' || stage === 'menu') && !closing && (
+      {sess && !a11y && (stage === 'translate' || stage === 'menu') && !closing && (
         <Orb
           x={sess.orb.x}
           y={sess.orb.y}

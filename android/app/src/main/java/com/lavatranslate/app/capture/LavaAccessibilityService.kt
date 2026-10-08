@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
  * 不需要悬浮窗权限、前台服务和常驻通知；界面（悬浮面板、小胶囊、译文层）都在无障碍图层上，见 [LiveHost]。
  * 唤出：点 LavaTranslate 图标、系统无障碍按钮（音量键快捷方式）、下拉快捷开关。
  * 截屏用 takeScreenshot（不弹授权）；文字优先直接从界面节点读，只在翻译时读。
- * 平时不订阅任何界面事件，只在实时翻译时订阅滚动、换页（LiveHost.subscribe）。
+ * 平时不订阅任何界面事件，只在译文收起、等应用停下时订阅滚动、换页（LiveHost.subscribe）。
  */
 class LavaAccessibilityService : AccessibilityService() {
     private val main = Handler(Looper.getMainLooper())

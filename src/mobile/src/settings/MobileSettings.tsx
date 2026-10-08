@@ -210,7 +210,7 @@ function A11yCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => P
             <Sparkles size={16} /> 打开悬浮面板
           </button>
           <p className="s-small s-way-lead">
-            面板上点「翻译」就开始实时翻译：译文盖在原文上，滑动时自动藏起、停下后接着翻译；面板缩成贴边的小胶囊，按住 <b>对比</b> 看原文、<b>回复</b> 写回复、<b>退出</b> 回到面板。
+            面板上点「翻译」，整屏译文按原来的位置盖在原文上；<b>照常滑动、点按</b>应用，译文自动让开，停下后自动重新翻译。面板缩成贴边的小胶囊：按住 <b>对比</b> 看原文、<b>回复</b> 写回复、<b>退出</b> 回到面板。
           </p>
           <div className="s-ways-title">从这些地方打开</div>
           <Way icon={<img className="s-way-app" src={appIcon} alt="" />} title="LavaTranslate 图标" desc="点桌面上的图标就弹出悬浮面板（不再打开这个设置页，设置在面板上）">
@@ -237,7 +237,7 @@ function A11yCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => P
               </button>
             )}
           </Way>
-          <Way icon={<PanelTop size={18} />} title="下拉快捷开关" desc="在任何应用里下拉通知栏：「翻译屏幕」直接开始实时翻译，「快捷回复」直接打开回复">
+          <Way icon={<PanelTop size={18} />} title="下拉快捷开关" desc="在任何应用里下拉通知栏：「翻译屏幕」直接开始翻译，「快捷回复」直接打开回复">
             <></>
           </Way>
           <div className="s-way-btns">
@@ -325,7 +325,7 @@ function ModeCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => P
       id: 'accessibility' as const,
       title: '无障碍',
       tag: '推荐',
-      desc: '在系统「无障碍」里打开一次，之后一直可用：点图标弹出悬浮面板，实时翻译，滑动后自动重译；不需要悬浮窗权限和截屏授权，没有常驻通知，不翻译时不在后台运行。'
+      desc: '在系统「无障碍」里打开一次，之后一直可用：点图标弹出悬浮面板，一点就翻译整屏，照常滑动点按，停下后自动重译；不需要悬浮窗权限和截屏授权，没有常驻通知，不翻译时不在后台运行。'
     },
     {
       id: 'projection' as const,
@@ -780,7 +780,7 @@ function PowerCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => 
       <section className="s-card">
         <h2>省电</h2>
         <p className="s-small s-note">
-          无障碍模式不在后台运行：没有前台服务和常驻通知，不翻译时不截屏、不联网，也不接收任何界面事件。实时翻译时优先直接读屏幕上的文字（不做 OCR），翻过的内容有缓存；翻译界面和文字识别模型用时才载入，用完 3 分钟后（或关屏时）释放。
+          无障碍模式不在后台运行：没有前台服务和常驻通知，不翻译时不截屏、不联网，也不接收任何界面事件。能直接读到屏幕文字时不做 OCR，翻过的内容有缓存；翻译界面和文字识别模型用时才载入，用完 3 分钟后（或关屏时）释放。
         </p>
       </section>
     )

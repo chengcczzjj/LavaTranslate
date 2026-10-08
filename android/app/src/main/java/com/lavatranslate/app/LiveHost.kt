@@ -1,6 +1,6 @@
 package com.lavatranslate.app
 
-import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.AlarmManager
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -10,7 +10,9 @@ import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
+import android.provider.Settings
 import android.view.Choreographer
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
@@ -24,31 +26,39 @@ import com.lavatranslate.app.capture.NodeText
 import com.lavatranslate.app.capture.Screen
 import com.lavatranslate.app.ui.CapsuleView
 import com.lavatranslate.app.ui.GlassWindow
-import com.lavatranslate.app.ui.PanelView
+import com.lavatranslate.app.ui.PanelBar
+import com.lavatranslate.app.ui.PlainWindow
 import com.lavatranslate.app.update.Updater
 import com.lavatranslate.app.web.Bridge
 import com.lavatranslate.app.web.CommonBridge
 import com.lavatranslate.app.web.FrameStore
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.Callable
+import java.util.concurrent.Future
 import kotlin.math.roundToInt
 
 /**
  * 无障碍模式的界面（整个都在无障碍服务里，见 LavaAccessibilityService）：
  *
- * - **面板**：点 LavaTranslate 图标（或系统无障碍按钮）出现的毛玻璃小窗，翻译 / 回复 / 设置，右上角关闭；
- * - **实时翻译**：点「翻译」面板缩成贴边的小胶囊，译文盖在原文位置上，但触摸都穿过去交给下面的应用。
- *   一滑动（应用发出滚动、换页事件）译文立刻藏起；停下 [SETTLE_MS] 后重新读屏、翻译。
- *   文字优先直接从无障碍节点读（逐行精确位置，不用 OCR），读不到（游戏、图片）才截图做 OCR；
- *   网页那边有译文缓存，滑回看过的内容立刻显示，只把新出现的文字发给模型。
- *   小胶囊：按住「对比」看原文、「回复」写回复、「退出」回到面板；
- * - **回复**：面板上的「回复」或胶囊上的「回复」，打开回复框（输入翻译）。
+ * - **面板**：点 LavaTranslate 图标（或系统无障碍按钮）从屏幕上方弹下的一条毛玻璃横条：翻译 / 回复 / 设置，最右边关闭；
+ * - **翻译**：点「翻译」面板收起，屏幕边上出现小胶囊；整屏译文盖在截图上（和原来的屏幕一模一样），小胶囊始终在它上面。
+ *   译文是穿透的：触摸、返回键照常交给下面的应用。手指一碰屏幕（小胶囊的窗口外触摸）译文立刻让开，同一下就滑动、点按了应用；
+ *   应用滚动、换页停下 [SETTLE_MS] 后自动重新翻译整屏，翻过的内容走网页里的缓存，立刻出现；只是点了一下、屏幕没变时，
+ *   [TOUCH_SETTLE_MS] 后把刚才的译文原样放回来。
+ *   文字优先直接从无障碍节点读（每个字的位置都有时，比 OCR 快、准），否则截图做 OCR；
+ *   小胶囊：按住「对比」看原文；译文收起时它变成「翻译」，点一下马上重新翻译；「回复」写回复；「退出」回到面板；
+ * - **回复**：面板上的「回复」、快捷开关「快捷回复」，或译文收起时胶囊上的「回复」：输入翻译；
+ *   译文显示时胶囊上的「回复」打开带对话上下文的回复框。写回复时小胶囊让开。
  *
- * 只在实时翻译时订阅界面事件；不翻译时没有任何事件、动画和后台工作。翻译界面的网页在面板出现时预先载入，
- * 用完（或面板空闲）[WARM_MS] 后释放；锁屏时什么都不显示。
+ * 只在译文收起、等应用停下时订阅界面事件；不翻译时没有任何事件、动画和后台工作。
+ * 翻译界面的网页在面板出现时预先载入，用完（或面板空闲）[WARM_MS] 后释放；锁屏时什么都不显示。
  */
 class LiveHost(private val svc: LavaAccessibilityService) {
     private enum class State { HIDDEN, PANEL, LIVE, QUICK }
+
+    /** 翻译中的阶段：正在截屏和准备 → 译文显示中 → 译文让开了（等应用停下） */
+    private enum class Phase { CAPTURING, SHOWN, AWAY }
 
     private val app get() = LavaApp.instance
     private val main = Handler(Looper.getMainLooper())
@@ -57,32 +67,39 @@ class LiveHost(private val svc: LavaAccessibilityService) {
     private val capturer = A11yCapturer(svc)
 
     private var state = State.HIDDEN
+    private var phase = Phase.AWAY
     /** 回复框关掉后回到哪个状态 */
     private var afterQuick = State.HIDDEN
 
     private var panel: GlassWindow? = null
-    private var panelView: PanelView? = null
-    private var capsule: GlassWindow? = null
+    private var panelView: PanelBar? = null
+    private var capsule: PlainWindow? = null
     private var capsuleView: CapsuleView? = null
     private var overlay: OverlayHost? = null
     private var webReady = false
 
     /** 设置页开着：面板先藏起来 */
     private var settingsShown = false
+
+    /** 锁屏界面在显示：自己记状态（解锁广播到达时 isKeyguardLocked 有时还是 true） */
     private var locked = svc.getSystemService(KeyguardManager::class.java).isKeyguardLocked
 
-    // ------------------------------------------------------------ 实时翻译的状态
-    /** 每次读屏的编号：旧的读屏结果、旧的网页回复都丢掉 */
+    // ------------------------------------------------------------ 这一屏的文字
     private var scanGen = 0
+    private var textJob: Future<JSONObject>? = null
+    private var imageJob: Future<JSONObject>? = null
     private var frameId = 0
-    /** 当前译文层在屏幕上（不是被滑动藏起、也不是正在读屏） */
-    private var layerOn = false
-    private var peeking = false
-    private var replying = false
-    private var source = Source.NONE
-    private var signature = 0
-
-    private enum class Source { NONE, NODES, OCR }
+    /** 一帧截图时节点文字的指纹：译文被碰走后用来判断屏幕变没变（一个文字节点都没有时不记） */
+    private class Sig(val frame: Int, val value: Int, val content: Rect)
+    @Volatile private var sig: Sig? = null
+    /** 收起之后应用滚动过 */
+    private var scrolled = false
+    /** 这之前的「窗口状态变化」是自己换焦点引起的，不算 */
+    private var quietUntil = 0L
+    /** 译文是被手指碰走的（网页里还是这一屏的译文）：屏幕没变就直接放回来，不用重新截屏 */
+    private var restorable = false
+    /** 这一屏翻译完了 */
+    private var done = false
 
     val active get() = state == State.LIVE || state == State.QUICK
 
@@ -120,36 +137,43 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         if (state != State.PANEL) return
         state = State.HIDDEN
         app.settings.update(JSONObject().put("panelOpen", false))
-        panelView?.animate()?.alpha(0f)?.scaleX(0.9f)?.scaleY(0.9f)?.setDuration(150)?.withEndAction { panel?.dismiss() }?.start()
+        slideUp { panel?.dismiss() }
         scheduleRelease()
     }
 
+    private val margin get() = (10 * density).roundToInt()
+
     private fun showPanelWindow() {
         if (locked || settingsShown || state != State.PANEL) return
-        val v = panelView ?: PanelView(svc, onTranslate = { startLive() }, onReply = { quick() }, onSettings = { openSettings() }, onClose = { closePanel() }).also { panelView = it }
-        val g = panel ?: GlassWindow(svc, v, 26f, onMoved = { x, y -> savePanel(x, y) }).also { panel = it }
+        val size = Screen.size(svc)
+        val width = size.x - margin * 2
+        val v = panelView ?: PanelBar(svc, onTranslate = { startLive() }, onReply = { quick() }, onSettings = { openSettings() }, onClose = { closePanel() }).also { panelView = it }
+        val g = panel ?: GlassWindow(svc, v, 17f, width, horizontalDrag = false, onMoved = { _, y -> savePanel(y) }).also { panel = it }
         if (g.showing) return
-        val (w, h) = g.measure()
-        val size = Screen.size(svc)
-        val fx = app.settings.num("panelX").takeIf { !it.isNaN() } ?: ((size.x - w) / 2.0 / size.x)
-        val fy = app.settings.num("panelY").takeIf { !it.isNaN() } ?: 0.6
-        g.show(clampX((fx * size.x).roundToInt(), w), clampY((fy * size.y).roundToInt(), h))
+        val (_, h) = g.measure()
+        val top = Screen.content(svc, size.x, size.y).top + (6 * density).roundToInt()
+        val fy = app.settings.num("panelY")
+        val y = if (fy.isNaN()) top else clampY((fy * size.y).roundToInt(), h)
+        g.show(margin, y)
+        // 从上面滑下来
         v.alpha = 0f
-        v.scaleX = 0.92f
-        v.scaleY = 0.92f
-        v.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(200).start()
+        v.translationY = -h.toFloat()
+        v.animate().alpha(1f).translationY(0f).setDuration(260).setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
     }
 
-    private fun savePanel(x: Int, y: Int) {
-        val size = Screen.size(svc)
-        val (w, h) = panel?.measure() ?: return
-        val cx = clampX(x, w)
+    private fun slideUp(end: () -> Unit) {
+        val v = panelView ?: return end()
+        if (panel?.showing != true) return end()
+        v.animate().alpha(0f).translationY(-v.height.toFloat()).setDuration(180).setInterpolator(android.view.animation.AccelerateInterpolator(1.5f)).withEndAction(end).start()
+    }
+
+    private fun savePanel(y: Int) {
+        val g = panel ?: return
+        val (_, h) = g.measure()
         val cy = clampY(y, h)
-        panel?.move(cx, cy)
-        app.settings.update(JSONObject().put("panelX", cx.toDouble() / size.x).put("panelY", cy.toDouble() / size.y))
+        g.move(margin, cy)
+        app.settings.update(JSONObject().put("panelY", cy.toDouble() / Screen.size(svc).y))
     }
-
-    private fun clampX(x: Int, w: Int): Int = x.coerceIn((4 * density).toInt(), Screen.size(svc).x - w - (4 * density).toInt())
 
     private fun clampY(y: Int, h: Int): Int {
         val size = Screen.size(svc)
@@ -170,10 +194,15 @@ class LiveHost(private val svc: LavaAccessibilityService) {
     }
 
     // ------------------------------------------------------------ 小胶囊
+    /** 要在翻译界面之后加上去，才会在它上面 */
     private fun showCapsule() {
-        val v = capsuleView ?: CapsuleView(svc, onPeek = { peek(it) }, onReply = { reply() }, onExit = { stopLive() }).also { capsuleView = it }
-        val g = capsule ?: GlassWindow(svc, v, 24f, onMoved = { x, y -> snapCapsule(x, y) }, onOutside = { touchedOutside() }).also { capsule = it }
+        val v = capsuleView ?: CapsuleView(svc, onCompare = { peek(it) }, onTranslate = { translate() }, onReply = { capsuleReply() }, onExit = { stopLive() }).also { capsuleView = it }
+        val g = capsule ?: PlainWindow(svc, v) { x, y -> snapCapsule(x, y) }.also {
+            it.onOutside = { touched() }
+            capsule = it
+        }
         if (locked) return
+        g.dismiss()
         val (w, h) = g.measure()
         val size = Screen.size(svc)
         val side = app.settings.str("capsuleSide").ifEmpty { "right" }
@@ -205,53 +234,183 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         return Rect(g.winX, g.winY, g.winX + w, g.winY + h)
     }
 
-    // ------------------------------------------------------------ 实时翻译
+    // ------------------------------------------------------------ 翻译
     /** 面板上的「翻译」，或下拉快捷开关「翻译屏幕」 */
     fun startLive() {
         if (locked || state == State.LIVE || state == State.QUICK) return
         val fromPanel = state == State.PANEL && panel?.showing == true
         state = State.LIVE
+        phase = Phase.AWAY
         app.settings.update(JSONObject().put("panelOpen", true))
         main.removeCallbacks(releaseTask)
         val begin = {
+            // 面板拿过焦点的话，收起时应用会发一次「窗口状态变化」
+            quietUntil = SystemClock.uptimeMillis() + 600
             panel?.dismiss()
+            // 翻译界面先挂上（透明、不接触摸），小胶囊后加，保证在它上面
+            overlay().attach()
             showCapsule()
-            beginLive()
+            translate()
         }
-        // 面板缩向胶囊所在的一边，消失后再截屏（不能把面板截进去）
-        if (fromPanel) {
-            val pv = panelView!!
-            val right = app.settings.str("capsuleSide") != "left"
-            pv.pivotX = if (right) pv.width.toFloat() else 0f
-            pv.pivotY = pv.height / 2f
-            pv.animate().alpha(0f).scaleX(0.4f).scaleY(0.4f).setDuration(170).withEndAction(begin).start()
-        } else begin()
+        // 面板收上去之后再截屏（不能把面板截进去）
+        if (fromPanel) slideUp(begin) else begin()
         tips()
     }
 
-    private fun beginLive() {
+    /** 截屏、读文字，交给网页画出截图和译文 */
+    private fun translate() {
+        if (state != State.LIVE || phase == Phase.CAPTURING) return
+        phase = Phase.CAPTURING
+        // 截屏、读文字的时候应用换了页（例如刚点开的页面还在过场动画）：这张截图作废，等停稳了再截
+        subscribe(EVENTS_SHOWN)
+        main.removeCallbacks(settle)
+        main.removeCallbacks(waitingIcon)
+        done = false
+        val gen = ++scanGen
+        capsuleView?.waiting(false)
+        capsuleView?.busy(true)
         val o = overlay()
-        o.passthrough(false)
-        layerOn = false
-        peeking = false
-        replying = false
-        lastError = ""
-        source = Source.NONE
-        o.bridge.emit("open", openMsg("live"))
-        subscribe(true)
-        scan()
+        if (o.visible) o.conceal(pauseWeb = false)
+        o.attach()
+        val mask = capsuleRect()
+        // 等两帧：确保收起的译文已经从屏幕上消失，不会被截进去
+        val ch = Choreographer.getInstance()
+        ch.postFrameCallback { ch.postFrameCallback { app.worker.execute { capture(gen, mask) } } }
+        main.postDelayed({ if (gen == scanGen && phase == Phase.CAPTURING) away() }, if (webReady) 6000L else 14000L)
+    }
+
+    private fun capture(gen: Int, mask: Rect?) {
+        val t0 = SystemClock.elapsedRealtime()
+        val f = try {
+            capturer.capture()
+        } catch (e: CaptureException) {
+            // 截屏太频繁（系统限制每秒约 3 次）：稍等再来
+            if (e.message?.contains("频繁") == true) main.postDelayed({ if (gen == scanGen) retry() }, 400)
+            else main.post { if (gen == scanGen) fail(e.message ?: "截屏失败") }
+            return
+        }
+        if (gen != scanGen) return
+        val captureMs = SystemClock.elapsedRealtime() - t0
+        if (mask != null) f.fill(mask)
+        FrameStore.current = f
+        if (BuildConfig.DEBUG) FrameStore.last = f
+        val c = f.content
+        val crop = f.crop(c)
+        textJob = app.worker.submit(Callable { readText(f, crop, captureMs) })
+        imageJob = app.worker.submit(Callable { ScreenHost.encodeForModel(crop, c.width(), c.height()) })
+        main.post {
+            if (gen != scanGen || state != State.LIVE) return@post
+            frameId = f.id
+            overlay?.bridge?.emit("open", openMsg("translate").put("frame", JSONObject().put("id", f.id).put("w", f.width).put("h", f.height).put("content", rect(c))))
+        }
+    }
+
+    private fun retry() {
+        phase = Phase.AWAY
+        translate()
+    }
+
+    /** 文字：每个字的位置都读得到就直接用节点，否则做 OCR（与截屏授权模式同一种格式） */
+    private fun readText(f: Frame, crop: ByteArray, captureMs: Long): JSONObject {
+        val c = f.content
+        val t0 = SystemClock.elapsedRealtime()
+        val nodes = runCatching { NodeText.read(svc, c, density) }.getOrNull()
+        val lines = JSONArray()
+        // 一个文字节点都没有（游戏、视频）时指纹没有意义
+        sig = if (nodes != null && (nodes.lines.isNotEmpty() || nodes.unknown > 0)) Sig(f.id, nodes.signature, Rect(c)) else null
+        val source = if (nodes != null && nodes.lines.isNotEmpty() && nodes.unknown == 0) {
+            nodes.lines.forEachIndexed { i, l ->
+                lines.put(JSONObject().put("id", i + 1).put("text", l.text).put("score", 1)
+                    .put("box", JSONObject().put("x", l.box.left - c.left).put("y", l.box.top - c.top).put("w", l.box.width()).put("h", l.box.height())))
+            }
+            "nodes"
+        } else {
+            app.ocr.recognize(crop, c.width(), c.height()).forEach { lines.put(it.json()) }
+            "ocr"
+        }
+        val ms = SystemClock.elapsedRealtime() - t0
+        if (BuildConfig.DEBUG) android.util.Log.i("LavaTranslate", "scan $source lines=${lines.length()} capture=${captureMs}ms read=${ms}ms unknown=${nodes?.unknown}")
+        return JSONObject()
+            .put("frame", f.id)
+            .put("lines", lines)
+            .put("ms", ms)
+            .put("source", source)
+            .put("timing", JSONObject().put("capture", captureMs).put("read", ms))
+    }
+
+    private fun fail(message: String) {
+        capsuleView?.busy(false)
+        toast(message)
+        away()
+    }
+
+    /**
+     * 译文收起（手指碰了屏幕、应用换了页、返回键）：透明、不接触摸，等应用停下后自动重新翻译。
+     * settleMs > 0：没有事件也在这么久后检查一次（只是点了一下、什么都没变时把译文放回来）
+     */
+    private fun away(settleMs: Long = 0, restore: Boolean = false) {
+        if (state != State.LIVE) return
+        scanGen++
+        phase = Phase.AWAY
+        scrolled = false
+        restorable = restore
+        if (overlay?.touchable == true) quietUntil = SystemClock.uptimeMillis() + 600
+        overlay?.conceal()
+        if (capsule?.showing != true) showCapsule()
+        capsuleView?.busy(false)
+        subscribe(EVENTS_AWAY)
+        main.removeCallbacks(settle)
+        main.removeCallbacks(waitingIcon)
+        // 只是点了一下的话马上就放回来：图标晚一点再变成「翻译」，免得闪
+        if (settleMs > 0) {
+            main.postDelayed(settle, settleMs)
+            main.postDelayed(waitingIcon, 900)
+        } else capsuleView?.waiting(true)
+    }
+
+    private val waitingIcon = Runnable { if (state == State.LIVE && phase == Phase.AWAY) capsuleView?.waiting(true) }
+
+    /** 手指碰了屏幕（小胶囊以外的地方；这一下照常交给下面的应用）：译文立刻让开，停下后再翻 */
+    private fun touched() {
+        if (state != State.LIVE) return
+        dbg("touched $phase touchable=${overlay?.touchable}")
+        when (phase) {
+            // 译文可交互（回复框、出错提示）时碰的是译文本身，不算
+            Phase.SHOWN -> if (overlay?.touchable != true) away(TOUCH_SETTLE_MS, restore = true)
+            // 截屏、读文字的时候碰了：这张截图可能已经过时
+            Phase.CAPTURING -> away(TOUCH_SETTLE_MS)
+            Phase.AWAY -> {
+                main.removeCallbacks(settle)
+                main.postDelayed(settle, TOUCH_SETTLE_MS)
+            }
+        }
+    }
+
+    /** 屏幕没变：把刚才的译文放回来（网页里还在，不用重新截屏） */
+    private fun restore() {
+        val o = overlay ?: return translate()
+        phase = Phase.SHOWN
+        subscribe(EVENTS_SHOWN)
+        main.removeCallbacks(waitingIcon)
+        o.reveal(touch = false)
+        capsuleView?.waiting(false)
+        capsuleView?.busy(!done)
+    }
+
+    private fun peek(on: Boolean) {
+        if (state == State.LIVE && phase == Phase.SHOWN) overlay?.peek(on)
     }
 
     /** 小胶囊上的「退出」：回到面板 */
     fun stopLive(toPanel: Boolean = true) {
         if (state != State.LIVE) return
-        subscribe(false)
+        subscribe(0)
         main.removeCallbacks(settle)
-        main.removeCallbacks(contentCheck)
         scanGen++
-        overlay?.bridge?.emit("live.stop")
         overlay?.detach()
         FrameStore.current = null
+        textJob = null
+        imageJob = null
         capsuleView?.busy(false)
         capsule?.dismiss()
         state = if (toPanel) State.PANEL else State.HIDDEN
@@ -260,163 +419,77 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         Updater.autoCheck(svc, 20 * 3600_000L)
     }
 
-    /** 读屏：藏起译文层 → 等它从屏幕上消失 → 截屏、读文字 → 交给网页翻译 */
-    private fun scan() {
-        if (state != State.LIVE || replying) return
-        main.removeCallbacks(settle)
-        main.removeCallbacks(contentCheck)
-        val gen = ++scanGen
-        layer(false)
-        capsuleView?.busy(true)
-        val mask = capsuleRect()
-        val ch = Choreographer.getInstance()
-        ch.postFrameCallback { ch.postFrameCallback { app.worker.execute { readScreen(gen, mask) } } }
-    }
+    // ------------------------------------------------------------ 界面事件（只在译文收起、等应用停下时订阅）
+    private val settle = Runnable { settled() }
 
-    private fun readScreen(gen: Int, mask: Rect?) {
-        val t0 = SystemClock.elapsedRealtime()
-        val f = try {
-            capturer.capture()
-        } catch (e: CaptureException) {
-            // 截屏太频繁（系统限制每秒约 3 次）：稍等再来
-            if (e.message?.contains("频繁") == true) main.postDelayed({ if (gen == scanGen) scan() }, 400)
-            else main.post { if (gen == scanGen) liveError(e.message ?: "截屏失败") }
-            return
-        }
-        if (gen != scanGen) return
-        val captureMs = SystemClock.elapsedRealtime() - t0
-        val c = f.content
-        val nodes = runCatching { NodeText.read(svc, c, density) }.getOrNull()
-        val useNodes = nodes != null && nodes.lines.isNotEmpty() && nodes.unknown <= nodes.lines.size / 4 + 1
-        if (mask != null) f.fill(mask)
-        val crop = f.crop(c)
-        val t1 = SystemClock.elapsedRealtime()
-        val lines = JSONArray()
-        if (useNodes) {
-            nodes!!.lines.forEachIndexed { i, l ->
-                lines.put(JSONObject().put("id", i + 1).put("text", l.text).put("score", 1)
-                    .put("box", JSONObject().put("x", l.box.left - c.left).put("y", l.box.top - c.top).put("w", l.box.width()).put("h", l.box.height())))
+    /**
+     * 应用停下来了：重新翻译。只是点了一下、没滚动时，先看看节点文字有没有变：没变就把刚才的译文放回来，不用重新截屏
+     */
+    private fun settled() {
+        val s = sig
+        dbg("settled restorable=$restorable scrolled=$scrolled sig=${s?.frame} frame=$frameId")
+        if (!restorable || scrolled || s == null || s.frame != frameId) return translate()
+        val gen = scanGen
+        app.worker.execute {
+            val now = runCatching { NodeText.read(svc, s.content, density) }.getOrNull()
+            main.post {
+                if (gen != scanGen || state != State.LIVE || phase != Phase.AWAY) return@post
+                if (now != null && now.signature == s.value) {
+                    if (BuildConfig.DEBUG) android.util.Log.i("LavaTranslate", "settle: unchanged, restore")
+                    restore()
+                } else translate()
             }
-        } else {
-            val ocr = try {
-                app.ocr.recognize(crop, c.width(), c.height())
-            } catch (e: Exception) {
-                main.post { if (gen == scanGen) liveError("文字识别失败：${e.message}") }
-                return
-            }
-            ocr.forEach { lines.put(it.json()) }
-        }
-        val readMs = SystemClock.elapsedRealtime() - t1
-        val image = ScreenHost.encodeForModel(crop, c.width(), c.height())
-        if (gen != scanGen) return
-        FrameStore.current = f
-        if (BuildConfig.DEBUG) FrameStore.last = f
-        main.post {
-            if (gen != scanGen || state != State.LIVE) return@post
-            source = if (useNodes) Source.NODES else Source.OCR
-            signature = nodes?.signature ?: 0
-            frameId = f.id
-            if (BuildConfig.DEBUG) android.util.Log.i("LavaTranslate", "live scan ${source.name.lowercase()} lines=${lines.length()} capture=${captureMs}ms read=${readMs}ms unknown=${nodes?.unknown}")
-            overlay?.bridge?.emit(
-                "live.frame", JSONObject()
-                    .put("frame", JSONObject().put("id", f.id).put("w", f.width).put("h", f.height).put("content", rect(c)))
-                    .put("lines", lines)
-                    .put("image", image)
-                    .put("source", source.name.lowercase())
-            )
         }
     }
 
-    /** 同一个错误（例如没填 Key）在一次实时翻译里只提示一次，不要每滑一下就弹 */
-    private var lastError = ""
-
-    private fun liveError(message: String) {
-        capsuleView?.busy(false)
-        if (message == lastError) return
-        lastError = message
-        toast(message)
-    }
-
-    /** 译文层显示与否：只改窗口透明度 */
-    private fun layer(on: Boolean) {
-        layerOn = on
-        val o = overlay ?: return
-        if (o.attached && o.passthrough) o.passthrough(on && !peeking)
-    }
-
-    private fun peek(on: Boolean) {
-        peeking = on
-        val o = overlay ?: return
-        if (o.attached && o.passthrough) o.passthrough(layerOn && !on)
-    }
-
-    // ------------------------------------------------------------ 界面事件（只在实时翻译时订阅）
-    private val settle = Runnable { scan() }
-    private val contentCheck = Runnable { checkContent() }
-
-    private fun subscribe(on: Boolean) {
+    private fun subscribe(types: Int) {
         val info = svc.serviceInfo ?: return
-        info.eventTypes = if (on) AccessibilityEvent.TYPE_VIEW_SCROLLED or AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED else 0
-        info.notificationTimeout = if (on) 50 else 0
+        if (info.eventTypes == types) return
+        info.eventTypes = types
+        info.notificationTimeout = if (types != 0) 50 else 0
         svc.serviceInfo = info
-        // 读过节点后系统会让应用为缓存持续发送界面变化；不翻译时关掉缓存，应用就不再发（Android 13+）
-        if (!on && Build.VERSION.SDK_INT >= 33) svc.setCacheEnabled(false)
-        if (on && Build.VERSION.SDK_INT >= 33) svc.setCacheEnabled(true)
     }
 
     fun onEvent(e: AccessibilityEvent) {
-        if (state != State.LIVE || replying) return
+        if (state != State.LIVE) return
         val pkg = e.packageName?.toString() ?: return
         // 自己的窗口、状态栏（时钟、通知图标）的变化不算
         if (pkg == svc.packageName || pkg == "com.android.systemui") return
-        when (e.eventType) {
-            AccessibilityEvent.TYPE_VIEW_SCROLLED, AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> moved(SETTLE_MS)
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                // 正在等滑动停下时不管；否则过一会儿看看文字变没变（视频、动画一直在变，只看文字）
-                if (!main.hasCallbacks(settle)) {
-                    main.removeCallbacks(contentCheck)
-                    main.postDelayed(contentCheck, CONTENT_MS)
-                }
+        // 输入法弹出、收起（例如回复框关掉）也会发「窗口状态变化」
+        if (pkg == Settings.Secure.getString(svc.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)?.substringBefore('/')) return
+        // 译文层交出焦点（回复框收起）时应用会发一次「窗口状态变化」，不算
+        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && e.eventTime < quietUntil) return
+        when (phase) {
+            // 译文显示着、应用自己换了页（返回键、弹窗）：收起，没变的话放回来
+            Phase.SHOWN -> {
+                if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && overlay?.touchable != true) away(SETTLE_MS, restore = true)
+                return
             }
+            Phase.CAPTURING -> {
+                if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) away(SETTLE_MS)
+                return
+            }
+            Phase.AWAY -> {}
         }
-    }
-
-    /** 画面在动：立刻藏起译文、停下翻译，等停下来再读屏 */
-    private fun moved(wait: Long) {
-        if (layerOn || main.hasCallbacks(settle).not()) {
-            scanGen++
-            layer(false)
-            overlay?.bridge?.emit("live.hide")
-            capsuleView?.busy(false)
-        }
-        main.removeCallbacks(contentCheck)
+        if (e.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) scrolled = true
+        // 应用在滚动、换页：等它停下来再翻译
         main.removeCallbacks(settle)
-        main.postDelayed(settle, wait)
-    }
-
-    /** 不发界面事件的应用（游戏、自绘界面，用 OCR 的）：碰了屏幕就当它可能在动 */
-    private fun touchedOutside() {
-        if (state == State.LIVE && !replying && source == Source.OCR) moved(OCR_SETTLE_MS)
-    }
-
-    private fun checkContent() {
-        if (state != State.LIVE || replying || source != Source.NODES) return
-        val gen = scanGen
-        app.worker.execute {
-            val size = Screen.size(svc)
-            val sig = runCatching { NodeText.read(svc, Screen.content(svc, size.x, size.y), density).signature }.getOrNull() ?: return@execute
-            main.post { if (gen == scanGen && sig != signature) scan() }
-        }
+        main.postDelayed(settle, SETTLE_MS)
     }
 
     // ------------------------------------------------------------ 回复
     /** 面板上的「回复」，或下拉快捷开关「快捷回复」：输入翻译，不截屏 */
     fun quick() {
-        if (locked || state == State.LIVE || state == State.QUICK) return
+        if (locked || state == State.QUICK) return
+        if (state == State.LIVE && phase != Phase.AWAY) return
         afterQuick = state
         state = State.QUICK
         main.removeCallbacks(releaseTask)
+        main.removeCallbacks(settle)
+        subscribe(0)
         panel?.dismiss()
+        // 小胶囊会挡住回复框：写完回到「译文收起」时再放回来
+        capsule?.dismiss()
         val o = overlay()
         o.attach()
         o.bridge.emit("open", openMsg("quick"))
@@ -425,29 +498,32 @@ class LiveHost(private val svc: LavaAccessibilityService) {
 
     private fun endQuick() {
         if (state != State.QUICK) return
-        overlay?.detach()
         state = afterQuick
-        if (state == State.PANEL) showPanelWindow()
-        scheduleRelease()
+        when (state) {
+            // 翻译中写完回复：回到「译文收起」，翻译界面继续挂着（小胶囊要在它上面）
+            State.LIVE -> away()
+            else -> {
+                overlay?.detach()
+                if (state == State.PANEL) showPanelWindow()
+                scheduleRelease()
+            }
+        }
     }
 
-    /** 小胶囊上的「回复」：用屏幕上的对话当上下文 */
-    private fun reply() {
-        if (state != State.LIVE || replying) return
-        replying = true
-        main.removeCallbacks(settle)
-        main.removeCallbacks(contentCheck)
-        overlay?.reveal()
-        overlay?.bridge?.emit("live.reply")
-        main.postDelayed({ overlay?.showKeyboard() }, 220)
-    }
-
-    private fun replyClosed() {
-        if (!replying) return
-        replying = false
-        overlay?.passthrough(layerOn && !peeking)
-        // 回复期间屏幕可能变了（发出去的消息）：重新读一次
-        if (state == State.LIVE) moved(SETTLE_MS)
+    /** 小胶囊上的「回复」：译文显示着就在译文界面里写（用屏幕上的对话当上下文），否则打开输入翻译 */
+    private fun capsuleReply() {
+        if (state != State.LIVE) return
+        when (phase) {
+            Phase.SHOWN -> {
+                val o = overlay ?: return
+                capsule?.dismiss()
+                o.reveal(touch = true)
+                o.bridge.emit("reply")
+                main.postDelayed({ overlay?.showKeyboard() }, 220)
+            }
+            Phase.AWAY -> quick()
+            Phase.CAPTURING -> {}
+        }
     }
 
     // ------------------------------------------------------------ 翻译界面（网页）
@@ -465,12 +541,13 @@ class LiveHost(private val svc: LavaAccessibilityService) {
 
     private fun openMsg(mode: String): JSONObject {
         val d = density
+        val c = capsuleRect()
         return JSONObject()
             .put("mode", mode)
             .put("host", "a11y")
             .put("bubble", false)
             .put("density", d)
-            .put("orb", JSONObject().put("x", 0).put("y", 0).put("size", 52))
+            .put("orb", JSONObject().put("x", (c?.left ?: 0) / d).put("y", (c?.top ?: 0) / d).put("size", 52))
             .put("side", app.settings.str("capsuleSide").ifEmpty { "right" })
             .put("insets", JSONObject()
                 .put("top", Screen.content(svc, 1, Screen.size(svc).y).top / d)
@@ -483,38 +560,89 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         when (m) {
             "hello" -> {
                 webReady = true
+                // 挂着（正在截屏、马上要显示）时不暂停，否则冷启动的第一次翻译画不出来
                 if (!o.attached) app.webVisible(o.web, false)
                 reply.ok(JSONObject().put("version", BuildConfig.VERSION_NAME))
             }
-            // 输入翻译：网页画好后再显示、弹键盘
+            // 网页画好了（截图或回复框）：显示出来
             "shown" -> {
-                if (state == State.QUICK) {
-                    o.reveal()
-                    main.postDelayed({ o.showKeyboard() }, 160)
-                }
-                reply.ok()
-            }
-            "close" -> {
-                reply.ok()
-                main.post { endQuick() }
-            }
-            /** 这一帧的译文（缓存的或第一段新译文）画好了：显示译文层 */
-            "live.visible" -> {
-                reply.ok()
-                main.post { if (state == State.LIVE && a.optInt("frame") == frameId && !main.hasCallbacks(settle)) layer(true) }
-            }
-            "live.state" -> {
                 reply.ok()
                 main.post {
-                    if (state != State.LIVE) return@post
-                    val phase = a.optString("phase")
-                    capsuleView?.busy(phase == "translating")
-                    if (phase == "error") liveError(a.optString("message").ifEmpty { "翻译失败" })
+                    when (state) {
+                        State.LIVE -> if (phase == Phase.CAPTURING) {
+                            dbg("shown")
+                            // 穿透：看得见，触摸照常交给下面的应用（手指一碰小胶囊就知道，见 touched）
+                            o.reveal(touch = false)
+                            phase = Phase.SHOWN
+                            subscribe(EVENTS_SHOWN)
+                            // 窗口拿到焦点后可能被系统挪到上层：小胶囊重新放到最上面
+                            if (capsule?.showing != true) showCapsule()
+                        }
+                        State.QUICK -> {
+                            o.reveal()
+                            main.postDelayed({ o.showKeyboard() }, 160)
+                        }
+                        else -> {}
+                    }
                 }
             }
-            "live.replyClosed" -> {
+            "ocr" -> {
+                val job = textJob
+                val img = imageJob
+                if (job == null || img == null) return reply.err("截图已失效，请重新截图")
+                app.worker.execute {
+                    try {
+                        val r = job.get()
+                        if (r.optInt("frame") != a.optInt("frame")) return@execute reply.err("截图已失效，请重新截图")
+                        reply.ok(JSONObject(r.toString()).put("image", img.get()))
+                    } catch (e: Exception) {
+                        reply.err("文字识别失败：${e.cause?.message ?: e.message}")
+                    }
+                }
+            }
+            /** 网页里滑了一下、按了返回键（关闭）：收起译文 */
+            "swipe", "close" -> {
                 reply.ok()
-                main.post { replyClosed() }
+                main.post {
+                    when (state) {
+                        State.LIVE -> away()
+                        State.QUICK -> endQuick()
+                        else -> {}
+                    }
+                }
+            }
+            "translated" -> {
+                reply.ok()
+                // 出错且提示上有按钮（去设置、重试）：让译文可以点；重试成功后再回到穿透
+                val err = a.optString("error")
+                main.post {
+                    done = true
+                    capsuleView?.busy(false)
+                    if (state != State.LIVE || phase != Phase.SHOWN || capsule?.showing != true) return@post
+                    if (err.isNotEmpty() && err != "no-text") o.reveal(touch = true)
+                    else if (o.touchable) {
+                        quietUntil = SystemClock.uptimeMillis() + 600
+                        o.reveal(touch = false)
+                    }
+                }
+            }
+            /** 译文上的回复框开关：打开时收起小胶囊，免得挡住回复框 */
+            "composer" -> {
+                reply.ok()
+                val open = a.optBoolean("open")
+                main.post {
+                    if (state != State.LIVE) return@post
+                    if (open) {
+                        capsule?.dismiss()
+                        return@post
+                    }
+                    // 回复框收起：译文回到穿透
+                    if (phase == Phase.SHOWN && o.touchable) {
+                        quietUntil = SystemClock.uptimeMillis() + 600
+                        o.reveal(touch = false)
+                    }
+                    if (capsule?.showing != true) showCapsule()
+                }
             }
             "openSettings" -> {
                 reply.ok()
@@ -551,8 +679,8 @@ class LiveHost(private val svc: LavaAccessibilityService) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     locked = true
-                    if (state == State.LIVE) stopLive()
                     if (state == State.QUICK) endQuick()
+                    if (state == State.LIVE) stopLive()
                     panel?.dismiss()
                     release()
                     scheduleRecycle()
@@ -570,14 +698,14 @@ class LiveHost(private val svc: LavaAccessibilityService) {
      * 网页释放后，网页引擎本身还占着一两百 MB，只有结束进程才能还给系统（系统会以只带本服务的小进程重新拉起）。
      * 但重新拉起有延迟（反复结束时越来越长，可能几十秒），期间点图标没反应——所以只在关屏很久后才做，用户碰不到
      */
-    private val alarms = svc.getSystemService(android.app.AlarmManager::class.java)
-    private val recycle = android.app.AlarmManager.OnAlarmListener {
-        if (!svc.getSystemService(android.os.PowerManager::class.java).isInteractive && !active && app.webEngineLoaded) app.endProcessSoon()
+    private val alarms = svc.getSystemService(AlarmManager::class.java)
+    private val recycle = AlarmManager.OnAlarmListener {
+        if (!svc.getSystemService(PowerManager::class.java).isInteractive && !active && app.webEngineLoaded) app.endProcessSoon()
     }
 
     private fun scheduleRecycle() {
         alarms.cancel(recycle)
-        if (app.webEngineLoaded) alarms.setWindow(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + RECYCLE_MS, 10 * 60_000L, "lava:recycle", recycle, main)
+        if (app.webEngineLoaded) alarms.setWindow(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + RECYCLE_MS, 10 * 60_000L, "lava:recycle", recycle, main)
     }
 
     private fun unlocked() {
@@ -598,19 +726,19 @@ class LiveHost(private val svc: LavaAccessibilityService) {
             state = State.PANEL
             showPanelWindow()
         }
+        // 读过节点后系统会让应用为缓存持续发送界面变化；关掉缓存，应用就只发我们订阅的事件（Android 13+）
         if (Build.VERSION.SDK_INT >= 33) svc.setCacheEnabled(false)
     }
 
     fun onConfigurationChanged() {
         if (panel?.showing == true) {
             panel?.dismiss()
+            panel = null
             showPanelWindow()
         }
-        if (capsule?.showing == true) {
-            capsule?.dismiss()
-            showCapsule()
-            if (state == State.LIVE) moved(SETTLE_MS)
-        }
+        if (capsule?.showing == true) showCapsule()
+        // 转屏：之前的截图对不上了，收起译文
+        if (state == State.LIVE && phase == Phase.SHOWN) away()
     }
 
     fun destroy() {
@@ -625,23 +753,28 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         app.worker.execute { app.ocr.close() }
     }
 
-    /** 前两次进入实时翻译时说明小胶囊的用法 */
+    /** 前两次翻译时说明用法 */
     private fun tips() {
         val n = app.settings.num("capsuleTips").let { if (it.isNaN()) 0 else it.toInt() }
         if (n >= 2) return
         app.settings.update(JSONObject().put("capsuleTips", n + 1))
-        toast("滑动时译文自动藏起，停下就重新翻译 · 按住 👁 看原文")
+        toast("照常滑动、点按，译文会自动让开，停下后重新翻译 · 按住 👁 看原文")
+    }
+
+    private fun dbg(msg: String) {
+        if (BuildConfig.DEBUG) android.util.Log.i("LavaTranslate", "live: $msg")
     }
 
     private fun toast(text: String) = main.post { Toast.makeText(svc, text, Toast.LENGTH_SHORT).show() }
 
     companion object {
-        /** 滑动停下多久后重新读屏 */
+        /** 应用滚动、换页停下多久后重新翻译 */
         private const val SETTLE_MS = 450L
-        /** 用 OCR 的界面没有事件，碰了屏幕后多等一会儿 */
-        private const val OCR_SETTLE_MS = 800L
-        /** 界面内容变化（不是滑动）后多久检查文字有没有变 */
-        private const val CONTENT_MS = 700L
+        /** 手指碰了屏幕、之后没有任何事件：这么久后检查屏幕变没变 */
+        private const val TOUCH_SETTLE_MS = 700L
+        /** 截屏和译文显示时只听换页（返回键、弹窗、过场动画）；收起后再听滚动 */
+        private const val EVENTS_SHOWN = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        private const val EVENTS_AWAY = AccessibilityEvent.TYPE_VIEW_SCROLLED or AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         /** 翻译界面和 OCR 模型用完后再留这么久 */
         const val WARM_MS = 3 * 60_000L
         /** 关屏这么久后结束进程，把网页引擎占的内存还给系统 */

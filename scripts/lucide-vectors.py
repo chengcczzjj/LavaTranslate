@@ -16,6 +16,15 @@ ICONS = {
 }
 
 
+# 个别图标的路径用了连写的圆弧（一个 a 后面接好几段），有的手机（vivo）解析不对、只画出一半：换成等价的贝塞尔曲线
+OVERRIDE = {
+    'eye': [
+        'M2,12 C3.8,7.6 7.6,5 12,5 C16.4,5 20.2,7.6 22,12 C20.2,16.4 16.4,19 12,19 C7.6,19 3.8,16.4 2,12 Z',
+        'M9,12 A3,3 0 1,0 15,12 A3,3 0 1,0 9,12',
+    ],
+}
+
+
 def attrs(block):
     return dict(re.findall(r'(\w+): "([^"]*)"', block))
 
@@ -34,7 +43,7 @@ def to_path(kind, a):
 for name, short in ICONS.items():
     src = open(os.path.join(SRC, name + '.mjs'), encoding='utf-8').read()
     node = src[src.index('node: [') : src.index('};')]
-    paths = [to_path(kind, attrs(body)) for kind, body in re.findall(r'\[\s*"(\w+)",\s*\{([^}]*)\}', node)]
+    paths = OVERRIDE.get(name) or [to_path(kind, attrs(body)) for kind, body in re.findall(r'\[\s*"(\w+)",\s*\{([^}]*)\}', node)]
     body = '\n'.join(
         f'    <path\n        android:pathData="{d}"\n        android:strokeWidth="2"\n        android:strokeColor="#FFFFFFFF"\n'
         f'        android:strokeLineCap="round"\n        android:strokeLineJoin="round" />'

@@ -2,7 +2,7 @@
 <!--
   无障碍模式：截屏，在无障碍图层上显示悬浮面板、小胶囊和译文，接收系统无障碍按钮 / 音量键快捷方式的点击。
   canRetrieveWindowContent：翻译时直接读屏幕上的文字和位置（比 OCR 快、准），只在你点「翻译」后读，不执行任何操作。
-  平时不订阅界面事件；实时翻译时才订阅滚动、换页（运行时 setServiceInfo），退出就取消。
+  平时不订阅界面事件；翻译中才订阅换页、滚动（运行时 setServiceInfo），退出就取消。
   tileService：Android 15 起可在无障碍设置里把「翻译屏幕」快捷开关加到下拉菜单
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
