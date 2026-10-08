@@ -25,6 +25,10 @@ function on<T>(channel: string, cb: (data: T) => void) {
 }
 
 const api = {
+  // 界面语言：加载时同步取（首帧就是对的语言），之后变化由主进程推送
+  uiLang: (): string => ipcRenderer.sendSync('ui:lang'),
+  onUiLang: (cb: (lang: string) => void) => on('ui:lang', cb),
+
   // 遮罩
   onFrame: (cb: (f: CaptureFrame) => void) => on('overlay:frame', cb),
   onShown: (cb: () => void) => on('overlay:shown', cb),

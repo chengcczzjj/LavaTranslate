@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { providerInfo, type ProviderInfo, type Settings } from '../shared/types'
 import type { ChatGPTSession } from './chatgpt'
 import { decryptSecret } from './secrets'
+import { t } from './i18n'
 
 function readJson(path: string): any {
   try {
@@ -35,7 +36,7 @@ export function chatgptSession(s: Settings): ChatGPTSession | null {
 export function resolveProvider(s: Settings, id = s.provider): ResolvedProvider | null {
   const info = providerInfo(id)
   const c = s.providers[info.id]
-  const apiKey = info.id === 'chatgpt' ? (chatgptSession(s)?.accessToken ?? '') : decryptSecret(c?.key ?? '').trim()
+  const apiKey = info.id === 'chatgpt' ? (c?.expired ? '' : (chatgptSession(s)?.accessToken ?? '')) : decryptSecret(c?.key ?? '').trim()
   const baseURL = (c?.baseUrl || info.baseUrl).trim().replace(/\/+$/, '')
   if (!apiKey || !baseURL) return null
   return { info, baseURL, apiKey, model: c?.model ?? '' }
@@ -93,7 +94,7 @@ export function findOpenAISources(): (OpenAICredentials & { id: string })[] {
     const auth = readJson(join(codexDir(), 'auth.json'))
     const c = parseCodexToml(toml)
     const key = c.token || (c.envKey ? process.env[c.envKey] : undefined) || auth?.OPENAI_API_KEY
-    if (key) out.push({ id: 'codex', label: `Codex 当前配置${c.name ? ` · ${c.name}` : ''}`, baseURL: c.baseURL || 'https://api.openai.com/v1', apiKey: key, model: c.model })
+    if (key) out.push({ id: 'codex', label: `${t('source.codex')}${c.name ? ` · ${c.name}` : ''}`, baseURL: c.baseURL || 'https://api.openai.com/v1', apiKey: key, model: c.model })
   } catch {
     /* 忽略 */
   }

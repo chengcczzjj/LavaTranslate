@@ -15,6 +15,7 @@ import { TranslationLayer } from '../components/TranslationLayer'
 import { sampleColors } from '../lib/colors'
 import { langBase, ReplyComposer } from './ReplyComposer'
 import { Toolbar } from './Toolbar'
+import { currentI18n, useI18n } from '../lib/i18n'
 
 /** quick：连按两次快捷键，不框选，直接输入一句话翻译 */
 type Stage = 'hidden' | 'idle' | 'drawing' | 'selected' | 'quick'
@@ -45,6 +46,7 @@ const ALT_HOLD_MS = 150
 const SAME_LIMIT = 40
 
 export function Overlay() {
+  const i = useI18n()
   const canvas = useRef<HTMLCanvasElement>(null)
   const pixels = useRef<Uint8Array | null>(null)
   const [meta, setMeta] = useState<FrameMeta | null>(null)
@@ -442,19 +444,19 @@ export function Overlay() {
     const b = blocks.find((x) => x.key === key)
     if (!b) return
     window.lens.copyText(b.keep ? b.source : b.translation)
-    flash('已复制这段译文')
+    flash(currentI18n().t('ov.copiedBlock'))
   }
 
   const copyAll = useCallback(() => {
     if (!blocks.length) return
     window.lens.copyText(allText('dst'))
-    flash('已复制全部译文')
+    flash(currentI18n().t('ov.copiedAll'))
   }, [blocks, allText])
 
   const copyOriginal = useCallback(() => {
     if (!blocks.length) return
     window.lens.copyText(allText('src'))
-    flash('已复制原文')
+    flash(currentI18n().t('ov.copiedSource'))
   }, [blocks, allText])
 
   const panel = useMemo(() => (sel && mode === 'side' ? sidePanel(sel, vw, vh, tbSize.h) : null), [sel, mode, vw, vh, tbSize.h])
@@ -481,7 +483,7 @@ export function Overlay() {
     const r = captureRect()
     if (!r || !blocks.length) return
     await withChromeHidden(() => window.lens.copyImage(r))
-    flash('已复制翻译截图')
+    flash(currentI18n().t('ov.copiedImage'))
   }, [captureRect, blocks, withChromeHidden])
 
   const saveImage = useCallback(async () => {
@@ -489,7 +491,7 @@ export function Overlay() {
     if (!r || !blocks.length) return
     const ok = await withChromeHidden(() => window.lens.saveImage(r))
     window.lens.focusOverlay()
-    if (ok) flash('已保存')
+    if (ok) flash(currentI18n().t('ov.saved'))
   }, [captureRect, blocks, withChromeHidden])
 
   const pin = useCallback(() => {
@@ -850,7 +852,7 @@ export function Overlay() {
             exit={{ opacity: 0, transition: { duration: 0.1 } }}
             transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
           >
-            <div className="orig-label">原文 · 单击复制译文</div>
+            <div className="orig-label">{i.t('ov.origLabel')}</div>
             <div className="orig-text">{tipBlock.source}</div>
           </motion.div>
         )}
@@ -947,21 +949,15 @@ export function Overlay() {
             transition={{ delay: 0.12, type: 'spring', stiffness: 420, damping: 32 }}
           >
             <span className="hint-mark" />
-            <span>拖动框选要翻译的区域</span>
+            <span>{i.t('ov.hintDrag')}</span>
             <span className="hint-dot" />
-            <span>单击选中窗口</span>
+            <span>{i.t('ov.hintClick')}</span>
             <span className="hint-dot" />
-            <span>
-              按住 <kbd>Alt</kbd> 临时操作软件
-            </span>
+            <span>{i.rich('ov.hintAlt', { k: <kbd>Alt</kbd> })}</span>
             <span className="hint-dot hint-quick" />
-            <span className="hint-quick">
-              连按两次 <kbd>{hotkey.replace(/\+/g, ' + ')}</kbd> 输入文字翻译
-            </span>
+            <span className="hint-quick">{i.rich('ov.hintQuick', { k: <kbd>{hotkey.replace(/\+/g, ' + ')}</kbd> })}</span>
             <span className="hint-dot" />
-            <span>
-              右键或 <kbd>Esc</kbd> 退出
-            </span>
+            <span>{i.rich('ov.hintExit', { k: <kbd>Esc</kbd> })}</span>
           </motion.div>
         )}
       </AnimatePresence>

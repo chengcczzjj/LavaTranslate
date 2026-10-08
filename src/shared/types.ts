@@ -76,6 +76,8 @@ export interface ProviderConfig {
   model: string
   /** 界面显示用（ChatGPT 登录的账号邮箱） */
   label?: string
+  /** ChatGPT 登录已失效（刷新令牌过期或被吊销）：保留登录信息以便沿用 client_id，但不再使用，等用户重新登录 */
+  expired?: boolean
 }
 
 export interface Settings {
@@ -98,6 +100,8 @@ export interface Settings {
   firstRunDone: boolean
   /** 本机安装的标识（ChatGPT 登录要求每台设备一个固定的 ext_agent_host_id） */
   installId: string
+  /** 界面语言（桌面版）：'auto' 跟随系统，或 i18n 里的某种语言 */
+  uiLang: string
 }
 
 /** 更新设置用：providers 可以只改某个服务的部分字段 */
@@ -117,7 +121,8 @@ export const DEFAULT_SETTINGS: Settings = {
   displayMode: 'overlay',
   styleHint: '',
   firstRunDone: false,
-  installId: ''
+  installId: '',
+  uiLang: 'auto'
 }
 
 /** 在本机找到的 OpenAI 兼容凭据（Codex 配置 / CC Switch） */

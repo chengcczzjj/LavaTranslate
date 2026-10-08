@@ -1,16 +1,18 @@
 // 开发自测：LENS_AUTOTEST=1 时用测试图伪造截屏，离屏渲染遮罩并模拟鼠标操作，逐步截图到 .scratch/shots
 // LENS_MOCK=1 时使用模拟翻译引擎（不消耗额度）
-import { app, BrowserWindow, nativeImage, screen } from 'electron'
+import { app, BrowserWindow, nativeImage, net, protocol, screen } from 'electron'
 import { spawn } from 'node:child_process'
 import { load } from 'koffi'
 import { forceForeground, hwndOf } from './winapi'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import type { OcrLine, SettingsPatch, TranslatedBlock } from '../shared/types'
+import { DEFAULT_SETTINGS, type OcrLine, type ProviderId, type SettingsPatch, type TranslatedBlock } from '../shared/types'
 import type { DisplayCapture } from './capture'
-import type { Emit, Engine, ReplyRequest, TranslateRequest, TranslateResult } from '../core/translator'
+import { chatgptSession } from './credentials'
+import { settings } from './settings'
+import { TranslateError, type Emit, type Engine, type ReplyRequest, type TranslateRequest, type TranslateResult } from '../core/translator'
 
 /** 自测用的回复：逐字流式输出，模拟模型的节奏 */
 async function mockReply(req: ReplyRequest, onText: (d: string) => void, signal: AbortSignal) {
@@ -133,6 +135,8 @@ interface Hooks {
   setSettings: (p: SettingsPatch) => void
   /** 连按两次快捷键：进入输入翻译 */
   quick?: () => void
+  /** 托盘菜单的内容 */
+  trayMenu?: () => Electron.MenuItemConstructorOptions[]
 }
 
 /**
@@ -323,14 +327,14 @@ export async function runAutotest(h: Hooks) {
   if (sw.webContents.isLoading())
     await Promise.race([new Promise<void>((r) => sw.webContents.once('did-finish-load', () => r())), sleep(6000).then(() => console.log('[autotest] load timeout', sw.webContents.getURL(), sw.isVisible()))])
   await sleep(1200)
-  const pages = ['概览', '翻译', '翻译服务', '快捷键与启动', '关于']
+  const pages = ['home', 'translate', 'engine', 'general', 'about']
   const sshot = async (name: string) => {
     const img = await sw.webContents.capturePage()
     writeFileSync(join(dir, `${name}.png`), img.toPNG())
     console.log('[autotest] shot', name)
   }
   for (let i = 0; i < pages.length; i++) {
-    await sw.webContents.executeJavaScript(`[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes(${JSON.stringify(pages[i])}))?.click()`)
+    await sw.webContents.executeJavaScript(`document.querySelector('.nav-item[data-page=${pages[i]}]')?.click()`)
     await sleep(700)
     await sshot(`settings-${i + 1}`)
   }
@@ -338,9 +342,9 @@ export async function runAutotest(h: Hooks) {
   const fake = await fakeModelServer()
   h.setSettings({ provider: 'custom', providers: { custom: { baseUrl: fake.url, key: 'sk-test-0000-abcd', model: 'deepseek-v4-flash' } } })
   await sleep(400)
-  await sw.webContents.executeJavaScript(`[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('概览'))?.click()`)
+  await sw.webContents.executeJavaScript(`document.querySelector('.nav-item[data-page=home]')?.click()`)
   await sleep(400)
-  await sw.webContents.executeJavaScript(`[...document.querySelectorAll('.nav-item')].find(b => b.textContent.includes('翻译服务'))?.click()`)
+  await sw.webContents.executeJavaScript(`document.querySelector('.nav-item[data-page=engine]')?.click()`)
   await sleep(1800)
   await sshot('settings-engine-models')
   await sw.webContents.executeJavaScript(`document.querySelector('.content').scrollTop = 9999`)
@@ -354,6 +358,74 @@ export async function runAutotest(h: Hooks) {
   await sleep(400)
   await sshot('settings-guides')
   console.log('[autotest] done')
+  app.quit()
+}
+
+/**
+ * LENS_I18N=all|<语言,…>（配合 LENS_AUTOTEST=1 LENS_MOCK=1）：逐个界面语言截设置页各页、截图界面（提示条、工具条、回复框），
+ * 存到 .scratch/i18n/<语言>-<名称>.png，检查翻译后的文字有没有挤爆、截断
+ */
+export async function runI18nShots(h: Hooks, langs: string[]) {
+  const root = process.env.LENS_AUTOTEST_ROOT || app.getAppPath()
+  const dir = join(root, '.scratch', 'i18n')
+  mkdirSync(dir, { recursive: true })
+  const s = h.display.scaleFactor
+  const wc = () => h.overlayWin().webContents
+  const mouse = (type: 'mouseMove' | 'mouseDown' | 'mouseUp', x: number, y: number) =>
+    wc().sendInputEvent({ type, x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1 })
+  const save = async (win: BrowserWindow, name: string) => {
+    writeFileSync(join(dir, `${name}.png`), (await win.webContents.capturePage()).toPNG())
+    console.log('[i18n] shot', name)
+  }
+  const sw = h.openSettings()
+  if (sw.webContents.isLoading()) await new Promise<void>((r) => sw.webContents.once('did-finish-load', () => r()))
+  await sleep(1200)
+  const fake = await fakeModelServer()
+  for (const lang of langs) {
+    h.setSettings({ uiLang: lang, provider: 'custom', providers: { custom: { baseUrl: fake.url, key: 'sk-test-0000-abcd', model: 'deepseek-v4-flash' } } })
+    await sleep(500)
+    const labels = (items: Electron.MenuItemConstructorOptions[]): unknown[] =>
+      items.filter((m) => m.type !== 'separator').map((m) => (m.submenu ? { [m.label!]: labels(m.submenu as Electron.MenuItemConstructorOptions[]) } : m.checked ? `(*) ${m.label}` : m.label))
+    if (h.trayMenu) console.log('[i18n] tray', lang, JSON.stringify(labels(h.trayMenu())))
+    for (const page of ['home', 'translate', 'engine', 'general', 'about']) {
+      await sw.webContents.executeJavaScript(`document.querySelector('.nav-item[data-page=${page}]')?.click()`)
+      await sleep(100)
+      await sw.webContents.executeJavaScript(`document.querySelector('.content').scrollTop = 0`)
+      await sleep(page === 'engine' ? 1600 : 600)
+      await save(sw, `${lang}-settings-${page}`)
+    }
+    await sw.webContents.executeJavaScript(`document.querySelector('.nav-item[data-page=engine]')?.click()`)
+    await sleep(900)
+    await sw.webContents.executeJavaScript(`document.querySelector('.guide-row-head')?.click()`)
+    await sleep(500)
+    await sw.webContents.executeJavaScript(`document.querySelector('.content').scrollTop = 9999`)
+    await sleep(400)
+    await save(sw, `${lang}-settings-guides`)
+
+    // 截图界面：提示条 → 框选翻译后的工具条 → 回复框
+    const at = { x: 380, y: 160 }
+    if (h.mock) h.mock.scenario = 'chat'
+    await h.inject(fakeCapture(h.display, join(root, '.scratch', 'chat.png'), at))
+    await sleep(700)
+    mouse('mouseMove', (at.x + 100) / s, (at.y + 100) / s)
+    await sleep(300)
+    await save(h.overlayWin(), `${lang}-overlay-hint`)
+    const [x0, y0, x1, y1] = [at.x / s - 4, at.y / s - 4, (at.x + 560) / s + 4, (at.y + 640) / s + 4]
+    mouse('mouseMove', x0, y0)
+    mouse('mouseDown', x0, y0)
+    for (let i = 1; i <= 12; i++) {
+      mouse('mouseMove', x0 + ((x1 - x0) * i) / 12, y0 + ((y1 - y0) * i) / 12)
+      await sleep(16)
+    }
+    mouse('mouseUp', x1, y1)
+    await h.waitDone()
+    await sleep(900)
+    wc().insertText('OK')
+    await sleep(2600)
+    await save(h.overlayWin(), `${lang}-overlay-reply`)
+  }
+  fake.close()
+  console.log('[i18n] done')
   app.quit()
 }
 
@@ -548,4 +620,140 @@ export async function runPassTest(h: { start: () => Promise<void>; hide: () => P
     await h.hide()
     app.quit()
   }
+}
+
+/**
+ * LENS_SIGNIN_TEST=1：ChatGPT 登录的刷新与设置保存。在应用内拦截 OpenAI 的令牌接口换成假响应（不联网、不需要真账号），
+ * 检查：同时发起的请求只刷新一次；网络 / 服务端临时故障不算登录失效；刷新令牌失效时标记过期且不反复请求；
+ * 刷新期间重新登录不被旧结果覆盖；令牌被拒时强制刷新；设置文件不留临时文件、损坏时另存一份
+ */
+export async function runSignInTest(h: {
+  ensure: (id?: ProviderId, force?: boolean) => Promise<string | null>
+  authProblem: (err: unknown) => Promise<string | null>
+  status: () => { ok: boolean; detail: string }
+}) {
+  type Mode = 'ok' | 'slow' | 'network' | 'server' | 'invalid_grant' | 'reused' | 'slow-invalid'
+  let mode: Mode = 'ok'
+  let calls = 0
+  protocol.handle('https', async (req) => {
+    if (!req.url.startsWith('https://auth.openai.com/api/accounts/oauth/token')) return net.fetch(req, { bypassCustomProtocolHandlers: true })
+    const n = ++calls
+    const form = new URLSearchParams(await req.text())
+    if (form.get('grant_type') !== 'refresh_token') return Response.json({ error: 'unsupported_grant_type' }, { status: 400 })
+    if (mode === 'slow' || mode === 'slow-invalid') await sleep(300)
+    if (mode === 'network') throw new Error('fake network failure')
+    if (mode === 'server') return new Response('<html>Bad Gateway</html>', { status: 502 })
+    if (mode === 'invalid_grant' || mode === 'slow-invalid') return Response.json({ error: 'invalid_grant', error_description: 'Refresh token has expired' }, { status: 400 })
+    if (mode === 'reused') return Response.json({ error: { code: 'refresh_token_reused', message: 'Refresh token was already used' } }, { status: 401 })
+    return Response.json({ access_token: `at-${n}`, refresh_token: `rt-${n}`, id_token: 'id', expires_in: 3600, scope: 'openid' })
+  })
+
+  const session = () => chatgptSession(settings.get())
+  const conf = () => settings.get().providers.chatgpt
+  const seed = (rt: string, expiresIn: number) =>
+    settings.update({
+      provider: 'chatgpt',
+      providers: {
+        chatgpt: {
+          key: JSON.stringify({ subject: 'user-test', email: 'test@example.com', clientId: 'oaiapp_test', hostId: 'urn:uuid:test', idToken: 'id', accessToken: 'at-0', refreshToken: rt, expiresAt: Date.now() + expiresIn, scopes: [] }),
+          label: 'test@example.com',
+          model: 'gpt-test',
+          expired: false
+        }
+      }
+    })
+  let failed = 0
+  const check = (name: string, ok: boolean, info = '') => {
+    if (!ok) failed++
+    console.log(`[signin] ${ok ? 'PASS' : 'FAIL'} ${name}${info ? ` — ${info}` : ''}`)
+  }
+  const run = <T>(m: Mode, f: () => Promise<T>) => {
+    mode = m
+    calls = 0
+    return f()
+  }
+
+  // 1. 同时发起 5 个请求：只刷新一次，都拿到新令牌
+  seed('rt-old', 30_000)
+  const many = await run('slow', () => Promise.all([1, 2, 3, 4, 5].map(() => h.ensure())))
+  check('5 个并发请求只刷新 1 次', calls === 1, `刷新 ${calls} 次`)
+  check('并发请求都可以继续', many.every((r) => r === null))
+  check('新令牌已保存', session()?.refreshToken === 'rt-1' && session()?.accessToken === 'at-1', session()?.refreshToken)
+
+  // 2. 离过期还早：不刷新
+  seed('rt-fresh', 3600_000)
+  await run('ok', () => h.ensure())
+  check('令牌还新：不刷新', calls === 0, `刷新 ${calls} 次`)
+
+  // 3. 临时故障：不算登录失效
+  for (const m of ['server', 'network'] as const) {
+    seed('rt-t', -1000)
+    const r = await run(m, () => h.ensure())
+    check(`${m}：令牌已过期时提示稍后再试`, !!r?.includes('暂时无法刷新'), r ?? 'null')
+    check(`${m}：不标记登录过期`, !conf()?.expired && !!conf()?.key)
+    seed('rt-t', 60_000)
+    const r2 = await run(m, () => h.ensure())
+    check(`${m}：令牌还没过期就继续用`, r2 === null, String(r2))
+  }
+
+  // 4. 刷新令牌失效（标准 OAuth 写法 / OpenAI 写法）：标记过期，保留登录信息，之后不再反复请求
+  for (const m of ['invalid_grant', 'reused'] as const) {
+    seed('rt-dead', -1000)
+    const r = await run(m, () => h.ensure())
+    check(`${m}：提示登录已过期`, !!r?.includes('已过期'), r ?? 'null')
+    check(`${m}：标记为过期`, conf()?.expired === true)
+    check(`${m}：保留登录信息（client_id、账号）`, session()?.clientId === 'oaiapp_test' && conf()?.label === 'test@example.com')
+    const st = h.status()
+    check(`${m}：状态显示需要重新登录`, !st.ok && st.detail.includes('已过期'), st.detail)
+    const again = await run('ok', () => h.ensure())
+    check(`${m}：之后不再请求令牌接口`, calls === 0 && !!again?.includes('已过期'), `请求 ${calls} 次`)
+  }
+
+  // 5. 刷新期间重新登录：旧的刷新结果（成功或失败）都不能覆盖新登录
+  seed('rt-A', 30_000)
+  const p1 = run('slow', () => h.ensure())
+  await sleep(50)
+  seed('rt-NEW', 3600_000)
+  await p1
+  check('刷新期间重新登录：新登录不被覆盖', session()?.refreshToken === 'rt-NEW', session()?.refreshToken)
+  seed('rt-B', -1000)
+  const p2 = run('slow-invalid', () => h.ensure())
+  await sleep(50)
+  seed('rt-NEW2', 3600_000)
+  await p2
+  check('刷新期间重新登录：旧登录失效不影响新登录', !conf()?.expired && session()?.refreshToken === 'rt-NEW2')
+
+  // 6. 令牌被拒（401）：强制刷新一次
+  seed('rt-401', 3600_000)
+  const a1 = await run('ok', () => h.authProblem(new TranslateError('API Key 无效或已停用', 'auth')))
+  check('令牌被拒：强制刷新并提示重试', calls === 1 && !!a1?.includes('请再试一次'), `${a1} / 刷新 ${calls} 次`)
+  seed('rt-401b', 3600_000)
+  const a2 = await run('invalid_grant', () => h.authProblem(new TranslateError('API Key 无效或已停用', 'auth')))
+  check('令牌被拒且刷新不了：提示登录已过期', !!a2?.includes('已过期'), String(a2))
+  const a3 = await run('ok', () => h.authProblem(new TranslateError('请求过于频繁或额度不足', 'rate-limit')))
+  check('其他错误不处理', a3 === null && calls === 0)
+
+  // 7. 设置文件：不留临时文件；损坏时另存一份，不被默认设置悄悄覆盖
+  protocol.unhandle('https')
+  const dir = app.getPath('userData')
+  const file = join(dir, 'settings.json')
+  check('保存后没有遗留临时文件', !existsSync(`${file}.tmp`))
+  let label = ''
+  try {
+    label = JSON.parse(readFileSync(file, 'utf8')).providers?.chatgpt?.label ?? ''
+  } catch {
+    /* 留空即失败 */
+  }
+  check('设置文件完整', label === 'test@example.com', label)
+  const broken = '{"hotkey": "Alt+Q", "provider": "chatg'
+  writeFileSync(file, broken)
+  const loaded = settings.load()
+  const copies = readdirSync(dir).filter((f) => f.startsWith('settings.json.broken-'))
+  check('损坏的设置文件另存了一份', copies.some((f) => readFileSync(join(dir, f), 'utf8') === broken), copies.join(', '))
+  check('损坏时先用默认设置', loaded.provider === DEFAULT_SETTINGS.provider)
+  for (const f of copies) rmSync(join(dir, f))
+  rmSync(file, { force: true })
+
+  console.log(`[signin] ${failed ? `${failed} 项失败` : '全部通过'}`)
+  app.exit(failed ? 1 : 0)
 }

@@ -3,10 +3,12 @@ import { Copy, Eye, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PinPayload } from '@shared/types'
 import { TranslationLayer } from '../components/TranslationLayer'
+import { useI18n } from '../lib/i18n'
 
 const MARGIN = 18
 
 export function Pin() {
+  const { t } = useI18n()
   const [data, setData] = useState<PinPayload | null>(null)
   const [zoom, setZoom] = useState(1)
   const [peek, setPeek] = useState(false)
@@ -26,8 +28,8 @@ export function Pin() {
   const copy = useCallback(() => {
     if (!data) return
     window.lens.copyText(data.blocks.map((b) => (b.keep ? b.source : b.translation)).join('\n'))
-    setToast('已复制译文')
-  }, [data])
+    setToast(t('pin.copied'))
+  }, [data, t])
 
   useEffect(() => {
     if (!toast) return
@@ -135,17 +137,17 @@ export function Pin() {
             >
               <button
                 className={peek ? 'on' : ''}
-                title="按住查看原文（Space）"
+                title={t('pin.peek')}
                 onMouseDown={() => setPeek(true)}
                 onMouseUp={() => setPeek(false)}
                 onMouseLeave={() => setPeek(false)}
               >
                 <Eye size={14} />
               </button>
-              <button title="复制译文（Ctrl+C）" onClick={copy}>
+              <button title={t('pin.copy')} onClick={copy}>
                 <Copy size={13} />
               </button>
-              <button title="关闭（Esc / 双击）" onClick={close}>
+              <button title={t('pin.close')} onClick={close}>
                 <X size={14} />
               </button>
             </motion.div>

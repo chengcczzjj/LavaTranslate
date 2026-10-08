@@ -2,6 +2,8 @@ import { AnimatePresence, motion } from 'motion/react'
 import { ArrowRight, Check, ChevronDown, Copy, CornerDownLeft, Languages, MessageSquareReply, RotateCcw, X } from 'lucide-react'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { LANGUAGES, type Settings } from '@shared/types'
+import type { MsgKey } from '@shared/i18n'
+import { useI18n } from '../lib/i18n'
 import './reply.css'
 
 // 回复助手：看懂对方的消息后，直接用自己的语言写回复，译成对方的语言，一键复制去发送
@@ -34,10 +36,10 @@ export interface ReplyProps {
   onCopied: (close: boolean) => void
 }
 
-const TONES: { id: Tone; label: string; tip: string }[] = [
-  { id: 'auto', label: '跟随语境', tip: '参照对话里双方的语气' },
-  { id: 'formal', label: '正式', tip: '礼貌、书面' },
-  { id: 'casual', label: '随意', tip: '口语、亲切' }
+const TONES: { id: Tone; label: MsgKey; tip: MsgKey }[] = [
+  { id: 'auto', label: 'rp.toneAuto', tip: 'rp.toneAutoTip' },
+  { id: 'formal', label: 'rp.toneFormal', tip: 'rp.toneFormalTip' },
+  { id: 'casual', label: 'rp.toneCasual', tip: 'rp.toneCasualTip' }
 ]
 
 const MARK = '⟲'
@@ -74,8 +76,7 @@ function readHistory(): string[] {
 }
 
 export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function ReplyComposer(p, ref) {
-  const user = findLang(p.userLang)
-  const userName = user?.name ?? p.userLang
+  const i = useI18n()
 
   // 对方语言：默认取截图识别结果；截图本身就是自己的语言时，沿用上次的回复语言
   const autoTo = useMemo(() => {
@@ -86,7 +87,10 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
   }, [p.peer, p.userLang])
   const [picked, setPicked] = useState<string | null>(null)
   const to = picked ?? autoTo
+  // 给模型的语言名（中文名，和截图翻译一致）；界面上另按界面语言显示
   const toName = findLang(to)?.name ?? (p.peer && langBase(p.peer.code) === langBase(to) ? p.peer.name : to)
+  const userLabel = i.langLabel(p.userLang, findLang(p.userLang)?.name)
+  const toLabel = i.langLabel(to, toName)
 
   const [text, setText] = useState(p.draft.current)
   const [raw, setRaw] = useState('')
@@ -311,21 +315,21 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
       <div className="rp-head">
         <span className="rp-title">
           {p.quick ? <Languages size={15} /> : <MessageSquareReply size={15} />}
-          {p.quick ? '翻译' : '回复'}
+          {p.quick ? i.t('rp.translate') : i.t('rp.reply')}
         </span>
         <div className="rp-route">
-          <span className="rp-from">{userName}</span>
+          <span className="rp-from">{userLabel}</span>
           <ArrowRight size={12} className="rp-arrow" />
           <button className={`rp-to${menu ? ' open' : ''}`} onClick={() => setMenu((v) => !v)}>
             <AnimatePresence mode="popLayout" initial={false}>
               <motion.span
-                key={toName}
+                key={toLabel}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
               >
-                {toName}
+                {toLabel}
               </motion.span>
             </AnimatePresence>
             <ChevronDown size={12} className="rp-chev" />
@@ -339,13 +343,13 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
                 exit={{ opacity: 0, y: p.menuUp ? 4 : -4, transition: { duration: 0.1 } }}
                 transition={{ type: 'spring', stiffness: 560, damping: 36 }}
               >
-                <div className="rp-langs-label">译成</div>
+                <div className="rp-langs-label">{i.t('rp.to')}</div>
                 <div className="rp-langs-grid">
                   {langs.map((l) => (
                     <button key={l.code} className={`rp-lang${langBase(l.code) === langBase(to) ? ' on' : ''}`} onClick={() => pickLang(l.code)}>
-                      <span>{l.name}</span>
+                      <span>{i.langLabel(l.code, l.name)}</span>
                       <span className="rp-native">{l.native}</span>
-                      {p.peer && langBase(p.peer.code) === langBase(l.code) && <span className="rp-detected">对方</span>}
+                      {p.peer && langBase(p.peer.code) === langBase(l.code) && <span className="rp-detected">{i.t('rp.peer')}</span>}
                     </button>
                   ))}
                 </div>
@@ -355,13 +359,13 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
         </div>
         <div className="rp-tones">
           {TONES.map((t) => (
-            <button key={t.id} className={`rp-tone${p.tone === t.id ? ' on' : ''}`} title={t.tip} onClick={() => pickTone(t.id)}>
+            <button key={t.id} className={`rp-tone${p.tone === t.id ? ' on' : ''}`} title={i.t(t.tip)} onClick={() => pickTone(t.id)}>
               {p.tone === t.id && <motion.span layoutId="rp-tone-pill" className="rp-tone-pill" transition={{ type: 'spring', stiffness: 620, damping: 42 }} />}
-              <span className="rp-tone-label">{t.label}</span>
+              <span className="rp-tone-label">{i.t(t.label)}</span>
             </button>
           ))}
         </div>
-        <button className="rp-x" title="收起" onClick={p.onCollapse}>
+        <button className="rp-x" title={i.t('rp.collapse')} onClick={p.onCollapse}>
           <X size={14} />
         </button>
       </div>
@@ -372,7 +376,11 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
         value={text}
         rows={1}
         spellCheck={false}
-        placeholder={p.quick ? `输入要翻译的文字，停顿片刻自动译成${toName}` : `用${userName}写下你想回复的话，停顿片刻自动译成${toName}`}
+        placeholder={
+          p.quick
+            ? i.t('rp.placeholderQuick', { to: i.langLabel(to, toName, true) })
+            : i.t('rp.placeholder', { me: i.langLabel(p.userLang, findLang(p.userLang)?.name, true), to: i.langLabel(to, toName, true) })
+        }
         onChange={(e) => edit(e.target.value)}
         onKeyDown={onKeyDown}
         onCompositionStart={() => (composing.current = true)}
@@ -398,18 +406,18 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
                 <div className="rp-err">
                   <span>{error}</span>
                   <button onClick={() => translate(text)}>
-                    <RotateCcw size={12} /> 重试
+                    <RotateCcw size={12} /> {i.t('rp.retry')}
                   </button>
                 </div>
               ) : (
                 <>
                   <div
                     className={`rp-text${out ? '' : ' wait'}`}
-                    title={out && !busy ? '点击复制' : undefined}
+                    title={out && !busy ? i.t('rp.clickCopy') : undefined}
                     onClick={() => out && !busy && copy(false)}
                     lang={to}
                   >
-                    {out || '正在翻译…'}
+                    {out || i.t('rp.translating')}
                     {busy && out && <span className="rp-caret" />}
                   </div>
                   <AnimatePresence initial={false}>
@@ -421,8 +429,8 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
                         exit={{ opacity: 0, height: 0 }}
                         transition={{ duration: 0.2 }}
                       >
-                        <span className="rp-back-tag" title="把译文再翻回你的语言，确认意思没有走样">
-                          回译
+                        <span className="rp-back-tag" title={i.t('rp.backTip')}>
+                          {i.t('rp.back')}
                         </span>
                         <span className="rp-back-text">{back}</span>
                       </motion.div>
@@ -439,20 +447,20 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
         <span className="rp-hint">
           {text ? (
             <>
-              <kbd>Enter</kbd> 复制并关闭
+              <kbd>Enter</kbd> {i.t('rp.copyClose')}
               <i />
               <kbd>Ctrl</kbd>
-              <kbd>Enter</kbd> 只复制
+              <kbd>Enter</kbd> {i.t('rp.copyOnly')}
             </>
           ) : (
             <>
               {hasHistory && (
                 <>
-                  <kbd>↑</kbd> 上一条
+                  <kbd>↑</kbd> {i.t('rp.prev')}
                   <i />
                 </>
               )}
-              <kbd>Esc</kbd> {p.quick ? '退出' : '退出截图'}
+              <kbd>Esc</kbd> {p.quick ? i.t('rp.exit') : i.t('rp.exitCapture')}
             </>
           )}
         </span>
@@ -467,12 +475,12 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
               transition={{ type: 'spring', stiffness: 700, damping: 32 }}
             >
               {copied ? <Check size={14} strokeWidth={3} /> : <Copy size={13} />}
-              {copied ? '已复制' : '复制'}
+              {copied ? i.t('rp.copied') : i.t('rp.copy')}
             </motion.span>
           </AnimatePresence>
         </button>
         <button className={`rp-btn primary${fresh ? ' ready' : ''}`} disabled={!text.trim()} onClick={() => submit('close')}>
-          复制并关闭
+          {i.t('rp.copyClose')}
           <CornerDownLeft size={13} />
         </button>
       </div>

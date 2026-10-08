@@ -6,19 +6,20 @@ import {
   Cpu,
   Download,
   ExternalLink,
+  Globe,
   Info,
   KeyRound,
   Keyboard,
   Languages,
   Layers,
   LayoutDashboard,
-  ListOrdered,
   Loader2,
   LogIn,
   MessageSquareReply,
   Power,
   RefreshCw,
   Search,
+  Settings2,
   SlidersHorizontal,
   Sparkles,
   Zap
@@ -38,18 +39,22 @@ import {
   type SettingsPatch,
   type UpdateState
 } from '@shared/types'
+import { UI_LANGS, type MsgKey } from '@shared/i18n'
+import { useI18n, type I18n } from '../lib/i18n'
 
 type Page = 'home' | 'translate' | 'engine' | 'general' | 'about'
 
-const NAV: { id: Page; label: string; icon: ReactNode }[] = [
-  { id: 'home', label: '概览', icon: <LayoutDashboard size={17} /> },
-  { id: 'translate', label: '翻译', icon: <Languages size={17} /> },
-  { id: 'engine', label: '翻译服务', icon: <Sparkles size={17} /> },
-  { id: 'general', label: '快捷键与启动', icon: <Keyboard size={17} /> },
-  { id: 'about', label: '关于', icon: <Info size={17} /> }
+const NAV: { id: Page; label: MsgKey; icon: ReactNode }[] = [
+  { id: 'home', label: 'nav.home', icon: <LayoutDashboard size={17} /> },
+  { id: 'translate', label: 'nav.translate', icon: <Languages size={17} /> },
+  { id: 'engine', label: 'nav.engine', icon: <Sparkles size={17} /> },
+  { id: 'general', label: 'nav.general', icon: <Settings2 size={17} /> },
+  { id: 'about', label: 'nav.about', icon: <Info size={17} /> }
 ]
 
 export function Settings() {
+  const i = useI18n()
+  const { t } = i
   const [s, setS] = useState<S | null>(null)
   const [page, setPage] = useState<Page>('home')
   const [status, setStatus] = useState<EngineStatus | null>(null)
@@ -63,7 +68,6 @@ export function Settings() {
 
   useEffect(() => {
     void window.lens.getSettings().then(setS)
-    void window.lens.ocrInfo().then(setOcr)
     void window.lens.appInfo().then((i) => setVersion(i.version))
     void window.lens.updateState().then(setUpd)
     const offUpd = window.lens.onUpdate(setUpd)
@@ -81,6 +85,12 @@ export function Settings() {
     }
   }, [refreshStatus])
 
+  // 状态、OCR 说明由主进程按界面语言生成：换语言后重新取
+  useEffect(() => {
+    void window.lens.ocrInfo().then(setOcr)
+    refreshStatus()
+  }, [i.lang, refreshStatus])
+
   const update = useCallback(async (patch: SettingsPatch) => {
     setS(await window.lens.setSettings(patch))
   }, [])
@@ -95,19 +105,19 @@ export function Settings() {
       <div className="body">
         <nav className="nav">
           {NAV.map((n) => (
-            <button key={n.id} className={`nav-item${page === n.id ? ' on' : ''}`} onClick={() => setPage(n.id)}>
+            <button key={n.id} data-page={n.id} className={`nav-item${page === n.id ? ' on' : ''}`} onClick={() => setPage(n.id)}>
               {page === n.id && <motion.span layoutId="nav-pill" className="nav-pill" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
               <span className="nav-icon">{n.icon}</span>
-              <span>{n.label}</span>
+              <span>{t(n.label)}</span>
             </button>
           ))}
           <div className="nav-foot">
             <button className="nav-status" onClick={() => setPage('engine')}>
               <span className={`dot ${status?.ok ? 'ok' : 'bad'}`} />
-              {status?.ok ? '服务就绪' : '需要配置'}
+              {status?.ok ? t('nav.ready') : t('nav.needSetup')}
             </button>
-            <button className={`nav-ver${upd?.state === 'ready' ? ' hot' : ''}`} onClick={() => setPage('about')} title="自动更新：关于页面">
-              v{version} · {updateShort(upd)}
+            <button className={`nav-ver${upd?.state === 'ready' ? ' hot' : ''}`} onClick={() => setPage('about')}>
+              v{version} · {updateShort(upd, i)}
             </button>
           </div>
         </nav>
@@ -134,8 +144,25 @@ export function Settings() {
 }
 
 // ------------------------------------------------------------------ 概览
+const SHORTCUTS: [string | MsgKey, MsgKey][] = [
+  ['sc.click', 'sc.clickDo'],
+  ['sc.alt', 'sc.altDo'],
+  ['Space', 'sc.spaceDo'],
+  ['Tab', 'sc.tabDo'],
+  ['sc.clickText', 'sc.clickTextDo'],
+  ['Ctrl C', 'sc.copyAll'],
+  ['Ctrl Shift C', 'sc.copyImage'],
+  ['F3', 'sc.pin'],
+  ['sc.enter', 'sc.enterDo'],
+  ['R', 'sc.replyDo'],
+  ['sc.double', 'sc.doubleDo'],
+  ['sc.tray', 'sc.trayDo'],
+  ['sc.exit', 'sc.exitDo']
+]
+
 function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: string; go: (p: Page) => void }) {
-  const target = LANGUAGES.find((l) => l.code === s.targetLang)
+  const i = useI18n()
+  const { t } = i
   const info = providerInfo(s.provider)
   const model = s.providers[s.provider]?.model
   return (
@@ -143,48 +170,48 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
       <section className="hero">
         <div className="hero-glow" />
         <img className="hero-icon" src="./icon.png" alt="" />
-        <h1>框选即译，原位呈现</h1>
-        <p>按下快捷键，框选屏幕上任意区域。译文会按原来的排版直接覆盖在原文位置上。</p>
+        <h1>{t('home.title')}</h1>
+        <p>{t('home.desc')}</p>
         <div className="hero-keys">
-          {s.hotkey.split('+').map((k, i) => (
-            <span key={i} className="keycap-wrap">
-              {i > 0 && <span className="plus">+</span>}
+          {s.hotkey.split('+').map((k, n) => (
+            <span key={n} className="keycap-wrap">
+              {n > 0 && <span className="plus">+</span>}
               <span className="keycap">{k}</span>
             </span>
           ))}
         </div>
         <button className="btn primary big" onClick={() => window.lens.startCapture()}>
-          <Zap size={16} /> 立即试试
+          <Zap size={16} /> {t('home.try')}
         </button>
       </section>
 
       <div className="tiles">
         <button className="tile" onClick={() => go('engine')}>
           <span className="tile-icon brand" style={{ background: info.color }}>
-            {info.id === 'custom' ? <SlidersHorizontal size={17} /> : info.id === 'chatgpt' ? <Sparkles size={17} /> : info.name.slice(0, 1)}
+            {info.id === 'custom' ? <SlidersHorizontal size={17} /> : info.id === 'chatgpt' ? <Sparkles size={17} /> : i.provider(info.id).slice(0, 1)}
           </span>
-          <span className="tile-title">{info.id === 'chatgpt' ? 'ChatGPT 会员' : info.name}</span>
-          <span className="tile-sub">{status?.ok ? '翻译服务 · 已就绪' : (status?.detail ?? '检查中…')}</span>
+          <span className="tile-title">{info.id === 'chatgpt' ? t('home.plan') : i.provider(info.id)}</span>
+          <span className="tile-sub">{status?.ok ? t('home.ready') : (status?.detail ?? t('home.checking'))}</span>
         </button>
         <button className="tile" onClick={() => go('engine')}>
           <span className="tile-icon violet">
             <Sparkles size={18} />
           </span>
-          <span className="tile-title">{model || '未选择模型'}</span>
-          <span className="tile-sub">翻译与回复使用的模型</span>
+          <span className="tile-title">{model || t('home.noModel')}</span>
+          <span className="tile-sub">{t('home.model')}</span>
         </button>
         <button className="tile" onClick={() => go('translate')}>
           <span className="tile-icon blue">
             <Languages size={18} />
           </span>
-          <span className="tile-title">{target?.name}</span>
-          <span className="tile-sub">目标语言 · 自动识别原文</span>
+          <span className="tile-title">{i.langLabel(s.targetLang)}</span>
+          <span className="tile-sub">{t('home.target')}</span>
         </button>
         <div className="tile">
           <span className="tile-icon teal">
             <Cpu size={18} />
           </span>
-          <span className="tile-title">本地 OCR</span>
+          <span className="tile-title">{t('home.ocr')}</span>
           <span className="tile-sub">{ocr || 'PP-OCRv6'}</span>
         </div>
       </div>
@@ -192,35 +219,21 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
       {status && !status.ok && (
         <motion.div className="callout" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
           <div>
-            <b>还差一步</b>
-            <span>{status.detail}。登录 ChatGPT 或粘贴任意一家的 API Key、选好模型就能开始翻译；设置页里有各家获取 Key 的步骤和链接。</span>
+            <b>{t('home.oneMore')}</b>
+            <span>{t('home.oneMoreDesc', { detail: status.detail })}</span>
           </div>
           <button className="btn primary" onClick={() => go('engine')}>
-            去配置
+            {t('home.setup')}
           </button>
         </motion.div>
       )}
 
-      <h3 className="h3">截图界面里</h3>
+      <h3 className="h3">{t('home.keys')}</h3>
       <div className="shortcuts">
-        {[
-          ['单击', '选中鼠标下的窗口'],
-          ['按住 Alt', '暂时操作下面的软件'],
-          ['Space', '按住查看原文'],
-          ['Tab', '切换 覆盖 / 并排'],
-          ['单击译文', '复制该段译文'],
-          ['Ctrl C', '复制全部译文'],
-          ['Ctrl Shift C', '复制为图片'],
-          ['F3', '钉在桌面'],
-          ['Enter / 双击', '复制译文并关闭'],
-          ['R', '用自己的语言回复对方'],
-          ['快捷键连按两次', '直接输入文字翻译'],
-          ['双击托盘图标', '打开设置'],
-          ['右键 / Esc', '退出']
-        ].map(([k, d]) => (
-          <div key={k} className="sc">
-            <kbd>{k}</kbd>
-            <span>{d}</span>
+        {SHORTCUTS.map(([k, d]) => (
+          <div key={d} className="sc">
+            <kbd>{k.includes('.') ? t(k as MsgKey) : k}</kbd>
+            <span>{t(d)}</span>
           </div>
         ))}
       </div>
@@ -230,17 +243,23 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
 
 // ------------------------------------------------------------------ 翻译
 function TranslatePage({ s, update }: { s: S; update: (p: SettingsPatch) => void }) {
+  const i = useI18n()
+  const { t } = i
   const [hint, setHint] = useState(s.styleHint)
   useEffect(() => setHint(s.styleHint), [s.styleHint])
   return (
     <>
-      <h2>翻译</h2>
-      <Card title="默认目标语言" desc="截图界面的工具条里也可以随时切换，会记住你上次的选择">
-        <LangSelect value={s.targetLang} onChange={(v) => update({ targetLang: v })} />
+      <h2>{t('tr.title')}</h2>
+      <Card title={t('tr.target')} desc={t('tr.targetDesc')}>
+        <Select
+          value={s.targetLang}
+          options={LANGUAGES.map((l) => ({ value: l.code, label: i.langLabel(l.code, l.name), sub: l.native }))}
+          onChange={(v) => update({ targetLang: v })}
+        />
       </Card>
-      <Card stack title="显示方式" desc="截图界面里按 Tab 随时切换">
+      <Card stack title={t('tr.display')} desc={t('tr.displayDesc')}>
         <div className="mode-cards">
-          <ModeCard on={s.displayMode === 'overlay'} onClick={() => update({ displayMode: 'overlay' })} icon={<Layers size={16} />} title="原位覆盖" desc="译文直接替换原文，排版一致">
+          <ModeCard on={s.displayMode === 'overlay'} onClick={() => update({ displayMode: 'overlay' })} icon={<Layers size={16} />} title={t('tr.overlay')} desc={t('tr.overlayDesc')}>
             <div className="mini">
               <div className="mini-shot">
                 <i className="t1 tr" />
@@ -249,7 +268,7 @@ function TranslatePage({ s, update }: { s: S; update: (p: SettingsPatch) => void
               </div>
             </div>
           </ModeCard>
-          <ModeCard on={s.displayMode === 'side'} onClick={() => update({ displayMode: 'side' })} icon={<Columns2 size={16} />} title="并排对照" desc="原图保留，旁边显示同排版译文">
+          <ModeCard on={s.displayMode === 'side'} onClick={() => update({ displayMode: 'side' })} icon={<Columns2 size={16} />} title={t('tr.side')} desc={t('tr.sideDesc')}>
             <div className="mini two">
               <div className="mini-shot">
                 <i className="t1" />
@@ -265,18 +284,14 @@ function TranslatePage({ s, update }: { s: S; update: (p: SettingsPatch) => void
           </ModeCard>
         </div>
       </Card>
-      <Card
-        title="回复助手"
-        desc="看懂对方的消息后，直接用你的语言写回复，实时译成对方的语言，Enter 复制即可去发送。开启后，翻译的是聊天、私信、评论、邮件这类对话时自动打开回复框；任何时候都可以在截图界面按 R 打开"
-        icon={<MessageSquareReply size={18} />}
-      >
+      <Card title={t('tr.reply')} desc={t('tr.replyDesc')} icon={<MessageSquareReply size={18} />}>
         <Toggle on={s.replyAssist} onChange={(v) => update({ replyAssist: v })} />
       </Card>
-      <Card stack title="翻译偏好" desc="告诉模型你的习惯，例如术语、语气、领域，会附加到每次翻译中">
+      <Card stack title={t('tr.hint')} desc={t('tr.hintDesc')}>
         <textarea
           className="input area"
           value={hint}
-          placeholder="例如：游戏里的技能名保留英文；语气口语化一些；IT 术语用业内常见译法"
+          placeholder={t('tr.hintPlaceholder')}
           onChange={(e) => setHint(e.target.value)}
           onBlur={() => hint !== s.styleHint && update({ styleHint: hint })}
         />
@@ -307,10 +322,11 @@ function ModeCard(p: { on: boolean; onClick: () => void; icon: ReactNode; title:
   )
 }
 
-function LangSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+/** 下拉选择；sub 是灰色的第二个名字（语言的本地写法） */
+function Select({ value, options, onChange }: { value: string; options: { value: string; label: string; sub?: string }[]; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-  const cur = LANGUAGES.find((l) => l.code === value)
+  const cur = options.find((o) => o.value === value)
   useEffect(() => {
     const away = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
@@ -318,11 +334,12 @@ function LangSelect({ value, onChange }: { value: string; onChange: (v: string) 
     window.addEventListener('mousedown', away)
     return () => window.removeEventListener('mousedown', away)
   }, [])
+  const sub = (o?: { label: string; sub?: string }) => o?.sub && o.sub !== o.label && <span className="muted">{o.sub}</span>
   return (
     <div className="select" ref={ref}>
       <button className={`select-btn${open ? ' open' : ''}`} onClick={() => setOpen((v) => !v)}>
-        <span>{cur?.name}</span>
-        {cur && cur.native !== cur.name && <span className="muted">{cur.native}</span>}
+        <span>{cur?.label}</span>
+        {sub(cur)}
         <ChevronDown size={15} className="chev" />
       </button>
       <AnimatePresence>
@@ -334,18 +351,18 @@ function LangSelect({ value, onChange }: { value: string; onChange: (v: string) 
             exit={{ opacity: 0, y: -4, transition: { duration: 0.1 } }}
             transition={{ type: 'spring', stiffness: 560, damping: 36 }}
           >
-            {LANGUAGES.map((l) => (
+            {options.map((o) => (
               <button
-                key={l.code}
-                className={`select-item${l.code === value ? ' on' : ''}`}
+                key={o.value}
+                className={`select-item${o.value === value ? ' on' : ''}`}
                 onClick={() => {
-                  onChange(l.code)
+                  onChange(o.value)
                   setOpen(false)
                 }}
               >
-                <span>{l.name}</span>
-                {l.native !== l.name && <span className="muted">{l.native}</span>}
-                {l.code === value && <Check size={14} />}
+                <span>{o.label}</span>
+                {sub(o)}
+                {o.value === value && <Check size={14} />}
               </button>
             ))}
           </motion.div>
@@ -359,6 +376,7 @@ function LangSelect({ value, onChange }: { value: string; onChange: (v: string) 
 type Upd = (p: SettingsPatch) => Promise<void> | void
 
 function ServicePage({ s, update, status, refresh }: { s: S; update: Upd; status: EngineStatus | null; refresh: () => void }) {
+  const { t } = useI18n()
   const [test, setTest] = useState<{ state: 'idle' | 'run' | 'ok' | 'fail'; msg?: string }>({ state: 'idle' })
 
   const runTest = async () => {
@@ -370,12 +388,12 @@ function ServicePage({ s, update, status, refresh }: { s: S; update: Upd; status
 
   return (
     <>
-      <h2>翻译服务</h2>
+      <h2>{t('svc.title')}</h2>
       <div className={`status-bar${status?.ok ? ' ok' : ''}`}>
         <span className={`dot big ${status?.ok ? 'ok' : 'bad'}`} />
-        <span className="status-text">{status?.detail ?? '检查中…'}</span>
+        <span className="status-text">{status?.detail ?? t('home.checking')}</span>
         <button className="btn primary" disabled={test.state === 'run' || !status?.ok} onClick={runTest}>
-          {test.state === 'run' ? <Loader2 size={15} className="spin" /> : <Zap size={15} />} 测试翻译
+          {test.state === 'run' ? <Loader2 size={15} className="spin" /> : <Zap size={15} />} {t('svc.test')}
         </button>
       </div>
       <AnimatePresence>
@@ -398,9 +416,12 @@ function ServicePage({ s, update, status, refresh }: { s: S; update: Upd; status
 
 /** 用 ChatGPT 账号登录（Plus / Pro 会员额度） */
 function ChatGPTCard({ s, update }: { s: S; update: Upd }) {
+  const { t } = useI18n()
   const conf = s.providers.chatgpt
-  const signedIn = !!conf?.key
+  const expired = !!conf?.key && !!conf.expired
+  const signedIn = !!conf?.key && !expired
   const current = s.provider === 'chatgpt'
+  const who = conf?.label || t('chatgpt.account')
   const [state, setState] = useState<{ busy: boolean; msg?: string }>({ busy: false })
 
   const signIn = async () => {
@@ -416,15 +437,17 @@ function ChatGPTCard({ s, update }: { s: S; update: Upd }) {
       </span>
       <div className="card-text">
         <div className="card-title">
-          ChatGPT 会员
-          {current && <span className="tag rec">当前</span>}
+          {t('chatgpt.title')}
+          {current && <span className="tag rec">{t('common.current')}</span>}
         </div>
         <div className="card-desc">
           {signedIn
-            ? `已登录 ${conf?.label || 'ChatGPT 账号'} · 翻译消耗 Plus / Pro 会员额度，不需要 API Key`
+            ? t('chatgpt.signedIn', { who })
             : state.busy
-              ? '已在浏览器打开 ChatGPT 登录页，完成登录和授权后会自动回到这里'
-              : '有 ChatGPT Plus / Pro 会员？登录后直接用会员额度翻译，不需要 API Key'}
+              ? t('chatgpt.waiting')
+              : expired
+                ? t('chatgpt.expiredDesc', { who })
+                : t('chatgpt.pitch')}
         </div>
         {state.msg && <div className="note err">{state.msg}</div>}
       </div>
@@ -432,7 +455,7 @@ function ChatGPTCard({ s, update }: { s: S; update: Upd }) {
         <div className="row-gap">
           {!current && (
             <button className="btn" onClick={() => void update({ provider: 'chatgpt' })}>
-              使用
+              {t('chatgpt.use')}
             </button>
           )}
           <button
@@ -443,16 +466,16 @@ function ChatGPTCard({ s, update }: { s: S; update: Upd }) {
               else await update({})
             }}
           >
-            退出登录
+            {t('chatgpt.signOut')}
           </button>
         </div>
       ) : state.busy ? (
         <button className="btn" onClick={() => window.lens.chatgptCancel()}>
-          <Loader2 size={15} className="spin" /> 取消
+          <Loader2 size={15} className="spin" /> {t('common.cancel')}
         </button>
       ) : (
         <button className="btn primary" onClick={() => void signIn()}>
-          <LogIn size={15} /> 用 ChatGPT 登录
+          <LogIn size={15} /> {expired ? t('chatgpt.reSignIn') : t('chatgpt.signIn')}
         </button>
       )}
     </div>
@@ -466,6 +489,8 @@ function firstConfigured(s: S, except: ProviderId): ProviderId {
 
 /** 填 API Key：自动识别是哪家，识别不出来再让用户选 */
 function KeyCard({ s, update }: { s: S; update: Upd }) {
+  const i = useI18n()
+  const { t } = i
   const info = providerInfo(s.provider)
   const keyBased = info.id !== 'chatgpt'
   const conf = keyBased ? s.providers[info.id] : undefined
@@ -481,7 +506,7 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
 
   useEffect(() => {
     void window.lens.openaiSources().then(setSources)
-  }, [])
+  }, [i.lang])
   useEffect(() => {
     if (!importOpen) return
     const away = (e: MouseEvent) => {
@@ -491,11 +516,12 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
     return () => window.removeEventListener('mousedown', away)
   }, [importOpen])
 
-  const save = async (id: ProviderId, by?: string) => {
+  const save = async (id: ProviderId, by?: MsgKey) => {
     const baseUrl = id === 'custom' ? base.trim() : ''
     await update({ provider: id, providers: { [id]: { key: key.trim(), baseUrl } } })
     setKey('')
-    setResult({ kind: 'ok', text: `已保存为 ${providerInfo(id).name}${by ? `（${by}）` : ''}` })
+    const name = i.provider(id)
+    setResult({ kind: 'ok', text: by ? t('key.savedBy', { name, by: t(by) }) : t('key.savedAs', { name }) })
   }
 
   const submit = async () => {
@@ -507,10 +533,10 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
       // 填了接口地址：按地址判断（已知服务商的官方地址就归到那家，否则算自定义）
       if (showBase && base.trim()) {
         const id = providerForUrl(base.trim())
-        return await save(id, id === 'custom' ? '自定义接口' : '按接口地址识别')
+        return await save(id, id === 'custom' ? 'key.byCustom' : 'key.byUrl')
       }
       const r = await window.lens.detectKey(k)
-      if (r.provider) return await save(r.provider, r.by === 'format' ? '按 Key 格式识别' : '已连通验证')
+      if (r.provider) return await save(r.provider, r.by === 'format' ? 'key.byFormat' : 'key.byProbe')
       setResult({ kind: 'ask' })
     } finally {
       setBusy(false)
@@ -520,7 +546,7 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
   const importFrom = async (id: string) => {
     setImportOpen(false)
     await window.lens.openaiImport(id)
-    setResult({ kind: 'ok', text: '已从本机导入，保存为「自定义」服务' })
+    setResult({ kind: 'ok', text: t('key.imported') })
   }
 
   const typed = key.trim()
@@ -528,18 +554,15 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
     <div className="card stack conn">
       <div className="card-text">
         <div className="card-title">API Key</div>
-        <div className="card-desc">
-          粘贴任意一家的 Key（Gemini、OpenAI、DeepSeek、Claude、通义、智谱、Kimi、豆包、OpenRouter…），会自动识别是哪家。
-          Key 用系统加密保存在本机，只会发给对应的服务。
-        </div>
+        <div className="card-desc">{t('key.desc')}</div>
       </div>
       <div className="conn-fields">
         {keyBased && conf?.key && (
           <div className="key-current">
             <span className="prov-mark sm" style={{ background: info.color }}>
-              {info.id === 'custom' ? <SlidersHorizontal size={11} /> : info.name.slice(0, 1)}
+              {info.id === 'custom' ? <SlidersHorizontal size={11} /> : i.provider(info.id).slice(0, 1)}
             </span>
-            当前：{info.name}
+            {t('key.current', { name: i.provider(info.id) })}
             <span className="key-saved">
               <Check size={12} strokeWidth={3} /> {conf.key}
             </span>
@@ -551,14 +574,14 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
                 setResult(null)
               }}
             >
-              清除
+              {t('common.clear')}
             </button>
           </div>
         )}
         <input
           className="input mono"
           type="password"
-          placeholder={conf?.key ? '粘贴新的 Key 可替换或添加另一家' : '粘贴 API Key'}
+          placeholder={conf?.key ? t('key.placeholderMore') : t('key.placeholder')}
           value={key}
           spellCheck={false}
           onChange={(e) => {
@@ -570,13 +593,14 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
         {showBase ? (
           <label className="field">
             <span className="field-label">
-              接口地址<span className="muted">（中转站、本地模型等自定义服务才需要填）</span>
+              {t('key.baseUrl')}
+              <span className="muted">{t('key.baseUrlNote')}</span>
             </span>
             <input className="input" placeholder="https://…/v1" value={base} spellCheck={false} onChange={(e) => setBase(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void submit()} />
           </label>
         ) : (
           <button className="link inline left" onClick={() => setShowBase(true)}>
-            使用中转站或自定义接口地址
+            {t('key.useBaseUrl')}
           </button>
         )}
         <AnimatePresence>
@@ -589,23 +613,23 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
               )}
               {result.kind === 'ask' && (
                 <div className="detect-ask">
-                  <span>没能自动识别这个 Key 属于哪家，请选择：</span>
+                  <span>{t('key.ask')}</span>
                   <select className="input sel" value={choice} onChange={(e) => setChoice(e.target.value as ProviderId)}>
                     {KEY_PROVIDERS.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name}
+                        {i.provider(p.id)}
                       </option>
                     ))}
-                    <option value="custom">自定义（需要填接口地址）</option>
+                    <option value="custom">{t('key.customOption')}</option>
                   </select>
                   <button
                     className="btn primary"
                     onClick={() => {
                       if (choice === 'custom' && !base.trim()) return setShowBase(true)
-                      void save(choice, '手动选择')
+                      void save(choice, 'key.byManual')
                     }}
                   >
-                    保存
+                    {t('common.save')}
                   </button>
                 </div>
               )}
@@ -615,12 +639,12 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
         <div className="conn-actions">
           <button className="btn primary" disabled={!typed || busy} onClick={() => void submit()}>
             {busy ? <Loader2 size={15} className="spin" /> : <KeyRound size={15} />}
-            {busy ? '正在识别…' : '识别并保存'}
+            {busy ? t('key.detecting') : t('key.submit')}
           </button>
           {sources.length > 0 && (
             <div className="import" ref={importRef}>
               <button className="btn" onClick={() => setImportOpen((v) => !v)}>
-                <Download size={15} /> 从本机导入
+                <Download size={15} /> {t('key.import')}
                 <ChevronDown size={14} className={`chev${importOpen ? ' up' : ''}`} />
               </button>
               <AnimatePresence>
@@ -632,11 +656,11 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
                     exit={{ opacity: 0, y: -4, transition: { duration: 0.1 } }}
                     transition={{ type: 'spring', stiffness: 560, damping: 36 }}
                   >
-                    <div className="pop-label">在本机找到的配置（Codex / CC Switch）</div>
+                    <div className="pop-label">{t('key.importLabel')}</div>
                     {sources.map((src) => (
                       <button key={src.id} className="select-item" disabled={!src.hasKey} onClick={() => void importFrom(src.id)}>
                         <span>{src.label}</span>
-                        <span className="muted">{src.hasKey ? hostOf(src.baseURL) : '没有 Key'}</span>
+                        <span className="muted">{src.hasKey ? hostOf(src.baseURL) : t('key.noKey')}</span>
                       </button>
                     ))}
                   </motion.div>
@@ -652,17 +676,18 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
 
 /** 已保存的服务：点一下切换 */
 function SavedServices({ s, update }: { s: S; update: Upd }) {
+  const i = useI18n()
   const saved = PROVIDERS.filter((p) => s.providers[p.id]?.key)
   if (saved.length < 2) return null
   return (
     <div className="saved">
-      <span className="saved-label">已保存的服务</span>
+      <span className="saved-label">{i.t('saved.label')}</span>
       {saved.map((p) => (
         <button key={p.id} className={`saved-chip${p.id === s.provider ? ' on' : ''}`} onClick={() => void update({ provider: p.id })}>
           <span className="prov-mark sm" style={{ background: p.color }}>
-            {p.id === 'custom' ? <SlidersHorizontal size={11} /> : p.name.slice(0, 1)}
+            {p.id === 'custom' ? <SlidersHorizontal size={11} /> : i.provider(p.id).slice(0, 1)}
           </span>
-          {p.name}
+          {i.provider(p.id)}
           {s.providers[p.id]?.model && <span className="muted">· {s.providers[p.id]!.model}</span>}
         </button>
       ))}
@@ -686,6 +711,8 @@ function perM(v: number | null) {
 
 /** 当前服务的模型列表（价格从低到高） */
 function ModelList({ s, update }: { s: S; update: Upd }) {
+  const i = useI18n()
+  const { t } = i
   const info = providerInfo(s.provider)
   const conf = s.providers[info.id]
   const ready = !!conf?.key && (info.id !== 'custom' || !!conf.baseUrl)
@@ -718,15 +745,15 @@ function ModelList({ s, update }: { s: S; update: Upd }) {
   return (
     <>
       <h3 className="h3 row">
-        模型
+        {t('models.title')}
         <span className="muted">
-          · {info.name} · 当前 {conf?.model || '未选择'}
+          · {i.provider(info.id)} · {t('models.current', { model: conf?.model || t('models.none') })}
         </span>
         {ready && (
           <div className="search">
             <Search size={13} />
             <input
-              placeholder="搜索或输入模型名"
+              placeholder={t('models.search')}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && manual && void choose(manual)}
@@ -736,7 +763,7 @@ function ModelList({ s, update }: { s: S; update: Upd }) {
         )}
         {ready && (
           <button className="link" onClick={() => void load()} disabled={models.state === 'load'}>
-            <RefreshCw size={12} className={models.state === 'load' ? 'spin' : ''} /> 刷新
+            <RefreshCw size={12} className={models.state === 'load' ? 'spin' : ''} /> {t('common.refresh')}
           </button>
         )}
       </h3>
@@ -744,70 +771,68 @@ function ModelList({ s, update }: { s: S; update: Upd }) {
       {!ready ? (
         <div className="empty-models">
           <KeyRound size={20} />
-          <span>登录 ChatGPT 或填好 API Key 后，这里会列出可用的模型，按价格从低到高排好</span>
+          <span>{t('models.empty')}</span>
         </div>
       ) : models.state === 'load' && !models.list.length ? (
         <div className="empty-models">
           <Loader2 size={18} className="spin" />
-          <span>正在获取模型列表…</span>
+          <span>{t('models.loading')}</span>
         </div>
       ) : (
         <>
-          {models.state === 'fail' && <div className="note err">获取模型列表失败：{models.msg}。也可以在上面的搜索框里直接输入模型名，回车使用。</div>}
+          {models.state === 'fail' && <div className="note err">{t('models.failed', { msg: models.msg ?? '' })}</div>}
           {(models.list.length > 0 || manual) && (
             <div className="price-list">
               <div className="price-head">
                 <span />
-                <span>模型</span>
-                <span className="r">{plan ? '' : '输入 / 输出 · 每百万 token'}</span>
-                <span className="r">{plan ? '计费' : '每千次截图约'}</span>
+                <span>{t('models.col')}</span>
+                <span className="r">{plan ? '' : t('models.colPrice')}</span>
+                <span className="r">{plan ? t('models.colPlan') : t('models.colPer')}</span>
               </div>
               <div className="price-body">
                 {manual && (
                   <button className="price-row" onClick={() => void choose(manual)}>
                     <span className="radio" />
                     <span className="pm-name">
-                      <span className="pm-id">使用「{manual}」</span>
+                      <span className="pm-id">{t('models.useManual', { m: manual })}</span>
                     </span>
-                    <span className="pm-io r muted">手动输入</span>
+                    <span className="pm-io r muted">{t('models.manual')}</span>
                     <span className="pm-call r">—</span>
                   </button>
                 )}
-                {shown.map((m, i) => (
+                {shown.map((m, n) => (
                   <motion.button
                     key={m.id}
                     className={`price-row${m.id === conf?.model ? ' on' : ''}`}
                     onClick={() => void choose(m.id)}
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: Math.min(i * 0.015, 0.25), duration: 0.22 }}
+                    transition={{ delay: Math.min(n * 0.015, 0.25), duration: 0.22 }}
                   >
                     <span className="radio">{m.id === conf?.model && <motion.span layoutId="model-dot" className="radio-dot" />}</span>
                     <span className="pm-name">
                       <span className="pm-id">{m.id}</span>
-                      {m.id === pick && <span className="tag rec">推荐</span>}
-                      {FAST_HINT.test(m.id) && <span className="tag fast">快</span>}
+                      {m.id === pick && <span className="tag rec">{t('models.rec')}</span>}
+                      {FAST_HINT.test(m.id) && <span className="tag fast">{t('models.fast')}</span>}
                       {m.vision === false && (
-                        <span className="tag text" title="不能看图，只用本地 OCR 的文字翻译，识别纠错能力弱一些">
-                          仅文字
+                        <span className="tag text" title={t('models.textOnlyTip')}>
+                          {t('models.textOnly')}
                         </span>
                       )}
                     </span>
-                    <span className="pm-io r">{plan ? '' : m.input == null ? <span className="muted">价格未知</span> : `${perM(m.input)} / ${perM(m.output)}`}</span>
-                    <span className="pm-call r">{plan ? <span className="muted">会员额度</span> : m.perCall == null ? '—' : money(m.perCall * 1000)}</span>
+                    <span className="pm-io r">{plan ? '' : m.input == null ? <span className="muted">{t('models.unknownPrice')}</span> : `${perM(m.input)} / ${perM(m.output)}`}</span>
+                    <span className="pm-call r">{plan ? <span className="muted">{t('models.plan')}</span> : m.perCall == null ? '—' : money(m.perCall * 1000)}</span>
                   </motion.button>
                 ))}
-                {!shown.length && !manual && <div className="empty-row">{q ? '没有匹配的模型' : '服务商没有返回模型'}</div>}
+                {!shown.length && !manual && <div className="empty-row">{q ? t('models.noMatch') : t('models.noneReturned')}</div>}
               </div>
             </div>
           )}
           <div className="note">
-            {plan
-              ? '使用 ChatGPT 会员额度，不按 token 计费；额度用完时会提示。'
-              : '价格来自 models.dev 的公开数据（按官方价），中转服务的实际计费以服务商为准。每次截图约按 1500 输入 + 700 输出 token 估算。'}
+            {plan ? t('models.notePlan') : t('models.notePrice')}
             {hidden > 0 && (
               <button className="link inline" onClick={() => setAll((v) => !v)}>
-                {all ? '隐藏' : '显示'}其余 {hidden} 个非对话模型
+                {all ? t('models.hideHidden', { n: hidden }) : t('models.showHidden', { n: hidden })}
               </button>
             )}
           </div>
@@ -817,50 +842,59 @@ function ModelList({ s, update }: { s: S; update: Upd }) {
   )
 }
 
+const TAG_KEY = { 免费额度: 'tag.free', 国内直连: 'tag.cn', 需要代理: 'tag.proxy', 聚合: 'tag.agg' } as const
+const TAG_CLASS = { 免费额度: 'free', 国内直连: 'cn', 需要代理: 'proxy', 聚合: 'agg' } as const
+
 /** 还没有 Key：各家获取方式 */
 function KeyGuides() {
+  const i = useI18n()
   const [open, setOpen] = useState<ProviderId | null>(null)
   return (
     <>
-      <h3 className="h3">还没有 Key？各家获取方式</h3>
+      <h3 className="h3">{i.t('guides.title')}</h3>
       <div className="guide-list">
-        {KEY_PROVIDERS.map((p) => (
-          <div key={p.id} className={`guide-row${open === p.id ? ' open' : ''}`}>
-            <button className="guide-row-head" onClick={() => setOpen(open === p.id ? null : p.id)}>
-              <span className="prov-mark" style={{ background: p.color }}>
-                {p.name.slice(0, 1)}
-              </span>
-              <span className="gr-name">{p.name}</span>
-              <span className="gr-blurb">{p.blurb}</span>
-              <span className="guide-tags">
-                {p.tags.map((t) => (
-                  <span key={t} className={`tag ${t === '免费额度' ? 'free' : t === '国内直连' ? 'cn' : t === '需要代理' ? 'proxy' : 'agg'}`}>
-                    {t}
-                  </span>
-                ))}
-              </span>
-              <ChevronDown size={15} className="chev" />
-            </button>
-            <AnimatePresence initial={false}>
-              {open === p.id && (
-                <motion.div className="guide-body" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }}>
-                  <ol className="guide-steps">
-                    {p.steps.map((t, i) => (
-                      <li key={i}>
-                        <span className="step-n">{i + 1}</span>
-                        {t}
-                      </li>
-                    ))}
-                  </ol>
-                  {p.tip && <div className="guide-tip">{p.tip}</div>}
-                  <button className="btn primary" onClick={() => window.lens.openExternal(p.keyUrl)}>
-                    <ExternalLink size={15} /> {p.keyUrlLabel}
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        ))}
+        {KEY_PROVIDERS.map((p) => {
+          const text = i.providerText(p.id)
+          // 「国内直连 / 需要代理」只对国内网络有意义
+          const tags = p.tags.filter((g) => i.zh || (g !== '国内直连' && g !== '需要代理'))
+          return (
+            <div key={p.id} className={`guide-row${open === p.id ? ' open' : ''}`}>
+              <button className="guide-row-head" onClick={() => setOpen(open === p.id ? null : p.id)}>
+                <span className="prov-mark" style={{ background: p.color }}>
+                  {i.provider(p.id).slice(0, 1)}
+                </span>
+                <span className="gr-name">{i.provider(p.id)}</span>
+                <span className="gr-blurb">{text.blurb}</span>
+                <span className="guide-tags">
+                  {tags.map((g) => (
+                    <span key={g} className={`tag ${TAG_CLASS[g]}`}>
+                      {i.t(TAG_KEY[g])}
+                    </span>
+                  ))}
+                </span>
+                <ChevronDown size={15} className="chev" />
+              </button>
+              <AnimatePresence initial={false}>
+                {open === p.id && (
+                  <motion.div className="guide-body" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }}>
+                    <ol className="guide-steps">
+                      {text.steps.map((step, n) => (
+                        <li key={n}>
+                          <span className="step-n">{n + 1}</span>
+                          {step}
+                        </li>
+                      ))}
+                    </ol>
+                    {text.tip && <div className="guide-tip">{text.tip}</div>}
+                    <button className="btn primary" onClick={() => window.lens.openExternal(p.keyUrl)}>
+                      <ExternalLink size={15} /> {text.link}
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )
+        })}
       </div>
     </>
   )
@@ -876,13 +910,22 @@ function hostOf(url: string) {
 
 // ------------------------------------------------------------------ 通用
 function GeneralPage({ s, update }: { s: S; update: (p: SettingsPatch) => void }) {
+  const { t } = useI18n()
+  const known = UI_LANGS.some((l) => l.code === s.uiLang)
   return (
     <>
-      <h2>快捷键与启动</h2>
-      <Card title="截图翻译快捷键" desc="在任何地方按下即可开始框选；连按两次（如 Alt + Q + Q）直接输入一句话翻译" icon={<Keyboard size={18} />}>
+      <h2>{t('gen.title')}</h2>
+      <Card title={t('gen.hotkey')} desc={t('gen.hotkeyDesc')} icon={<Keyboard size={18} />}>
         <HotkeyInput value={s.hotkey} />
       </Card>
-      <Card title="开机自动启动" desc="登录 Windows 后在托盘后台运行" icon={<Power size={18} />}>
+      <Card title={t('gen.uiLang')} desc={t('gen.uiLang') === 'Language' ? undefined : 'Language'} icon={<Globe size={18} />}>
+        <Select
+          value={known ? s.uiLang : 'auto'}
+          options={[{ value: 'auto', label: t('tray.langSystem') }, ...UI_LANGS.map((l) => ({ value: l.code, label: l.native }))]}
+          onChange={(v) => update({ uiLang: v })}
+        />
+      </Card>
+      <Card title={t('gen.launch')} desc={t('gen.launchDesc')} icon={<Power size={18} />}>
         <Toggle on={s.launchAtLogin} onChange={(v) => update({ launchAtLogin: v })} />
       </Card>
     </>
@@ -890,6 +933,7 @@ function GeneralPage({ s, update }: { s: S; update: (p: SettingsPatch) => void }
 }
 
 function HotkeyInput({ value }: { value: string }) {
+  const { t } = useI18n()
   const [rec, setRec] = useState(false)
   const [draft, setDraft] = useState<string[]>([])
   const [err, setErr] = useState('')
@@ -908,12 +952,12 @@ function HotkeyInput({ value }: { value: string }) {
       setDraft(key ? [...mods, key] : mods)
       if (!key) return
       if (!mods.length && !/^F\d+$/.test(key)) {
-        setErr('请至少包含一个修饰键（Ctrl / Alt / Shift）')
+        setErr('hotkey.needMod')
         return
       }
       const acc = [...mods, key].join('+')
       const r = await window.lens.setHotkey(acc)
-      setErr(r.ok ? '' : r.message ?? '设置失败')
+      setErr(r.ok ? '' : (r.message ?? 'hotkey.failed'))
       if (r.ok) setRec(false)
     }
     window.addEventListener('keydown', down)
@@ -935,16 +979,16 @@ function HotkeyInput({ value }: { value: string }) {
         }}
       >
         {keys.length ? (
-          keys.map((k, i) => (
-            <motion.span key={k + i} className="keycap sm" initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
+          keys.map((k, n) => (
+            <motion.span key={k + n} className="keycap sm" initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
               {k}
             </motion.span>
           ))
         ) : (
-          <span className="muted">按下新的组合键…</span>
+          <span className="muted">{t('hotkey.press')}</span>
         )}
       </button>
-      <span className={`hk-hint${err ? ' err' : ''}`}>{err || (rec ? '按 Esc 取消' : '点击后录制')}</span>
+      <span className={`hk-hint${err ? ' err' : ''}`}>{err ? (err.startsWith('hotkey.') ? t(err as MsgKey) : err) : rec ? t('hotkey.escCancel') : t('hotkey.clickToRecord')}</span>
     </div>
   )
 }
@@ -978,6 +1022,8 @@ function keyName(code: string): string | null {
 
 // ------------------------------------------------------------------ 关于
 function About({ s, update, version, ocr }: { s: S; update: (p: SettingsPatch) => void; version: string; ocr: string }) {
+  const i = useI18n()
+  const { t } = i
   const [u, setU] = useState<UpdateState | null>(null)
   const [checking, setChecking] = useState(false)
   useEffect(() => {
@@ -992,12 +1038,12 @@ function About({ s, update, version, ocr }: { s: S; update: (p: SettingsPatch) =
   const busy = checking || u?.state === 'checking'
   return (
     <>
-      <h2>关于</h2>
+      <h2>{t('about.title')}</h2>
       <section className="about">
         <img src="./icon.png" alt="" />
         <div>
           <div className="about-name">LavaTranslate</div>
-          <div className="muted">版本 {version}</div>
+          <div className="muted">{t('about.version', { v: version })}</div>
         </div>
       </section>
 
@@ -1006,8 +1052,8 @@ function About({ s, update, version, ocr }: { s: S; update: (p: SettingsPatch) =
           {u?.state === 'ready' ? <Check size={18} strokeWidth={2.6} /> : u?.state === 'downloading' || u?.state === 'available' || busy ? <Loader2 size={18} className="spin" /> : <RefreshCw size={17} />}
         </span>
         <div className="card-text">
-          <div className="card-title">{updateTitle(u, busy)}</div>
-          <div className="card-desc">{updateDesc(u)}</div>
+          <div className="card-title">{updateTitle(u, busy, i)}</div>
+          <div className="card-desc">{updateDesc(u, i)}</div>
           <AnimatePresence>
             {(u?.state === 'downloading' || u?.state === 'available') && (
               <motion.div className="update-bar" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -1018,83 +1064,79 @@ function About({ s, update, version, ocr }: { s: S; update: (p: SettingsPatch) =
         </div>
         {u?.state === 'ready' ? (
           <button className="btn primary" onClick={() => window.lens.updateInstall()}>
-            重启并更新
+            {t('about.restart')}
           </button>
         ) : (
           <button className="btn" disabled={busy || u?.state === 'disabled' || u?.state === 'downloading'} onClick={() => void check()}>
-            检查更新
+            {t('about.check')}
           </button>
         )}
       </div>
-      <Card
-        title="自动更新"
-        desc="启动 20 秒后检查一次，之后每 4 小时检查一次 GitHub 上的新版本；有新版本就在后台下载（只下载变化的部分），下载完成后在通知、托盘菜单和这里提示「重启并更新」，不点也会在下次退出时自动安装。托盘菜单里也可以随时「检查更新」。"
-        icon={<Download size={18} />}
-      >
+      <Card title={t('about.autoUpdate')} desc={t('about.autoUpdateDesc')} icon={<Download size={18} />}>
         <Toggle on={s.autoUpdate} onChange={(v) => update({ autoUpdate: v })} />
       </Card>
 
-      <h3 className="h3">技术</h3>
-      <Card title="翻译" desc="大模型（Gemini、OpenAI、DeepSeek、Claude 等，用你自己的 Key）结合截图画面纠正识别错误、合并段落、判断哪些内容不用翻，并按原排版回填" />
-      <Card title="文字识别" desc={`PaddleOCR PP-OCRv6 · 本地运行 · ${ocr || 'ONNX Runtime'}`} />
-      <Card title="隐私" desc="截图只在本机做文字识别；只有你框选的区域会发给你配置的翻译服务，不保存任何会话记录" />
+      <h3 className="h3">{t('about.tech')}</h3>
+      <Card title={t('about.translate')} desc={t('about.translateDesc')} />
+      <Card title={t('about.ocr')} desc={t('about.ocrDesc', { ocr: ocr || 'ONNX Runtime' })} />
+      <Card title={t('about.privacy')} desc={t('about.privacyDesc')} />
     </>
   )
 }
 
-function updateShort(u: UpdateState | null) {
+function updateShort(u: UpdateState | null, { t }: I18n) {
   switch (u?.state) {
     case 'ready':
-      return `v${u.next} 已就绪`
+      return t('upd.short.ready', { v: u.next })
     case 'available':
     case 'downloading':
-      return `下载更新 ${u.percent}%`
+      return t('upd.short.downloading', { p: u.percent })
     case 'checking':
-      return '检查更新…'
+      return t('upd.short.checking')
     case 'latest':
-      return '已是最新'
+      return t('upd.short.latest')
     case 'error':
-      return '检查更新失败'
+      return t('upd.short.error')
     case 'disabled':
-      return '开发版'
+      return t('upd.short.dev')
     default:
-      return '自动更新'
+      return t('upd.short.idle')
   }
 }
 
-function updateTitle(u: UpdateState | null, busy: boolean) {
-  if (busy) return '正在检查更新…'
+function updateTitle(u: UpdateState | null, busy: boolean, { t }: I18n) {
+  if (busy) return t('upd.title.checking')
   switch (u?.state) {
     case 'latest':
-      return '已是最新版本'
+      return t('upd.title.latest')
     case 'available':
     case 'downloading':
-      return `正在下载 v${u.next}`
+      return t('upd.title.downloading', { v: u.next })
     case 'ready':
-      return `v${u.next} 已就绪`
+      return t('upd.title.ready', { v: u.next })
     case 'error':
-      return '检查更新失败'
+      return t('upd.title.error')
     case 'disabled':
-      return '自动更新不可用'
+      return t('upd.title.disabled')
     default:
-      return '软件更新'
+      return t('upd.title.idle')
   }
 }
 
-function updateDesc(u: UpdateState | null) {
+function updateDesc(u: UpdateState | null, { t }: I18n) {
   switch (u?.state) {
     case 'available':
     case 'downloading':
-      return `${u.percent}% · 下载完成后提示你重启`
+      return t('upd.desc.downloading', { p: u.percent })
     case 'ready':
-      return '重启一下就能用上新版本，也可以等下次启动时自动安装'
+      return t('upd.desc.ready')
     case 'error':
     case 'disabled':
       return u.message
     case 'latest':
-      return u.message ?? '每 4 小时自动检查一次'
+      return u.message ?? t('upd.desc.latest')
     default:
-      return '从 GitHub Releases 获取新版本'
+      return t('upd.desc.idle')
   }
 }
 

@@ -19,6 +19,7 @@ import {
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { LANGUAGES, type ErrorCode, type Phase } from '@shared/types'
 import { Tip } from '../components/Tip'
+import { useI18n } from '../lib/i18n'
 
 export interface ToolbarProps {
   phase: Phase
@@ -45,8 +46,11 @@ export interface ToolbarProps {
 }
 
 export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.CSSProperties }>(function Toolbar(p, ref) {
+  const i = useI18n()
+  const { t } = i
   const [picker, setPicker] = useState(false)
-  const targetName = LANGUAGES.find((l) => l.code === p.target)?.name ?? p.target
+  const targetName = i.langLabel(p.target, LANGUAGES.find((l) => l.code === p.target)?.name)
+  const srcName = p.lang ? i.langLabel(p.lang.code, p.lang.name) : null
   const busy = p.phase === 'ocr' || p.phase === 'translating'
   const ready = p.phase === 'done'
   const pct = p.phase === 'ocr' ? 0.08 : p.progress.total ? 0.12 + (0.88 * p.progress.done) / p.progress.total : 0.12
@@ -85,14 +89,14 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
           <button className={`tb-lang${picker ? ' is-open' : ''}`} onClick={() => setPicker((v) => !v)}>
             <AnimatePresence mode="popLayout" initial={false}>
               <motion.span
-                key={p.lang?.name ?? (p.phase === 'ocr' ? 'ocr' : 'auto')}
+                key={srcName ?? (p.phase === 'ocr' ? 'ocr' : 'auto')}
                 className="tb-src"
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
               >
-                {p.lang?.name ?? (p.phase === 'ocr' ? '识别中' : '自动检测')}
+                {srcName ?? (p.phase === 'ocr' ? t('tb.detecting') : t('tb.auto'))}
               </motion.span>
             </AnimatePresence>
             <ArrowRight size={13} className="tb-arrow" />
@@ -119,12 +123,12 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
         </AnimatePresence>
         {p.phase === 'error' && (p.error?.code === 'auth' || p.error?.code === 'config') && (
           <button className="tb-pill" onClick={p.onSettings}>
-            <Settings2 size={13} /> 去设置
+            <Settings2 size={13} /> {t('tb.settings')}
           </button>
         )}
         {p.phase === 'error' && !['auth', 'config', 'no-text'].includes(p.error?.code ?? '') && (
           <button className="tb-pill" onClick={p.onRetry}>
-            <RotateCw size={13} /> 重试
+            <RotateCw size={13} /> {t('tb.retry')}
           </button>
         )}
       </div>
@@ -133,19 +137,19 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
 
       <div className="tb-seg">
         <motion.div className="tb-seg-thumb" animate={{ x: p.mode === 'overlay' ? 0 : 32 }} transition={{ type: 'spring', stiffness: 600, damping: 40 }} />
-        <Tip label="原位覆盖" keys="Tab">
+        <Tip label={t('tb.overlay')} keys="Tab">
           <button className={`tb-seg-btn${p.mode === 'overlay' ? ' on' : ''}`} onClick={() => p.onMode('overlay')}>
             <Layers size={16} />
           </button>
         </Tip>
-        <Tip label="并排对照" keys="Tab">
+        <Tip label={t('tb.side')} keys="Tab">
           <button className={`tb-seg-btn${p.mode === 'side' ? ' on' : ''}`} onClick={() => p.onMode('side')}>
             <Columns2 size={16} />
           </button>
         </Tip>
       </div>
 
-      <Tip label="按住查看原文" keys="Space">
+      <Tip label={t('tb.peek')} keys="Space">
         <button
           className={`tb-btn${p.peek ? ' on' : ''}`}
           disabled={p.mode === 'side'}
@@ -159,22 +163,22 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
 
       <div className="tb-sep" />
 
-      <Tip label="复制译文" keys="Ctrl C">
+      <Tip label={t('tb.copy')} keys="Ctrl C">
         <button className="tb-btn" disabled={!p.progress.done} onClick={p.onCopy}>
           <Copy size={16} />
         </button>
       </Tip>
-      <Tip label="复制为图片" keys="Ctrl Shift C">
+      <Tip label={t('tb.copyImage')} keys="Ctrl Shift C">
         <button className="tb-btn" disabled={!p.progress.done} onClick={p.onCopyImage}>
           <ImageDown size={17} />
         </button>
       </Tip>
-      <Tip label="钉在桌面" keys="F3">
+      <Tip label={t('tb.pin')} keys="F3">
         <button className="tb-btn" disabled={!p.progress.done} onClick={p.onPin}>
           <Pin size={16} />
         </button>
       </Tip>
-      <Tip label="保存图片" keys="Ctrl S">
+      <Tip label={t('tb.save')} keys="Ctrl S">
         <button className="tb-btn" disabled={!p.progress.done} onClick={p.onSave}>
           <Download size={16} />
         </button>
@@ -182,7 +186,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
 
       <div className="tb-sep" />
 
-      <Tip label={p.reply ? '收起回复' : '回复对方'} keys="R">
+      <Tip label={p.reply ? t('tb.replyClose') : t('tb.reply')} keys="R">
         <button className={`tb-btn tb-reply${p.reply ? ' on' : ''}`} onClick={p.onReply}>
           <MessageSquareReply size={16} />
         </button>
@@ -190,17 +194,17 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
 
       <div className="tb-sep" />
 
-      <Tip label={busy ? '翻译中…' : '重新翻译'} keys="Ctrl R">
+      <Tip label={busy ? t('tb.busy') : t('tb.retranslate')} keys="Ctrl R">
         <button className="tb-btn" disabled={busy} onClick={p.onRetry}>
           <RotateCw size={15} className={busy ? 'spin-slow' : ''} />
         </button>
       </Tip>
-      <Tip label="设置">
+      <Tip label={t('tb.settingsTip')}>
         <button className="tb-btn" onClick={p.onSettings}>
           <Settings2 size={16} />
         </button>
       </Tip>
-      <Tip label="关闭" keys="Esc">
+      <Tip label={t('tb.close')} keys="Esc">
         <button className="tb-btn tb-close" onClick={p.onClose}>
           <X size={17} />
         </button>
@@ -262,12 +266,14 @@ function StatusIcon({ phase }: { phase: Phase }) {
 }
 
 function LangPicker({ up, current, onPick, onClose }: { up: boolean; current: string; onPick: (c: string) => void; onClose: () => void }) {
+  const i = useI18n()
   const [q, setQ] = useState('')
   const input = useRef<HTMLInputElement>(null)
+  const all = useMemo(() => LANGUAGES.map((l) => ({ ...l, label: i.langLabel(l.code, l.name) })), [i])
   const list = useMemo(() => {
     const s = q.trim().toLowerCase()
-    return s ? LANGUAGES.filter((l) => (l.name + l.native + l.code).toLowerCase().includes(s)) : LANGUAGES
-  }, [q])
+    return s ? all.filter((l) => (l.label + l.name + l.native + l.code).toLowerCase().includes(s)) : all
+  }, [q, all])
   useEffect(() => {
     input.current?.focus()
   }, [])
@@ -291,7 +297,7 @@ function LangPicker({ up, current, onPick, onClose }: { up: boolean; current: st
         <input
           ref={input}
           value={q}
-          placeholder="翻译成…"
+          placeholder={i.t('lp.placeholder')}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && list[0]) onPick(list[0].code)
@@ -309,12 +315,12 @@ function LangPicker({ up, current, onPick, onClose }: { up: boolean; current: st
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: Math.min(i * 0.012, 0.15), duration: 0.2 }}
           >
-            <span className="lp-name">{l.name}</span>
+            <span className="lp-name">{l.label}</span>
             <span className="lp-native">{l.native}</span>
             {l.code === current && <Check size={13} className="lp-check" />}
           </motion.button>
         ))}
-        {!list.length && <div className="lp-empty">没有匹配的语言</div>}
+        {!list.length && <div className="lp-empty">{i.t('lp.empty')}</div>}
       </div>
     </motion.div>
   )

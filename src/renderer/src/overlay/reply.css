@@ -43,10 +43,24 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
   margin-left: 4px;
   font-size: 12.5px;
   color: var(--text-2);
   white-space: nowrap;
+}
+/* 语言名较长（德语、俄语…）时先截断自己的语言，语气按钮保持完整 */
+.rp-from {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rp-title,
+.rp-arrow,
+.rp-to,
+.rp-tones,
+.rp-x {
+  flex: none;
 }
 .rp-arrow {
   color: var(--text-3);

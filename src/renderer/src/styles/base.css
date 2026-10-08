@@ -16,6 +16,19 @@
   --text-3: rgba(255, 255, 255, 0.4);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
+/* 界面语言是日文、韩文、繁体中文时用各自的系统字体（雅黑的汉字字形是简体中文的写法） */
+:root:lang(ja) {
+  --font: 'Segoe UI Variable Text', 'Segoe UI', 'Yu Gothic UI', 'Meiryo UI', system-ui, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI', 'Yu Gothic UI', 'Meiryo UI', system-ui, sans-serif;
+}
+:root:lang(ko) {
+  --font: 'Segoe UI Variable Text', 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
+}
+:root:lang(zh-Hant) {
+  --font: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft JhengHei UI', system-ui, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI', 'Microsoft JhengHei UI', system-ui, sans-serif;
+}
 
 * {
   box-sizing: border-box;

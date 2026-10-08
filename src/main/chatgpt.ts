@@ -5,6 +5,7 @@ import { net, shell } from 'electron'
 import { createHash, createPublicKey, randomBytes, verify, type JsonWebKey } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { t } from './i18n'
 
 const ISSUER = 'https://auth.openai.com'
 const AUTHORIZE = `${ISSUER}/api/accounts/authorize`
@@ -33,27 +34,41 @@ const b64url = (b: Buffer) => b.toString('base64url')
 
 function decodeJwt(jwt: string) {
   const [h, p, sig] = jwt.split('.')
-  if (!h || !p || !sig) throw new Error('ID Token 格式不对')
+  if (!h || !p || !sig) throw new Error(t('signin.idToken', { why: 'format' }))
   return { header: JSON.parse(Buffer.from(h, 'base64url').toString()), payload: JSON.parse(Buffer.from(p, 'base64url').toString()), signed: `${h}.${p}`, sig }
 }
 
 /** 校验 ID Token：签名（OpenAI 公开的 JWKS）、签发方、接收方、有效期、nonce */
 async function verifyIdToken(idToken: string, clientId: string, nonce?: string) {
   const { header, payload, signed, sig } = decodeJwt(idToken)
-  if (header.alg !== 'RS256') throw new Error(`不支持的签名算法 ${header.alg}`)
+  if (header.alg !== 'RS256') throw new Error(t('signin.idToken', { why: `alg ${header.alg}` }))
   const res = await net.fetch(JWKS)
   const { keys } = (await res.json()) as { keys: (JsonWebKey & { kid: string })[] }
   const jwk = keys.find((k) => k.kid === header.kid)
-  if (!jwk) throw new Error('找不到 ID Token 的签名公钥')
+  if (!jwk) throw new Error(t('signin.idToken', { why: 'kid' }))
   const ok = verify('RSA-SHA256', Buffer.from(signed), createPublicKey({ key: jwk, format: 'jwk' }), Buffer.from(sig, 'base64url'))
-  if (!ok) throw new Error('ID Token 签名无效')
+  if (!ok) throw new Error(t('signin.idToken', { why: 'signature' }))
   const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud]
-  if (payload.iss !== ISSUER) throw new Error('ID Token 签发方不对')
-  if (!aud.includes(clientId)) throw new Error('ID Token 接收方不对')
-  if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now() - 60_000) throw new Error('ID Token 已过期')
-  if (nonce !== undefined && payload.nonce !== nonce) throw new Error('ID Token 的 nonce 不匹配')
+  if (payload.iss !== ISSUER) throw new Error(t('signin.idToken', { why: 'iss' }))
+  if (!aud.includes(clientId)) throw new Error(t('signin.idToken', { why: 'aud' }))
+  if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now() - 60_000) throw new Error(t('signin.idToken', { why: 'exp' }))
+  if (nonce !== undefined && payload.nonce !== nonce) throw new Error(t('signin.idToken', { why: 'nonce' }))
   return payload as { sub: string; email?: string }
 }
+
+/** 登录服务拒绝了请求（status + OAuth 错误码） */
+class TokenError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public code: string
+  ) {
+    super(message)
+  }
+}
+
+/** 登录已失效（refresh token 过期、被吊销或已经用过）：只能重新登录 */
+export class SignInExpired extends Error {}
 
 async function tokenRequest(form: Record<string, string>) {
   const res = await net.fetch(TOKEN, {
@@ -62,7 +77,12 @@ async function tokenRequest(form: Record<string, string>) {
     body: new URLSearchParams(form).toString()
   })
   const json = (await res.json().catch(() => ({}))) as Record<string, any>
-  if (!res.ok) throw new Error(json.error_description ?? json.error ?? `登录服务返回 ${res.status}`)
+  if (!res.ok) {
+    // 标准 OAuth 是 {error, error_description}，OpenAI 也会返回 {error: {code, message}}
+    const err = json.error && typeof json.error === 'object' ? json.error : { code: json.error, message: json.error_description }
+    const code = String(err.code ?? err.type ?? '')
+    throw new TokenError(err.message || code || t('signin.status', { status: res.status }), res.status, code)
+  }
   return json as { access_token: string; refresh_token?: string; id_token?: string; expires_in?: number; scope?: string }
 }
 
@@ -77,7 +97,7 @@ let pending: { server: Server; reject: (e: Error) => void } | null = null
 export function cancelSignIn() {
   if (!pending) return
   pending.server.close()
-  pending.reject(new Error('已取消登录'))
+  pending.reject(new Error(t('signin.cancelled')))
   pending = null
 }
 
@@ -95,7 +115,7 @@ export async function signIn(hostId: string, previous: ChatGPTSession | null): P
   const redirect = `http://127.0.0.1:${(server.address() as AddressInfo).port}/callback`
 
   const callback = new Promise<{ code: string; clientId: string }>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('登录超时，请重试')), LOGIN_TIMEOUT)
+    const timer = setTimeout(() => reject(new Error(t('signin.timeout'))), LOGIN_TIMEOUT)
     pending = { server, reject }
     server.on('request', (req, res) => {
       const url = new URL(req.url ?? '/', redirect)
@@ -105,16 +125,16 @@ export async function signIn(hostId: string, previous: ChatGPTSession | null): P
       }
       const q = url.searchParams
       const fail = (msg: string) => {
-        res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(PAGE('登录没有完成', msg))
+        res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(PAGE(t('signin.notDone'), msg))
         clearTimeout(timer)
         reject(new Error(msg))
       }
-      if (q.get('state') !== state) return fail('登录状态校验失败，请回到 LavaTranslate 重试。')
-      if (q.get('error')) return fail(q.get('error') === 'access_denied' ? '你取消了授权。' : `登录出错：${q.get('error')}`)
+      if (q.get('state') !== state) return fail(t('signin.stateMismatch'))
+      if (q.get('error')) return fail(q.get('error') === 'access_denied' ? t('signin.denied') : t('signin.error', { e: q.get('error')! }))
       const code = q.get('code')
       const clientId = q.get('client_id') ?? (firstClient === 'dynamic_agent_client' ? '' : firstClient)
-      if (!code || !clientId) return fail('登录返回的信息不完整，请重试。')
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PAGE('登录成功', '可以关闭这个页面，回到 LavaTranslate 了。'))
+      if (!code || !clientId) return fail(t('signin.incomplete'))
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PAGE(t('signin.okTitle'), t('signin.okBody')))
       clearTimeout(timer)
       resolve({ code, clientId })
     })
@@ -140,10 +160,10 @@ export async function signIn(hostId: string, previous: ChatGPTSession | null): P
   try {
     const { code, clientId } = await callback
     const tok = await tokenRequest({ grant_type: 'authorization_code', client_id: clientId, code, code_verifier: verifier, redirect_uri: redirect, resource: RESOURCE })
-    if (!tok.id_token || !tok.refresh_token) throw new Error('登录服务没有返回完整的令牌')
+    if (!tok.id_token || !tok.refresh_token) throw new Error(t('signin.noTokens'))
     const claims = await verifyIdToken(tok.id_token, clientId, nonce)
     const scopes = (tok.scope ?? '').split(/\s+/).filter(Boolean)
-    if (!scopes.includes(PLAN_SCOPE)) throw new Error('没有获得使用会员额度的授权：需要 ChatGPT Plus / Pro，并在授权页允许使用会员额度')
+    if (!scopes.includes(PLAN_SCOPE)) throw new Error(t('signin.noPlan'))
     return {
       subject: claims.sub,
       email: claims.email,
@@ -161,9 +181,17 @@ export async function signIn(hostId: string, previous: ChatGPTSession | null): P
   }
 }
 
-/** 刷新令牌（refresh token 每次都会换新，三者一起替换） */
+/** 刷新令牌（refresh token 每次都会换新，三者一起替换）；登录已失效时抛出 SignInExpired，网络等临时问题抛出原错误 */
 export async function refresh(s: ChatGPTSession): Promise<ChatGPTSession> {
-  const tok = await tokenRequest({ grant_type: 'refresh_token', client_id: s.clientId, refresh_token: s.refreshToken, resource: RESOURCE })
+  let tok
+  try {
+    tok = await tokenRequest({ grant_type: 'refresh_token', client_id: s.clientId, refresh_token: s.refreshToken, resource: RESOURCE })
+  } catch (e) {
+    if (e instanceof TokenError && (e.status === 401 || (e.status === 400 && /invalid_grant|invalid_client|invalid_token|refresh_token/i.test(e.code)))) {
+      throw new SignInExpired(e.message)
+    }
+    throw e
+  }
   return {
     ...s,
     accessToken: tok.access_token,

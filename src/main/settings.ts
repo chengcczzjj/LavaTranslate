@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, providerForUrl, type ProviderConfig, type ProviderId, type Settings, type SettingsPatch } from '../shared/types'
 import { encryptSecret, isMasked, maskSecret } from './secrets'
@@ -44,6 +44,12 @@ class SettingsStore {
       try {
         ;({ data: this.data, changed } = migrate(JSON.parse(readFileSync(this.file, 'utf8'))))
       } catch {
+        // 文件损坏：另存一份再用默认设置，里面的设置和登录还有机会找回，不被下一次保存悄悄覆盖
+        try {
+          copyFileSync(this.file, `${this.file}.broken-${Date.now()}`)
+        } catch {
+          /* 忽略 */
+        }
         this.data = { ...DEFAULT_SETTINGS }
       }
       // 明文保存的 Key（旧版或手工写入）改为加密
@@ -58,8 +64,18 @@ class SettingsStore {
     return this.data
   }
 
+  /** 先写临时文件再改名替换：写到一半被结束（安装更新、关机）时，原文件仍然完整 */
   private write() {
-    writeFileSync(this.file, JSON.stringify(this.data, null, 2))
+    const json = JSON.stringify(this.data, null, 2)
+    const tmp = `${this.file}.tmp`
+    writeFileSync(tmp, json, { flush: true })
+    try {
+      renameSync(tmp, this.file)
+    } catch {
+      // 杀毒软件等临时占用文件时改名会失败：退回直接覆盖
+      writeFileSync(this.file, json)
+      rmSync(tmp, { force: true })
+    }
   }
 
   /** 给界面用：Key 打码 */

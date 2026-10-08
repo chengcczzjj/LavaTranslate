@@ -26,7 +26,9 @@ export type Emit = (e: TranslateEvent) => void
 export class TranslateError extends Error {
   constructor(
     message: string,
-    public code: ErrorCode
+    public code: ErrorCode,
+    /** 界面文字的词条（桌面版按界面语言显示；安卓版直接用 message） */
+    public msg?: { id: string; vars?: Record<string, string | number> }
   ) {
     super(message)
   }
@@ -334,11 +336,11 @@ export class OpenAIEngine implements Engine {
       } else if (ev.type === 'response.failed') {
         // ChatGPT 会员额度：用完 / 暂不可用
         const code = String(ev.response.error?.code ?? '')
-        if (code === 'subscription_sharing_usage_limit_exceeded') throw new TranslateError('ChatGPT 会员额度已用完，过一阵再试，或改用 API Key', 'rate-limit')
-        if (code === 'subscription_sharing_usage_unavailable') throw new TranslateError('ChatGPT 会员额度暂时不可用，稍后再试', 'rate-limit')
-        throw new TranslateError(ev.response.error?.message ?? '模型返回失败', 'unknown')
-      } else if (ev.type === 'response.incomplete') throw new TranslateError('模型没有完整返回，请重试', 'unknown')
-      else if (ev.type === 'error') throw new TranslateError(ev.message ?? '模型返回错误', 'unknown')
+        if (code === 'subscription_sharing_usage_limit_exceeded') throw new TranslateError('ChatGPT 会员额度已用完，过一阵再试，或改用 API Key', 'rate-limit', { id: 'err.quotaUsed' })
+        if (code === 'subscription_sharing_usage_unavailable') throw new TranslateError('ChatGPT 会员额度暂时不可用，稍后再试', 'rate-limit', { id: 'err.quotaUnavailable' })
+        throw new TranslateError(ev.response.error?.message ?? '模型返回失败', 'unknown', ev.response.error?.message ? undefined : { id: 'err.modelFailed' })
+      } else if (ev.type === 'response.incomplete') throw new TranslateError('模型没有完整返回，请重试', 'unknown', { id: 'err.incomplete' })
+      else if (ev.type === 'error') throw new TranslateError(ev.message ?? '模型返回错误', 'unknown', ev.message ? undefined : { id: 'err.modelError' })
     }
     return usage
   }
@@ -388,14 +390,14 @@ export class OpenAIEngine implements Engine {
   }
 
   private fail(e: unknown, signal: AbortSignal): never {
-    if (signal.aborted) throw new TranslateError('已取消', 'unknown')
+    if (signal.aborted) throw new TranslateError('已取消', 'unknown', { id: 'err.cancelled' })
     if (e instanceof TranslateError) throw e
-    if (e instanceof OpenAI.AuthenticationError || e instanceof OpenAI.PermissionDeniedError || badKey(e)) throw new TranslateError('API Key 无效或已停用', 'auth')
-    if (e instanceof OpenAI.RateLimitError) throw new TranslateError('请求过于频繁或额度不足', 'rate-limit')
-    if (e instanceof OpenAI.APIConnectionError) throw new TranslateError('无法连接到 API 服务', 'network')
+    if (e instanceof OpenAI.AuthenticationError || e instanceof OpenAI.PermissionDeniedError || badKey(e)) throw new TranslateError('API Key 无效或已停用', 'auth', { id: 'err.badKey' })
+    if (e instanceof OpenAI.RateLimitError) throw new TranslateError('请求过于频繁或额度不足', 'rate-limit', { id: 'err.rateLimit' })
+    if (e instanceof OpenAI.APIConnectionError) throw new TranslateError('无法连接到 API 服务', 'network', { id: 'err.network' })
     if (e instanceof OpenAI.APIError) {
-      if (/no available .*accounts? support/i.test(e.message)) throw new TranslateError(`服务商当前没有可用的 ${this.model}，请在设置里换个模型`, 'unknown')
-      throw new TranslateError(`API 错误 ${e.status ?? ''}：${e.message}`, 'unknown')
+      if (/no available .*accounts? support/i.test(e.message)) throw new TranslateError(`服务商当前没有可用的 ${this.model}，请在设置里换个模型`, 'unknown', { id: 'err.modelUnavailable', vars: { model: this.model } })
+      throw new TranslateError(`API 错误 ${e.status ?? ''}：${e.message}`, 'unknown', { id: 'err.api', vars: { status: e.status ?? '', msg: e.message } })
     }
     throw new TranslateError(e instanceof Error ? e.message : String(e), 'unknown')
   }
@@ -423,7 +425,7 @@ export class OpenAIEngine implements Engine {
         usage = await this.run(SYSTEM_PROMPT, parts(), signal, onText)
       }
       parser.end()
-      if (!parser.blockCount) throw new TranslateError('模型没有返回可用的译文，请重试或换个模型', 'unknown')
+      if (!parser.blockCount) throw new TranslateError('模型没有返回可用的译文，请重试或换个模型', 'unknown', { id: 'err.noOutput' })
       return { firstTokenMs, usage }
     } catch (e) {
       this.fail(e, signal)

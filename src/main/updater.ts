@@ -2,6 +2,8 @@
 import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import type { UpdateState } from '../shared/types'
+import type { MsgKey } from '../shared/i18n'
+import { t } from './i18n'
 
 const CHECK_EVERY = 4 * 3600 * 1000
 
@@ -12,10 +14,14 @@ let enabled = () => true
 
 function set(s: UpdateState) {
   state = s
-  listener(s)
+  listener(updateState())
 }
 
-export function updateState() {
+/** 提示语存词条，读的时候按当前界面语言翻译（切换语言后也对） */
+const MSG_KEYS = new Set<string>(['upd.devBuild', 'upd.noRelease', 'upd.offline', 'upd.noNew'])
+
+export function updateState(): UpdateState {
+  if ('message' in state && state.message && MSG_KEYS.has(state.message)) return { ...state, message: t(state.message as MsgKey) }
   return state
 }
 
@@ -24,7 +30,7 @@ export function initUpdater(opts: { enabled: () => boolean; onChange: (s: Update
   listener = opts.onChange
   const version = app.getVersion()
   if (!app.isPackaged) {
-    set({ state: 'disabled', version, message: '开发版本不检查更新' })
+    set({ state: 'disabled', version, message: 'upd.devBuild' })
     return
   }
   autoUpdater.autoDownload = true
@@ -82,13 +88,13 @@ export function installNow() {
 function failed(e: unknown): UpdateState {
   const version = app.getVersion()
   const msg = e instanceof Error ? e.message : String(e)
-  if (/404/.test(msg)) return { state: 'latest', version, message: 'GitHub 上还没有发布过版本' }
+  if (/\b404\b/.test(msg)) return { state: 'latest', version, message: 'upd.noRelease' }
   return { state: 'error', version, message: friendly(e) }
 }
 
 function friendly(e: unknown) {
   const msg = e instanceof Error ? e.message : String(e)
-  if (/ENOTFOUND|ETIMEDOUT|ECONNRESET|net::/i.test(msg)) return '无法连接 GitHub，请检查网络或代理'
-  if (/404/.test(msg)) return '还没有发布过新版本'
+  if (/ENOTFOUND|ETIMEDOUT|ECONNRESET|net::/i.test(msg)) return 'upd.offline'
+  if (/404/.test(msg)) return 'upd.noNew'
   return msg.split('\n')[0].slice(0, 120)
 }

@@ -48,10 +48,12 @@ import { PaddleOcr } from './ocr'
 import { refreshPrices, sortByPrice } from './pricing'
 import { check as checkUpdate, initUpdater, installNow, setAutoUpdate, updateState } from './updater'
 import { settings } from './settings'
+import { errorText, t, uiLang } from './i18n'
+import { langBase, providerName, UI_LANGS } from '../shared/i18n'
 import { altDown, forceForeground, hwndOf } from './winapi'
 import { OpenAIEngine, TranslateError, type Engine } from '../core/translator'
-import { cancelSignIn, listPlanModels, refresh as refreshChatGPT, signIn as signInChatGPT } from './chatgpt'
-import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runPassTest, runReview } from './devtest'
+import { cancelSignIn, listPlanModels, refresh as refreshChatGPT, SignInExpired, signIn as signInChatGPT } from './chatgpt'
+import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runI18nShots, runPassTest, runReview, runSignInTest } from './devtest'
 import { EventEmitter } from 'node:events'
 
 // 模型请求走 Chromium 网络栈（系统代理、HTTP/2）
@@ -71,7 +73,7 @@ const mockEngine = fixtureEngine ?? (process.env.LENS_MOCK ? new MockEngine() : 
 const pipeline = new EventEmitter()
 
 // 自测用独立的数据目录：不读写用户配置，也不和已安装、正在运行的版本抢单实例锁
-if (AUTOTEST || process.env.LENS_ENGINE_TEST || process.env.LENS_DETECT_TEST || process.env.LENS_PASSTEST) app.setPath('userData', join(app.getPath('temp'), 'lens-autotest'))
+if (AUTOTEST || process.env.LENS_ENGINE_TEST || process.env.LENS_DETECT_TEST || process.env.LENS_PASSTEST || process.env.LENS_SIGNIN_TEST) app.setPath('userData', join(app.getPath('temp'), 'lens-autotest'))
 // LENS_AUTOTEST_SEED=<settings.json>：自测前放一份指定的设置（检查旧格式迁移等）
 if (AUTOTEST && process.env.LENS_AUTOTEST_SEED) {
   mkdirSync(app.getPath('userData'), { recursive: true })
@@ -124,18 +126,52 @@ function engineFor(s: Settings, id = s.provider): Engine | null {
   return new OpenAIEngine({ baseURL: r.baseURL, apiKey: r.apiKey }, r.model, { api: r.info.api, chatExtra: r.info.chatExtra })
 }
 
-/** ChatGPT 登录：令牌快过期时先刷新再用 */
-async function ensureFreshToken() {
+/**
+ * 正在进行的刷新，同时发起的请求共用这一次：refresh token 每刷新一次就换新、旧的作废，
+ * 两个请求各拿旧 token 刷新会被当成重复使用，OpenAI 可能因此吊销整个登录
+ */
+let refreshing: Promise<string | null> | null = null
+
+/**
+ * ChatGPT 登录：令牌快过期时先刷新再用；force 表示令牌被拒，不管有效期都刷新一次。
+ * 返回 null 表示可以继续，否则是显示给用户的原因
+ */
+function ensureFreshToken(id = settings.get().provider, force = false): Promise<string | null> {
+  if (id !== 'chatgpt') return Promise.resolve(null)
+  refreshing ??= refreshChatGPTToken(force).finally(() => (refreshing = null))
+  return refreshing
+}
+
+async function refreshChatGPTToken(force: boolean): Promise<string | null> {
   const s = settings.get()
-  if (s.provider !== 'chatgpt') return
   const sess = chatgptSession(s)
-  if (!sess || sess.expiresAt - Date.now() > 120_000) return
+  if (!sess) return null
+  if (s.providers.chatgpt?.expired) return t('chatgpt.expired')
+  if (!force && sess.expiresAt - Date.now() > 120_000) return null
+  // 刷新期间重新登录或退出了：结果属于旧登录，不能覆盖
+  const stillCurrent = () => chatgptSession(settings.get())?.refreshToken === sess.refreshToken
   try {
     const next = await refreshChatGPT(sess)
-    settings.update({ providers: { chatgpt: { key: JSON.stringify(next) } } })
+    if (stillCurrent()) settings.update({ providers: { chatgpt: { key: JSON.stringify(next) } } })
+    return null
   } catch (e) {
     logError('chatgpt refresh', e)
+    if (!stillCurrent()) return null
+    if (e instanceof SignInExpired) {
+      // 登录信息留着（重新登录时沿用 client_id、预填账号），只是标记失效，设置页据此提示重新登录
+      settings.update({ providers: { chatgpt: { expired: true } } })
+      return t('chatgpt.expired')
+    }
+    // 网络等临时问题：登录还在，令牌没过期就继续用，过期了只能稍后再试
+    if (!force && sess.expiresAt > Date.now()) return null
+    return t('chatgpt.refreshFailed', { msg: e instanceof Error ? e.message : String(e) })
   }
+}
+
+/** 用 ChatGPT 登录时令牌被拒（401）：强制刷新一次。刷新得了说明登录还在，提示重试；刷新不了就是登录已失效 */
+async function chatgptAuthProblem(err: unknown): Promise<string | null> {
+  if (!(err instanceof TranslateError) || err.code !== 'auth' || settings.get().provider !== 'chatgpt') return null
+  return (await ensureFreshToken('chatgpt', true)) ?? t('chatgpt.reverified')
 }
 
 function engineStatus(): EngineStatus {
@@ -146,10 +182,15 @@ function engineStatus(): EngineStatus {
     return {
       provider: info.id,
       ok: false,
-      detail: info.id === 'chatgpt' ? '还没有登录 ChatGPT' : info.id === 'custom' && s.providers.custom?.key ? '还没有填写接口地址' : '还没有填写 API Key'
+      detail:
+        info.id === 'chatgpt'
+          ? s.providers.chatgpt?.expired
+            ? t('chatgpt.expired')
+            : t('status.noChatGPT')
+          : info.id === 'custom' && s.providers.custom?.key ? t('status.noBaseUrl') : t('status.noKey')
     }
-  if (!r.model) return { provider: info.id, ok: false, detail: `${info.name} · 请选择一个模型` }
-  let where = info.name
+  if (!r.model) return { provider: info.id, ok: false, detail: t('status.noModel', { name: providerName(info.id, uiLang()) }) }
+  let where = providerName(info.id, uiLang())
   if (info.id === 'custom' || s.providers[info.id]?.baseUrl) {
     try {
       where = new URL(r.baseURL).host
@@ -157,7 +198,7 @@ function engineStatus(): EngineStatus {
       where = r.baseURL
     }
   }
-  if (info.id === 'chatgpt') where = `ChatGPT 会员 · ${s.providers.chatgpt?.label ?? '已登录'}`
+  if (info.id === 'chatgpt') where = t('status.plan', { who: s.providers.chatgpt?.label || t('status.signedIn') })
   return { provider: info.id, ok: true, detail: `${r.model} · ${where}` }
 }
 
@@ -291,7 +332,7 @@ async function startCapture() {
     // 出错一定要复位，否则之后每次按快捷键都只会在"关闭"分支里空转
     overlayActive = false
     logError('capture', e)
-    notify('截图失败', e instanceof Error ? e.message : String(e))
+    notify(t('notify.captureFailed'), e instanceof Error ? e.message : String(e))
   }
 }
 
@@ -467,9 +508,9 @@ ipcMain.on('translate:start', async (e, msg: TranslateRequestMsg) => {
   translations.set(sender.id, ctl)
 
   const cap = captures.get(msg.displayId)
-  if (!cap) return send({ type: 'error', message: '截图已失效，请重新截图', code: 'unknown' })
+  if (!cap) return send({ type: 'error', message: t('err.captureExpired'), code: 'unknown' })
   const rect = clampRect(msg.rect, cap.width, cap.height)
-  if (rect.w < 4 || rect.h < 4) return send({ type: 'error', message: '选区太小', code: 'no-text' })
+  if (rect.w < 4 || rect.h < 4) return send({ type: 'error', message: t('err.tooSmall'), code: 'no-text' })
   const t0 = Date.now()
   const crop = cropRgba(cap.rgba, cap.width, rect)
 
@@ -480,16 +521,17 @@ ipcMain.on('translate:start', async (e, msg: TranslateRequestMsg) => {
     try {
       lines = await ocr.recognize({ data: crop, width: rect.w, height: rect.h })
     } catch (err) {
-      return send({ type: 'error', message: `文字识别失败：${err}`, code: 'unknown' })
+      return send({ type: 'error', message: t('err.ocr', { msg: String(err) }), code: 'unknown' })
     }
     ocrCache.set(key, lines)
   }
   if (ctl.signal.aborted) return
   send({ type: 'ocr', lines, ms: Date.now() - t0 })
-  if (!lines.length) return send({ type: 'error', message: '没有识别到文字', code: 'no-text' })
+  if (!lines.length) return send({ type: 'error', message: t('err.noText'), code: 'no-text' })
 
   // 2. 模型
-  await ensureFreshToken()
+  const signInProblem = await ensureFreshToken()
+  if (signInProblem) return send({ type: 'error', message: signInProblem, code: 'auth' })
   const s = settings.get()
   const eng = engine ?? buildEngine(s)
   if (!eng) return send({ type: 'error', message: engineStatus().detail, code: 'config' })
@@ -507,8 +549,10 @@ ipcMain.on('translate:start', async (e, msg: TranslateRequestMsg) => {
   } catch (err) {
     if (ctl.signal.aborted) return
     const te = err instanceof TranslateError ? err : new TranslateError(String(err), 'unknown')
-    send({ type: 'error', message: te.message, code: te.code })
-    pipeline.emit('end', { ok: false, error: te.message })
+    const message = (await chatgptAuthProblem(te)) ?? errorText(te)
+    if (ctl.signal.aborted) return
+    send({ type: 'error', message, code: te.code })
+    pipeline.emit('end', { ok: false, error: message })
   } finally {
     if (translations.get(sender.id) === ctl) translations.delete(sender.id)
   }
@@ -525,7 +569,8 @@ ipcMain.on('reply:start', async (e, msg: ReplyStartMsg) => {
   replies.get(sender.id)?.abort()
   const ctl = new AbortController()
   replies.set(sender.id, ctl)
-  await ensureFreshToken()
+  const signInProblem = await ensureFreshToken()
+  if (signInProblem) return send({ type: 'error', message: signInProblem })
   const s = settings.get()
   const eng = engine ?? buildEngine(s)
   if (!eng) return send({ type: 'error', message: engineStatus().detail })
@@ -546,7 +591,9 @@ ipcMain.on('reply:start', async (e, msg: ReplyStartMsg) => {
     if (!ctl.signal.aborted) send({ type: 'done', ms: Date.now() - t0 })
   } catch (err) {
     if (ctl.signal.aborted) return
-    send({ type: 'error', message: err instanceof Error ? err.message : String(err) })
+    const message = (await chatgptAuthProblem(err)) ?? errorText(err)
+    if (ctl.signal.aborted) return
+    send({ type: 'error', message })
   } finally {
     if (replies.get(sender.id) === ctl) replies.delete(sender.id)
   }
@@ -607,9 +654,9 @@ ipcMain.handle('image:save', async (e, rect: Rect) => {
   o.win.setAlwaysOnTop(false)
   const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
   const res = await dialog.showSaveDialog(o.win, {
-    title: '保存翻译截图',
+    title: t('save.title'),
     defaultPath: join(app.getPath('pictures'), `LavaTranslate_${stamp}.png`),
-    filters: [{ name: 'PNG 图片', extensions: ['png'] }]
+    filters: [{ name: t('save.png'), extensions: ['png'] }]
   })
   if (!o.win.isDestroyed()) o.win.setAlwaysOnTop(true, 'screen-saver')
   if (res.canceled || !res.filePath) return false
@@ -740,6 +787,17 @@ nativeTheme.on('updated', () => {
 })
 
 ipcMain.handle('settings:get', () => settings.public())
+// 界面语言：各窗口加载时同步取一次（首帧就是对的语言），之后有变化再推送
+ipcMain.on('ui:lang', (e) => (e.returnValue = uiLang()))
+let sentLang = ''
+function broadcastUiLang() {
+  const lang = uiLang()
+  if (lang === sentLang) return
+  sentLang = lang
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('ui:lang', lang)
+  // 更新状态里的提示语也换成新语言
+  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('update:state', updateState())
+}
 ipcMain.handle('settings:set', (_e, patch: SettingsPatch) => {
   settings.update(patch)
   return settings.public()
@@ -761,10 +819,11 @@ ipcMain.on('shell:open', (_e, url: string) => {
 })
 /** 拉取服务端模型列表，按一次翻译的估算费用从低到高排序（价格来自 models.dev） */
 ipcMain.handle('models:list', async (_e, id?: ProviderId): Promise<{ ok: boolean; models: ModelInfo[]; message?: string }> => {
-  await ensureFreshToken()
+  const signInProblem = await ensureFreshToken(id)
+  if (signInProblem) return { ok: false, models: [], message: signInProblem }
   const s = settings.get()
   const r = resolveProvider(s, id ?? s.provider)
-  if (!r) return { ok: false, models: [], message: id === 'chatgpt' ? '请先登录 ChatGPT' : '请先填写 API Key' }
+  if (!r) return { ok: false, models: [], message: id === 'chatgpt' ? t('models.signInFirst') : t('models.keyFirst') }
   const bundled = join(resources, 'model-prices.json')
   try {
     // 价格库在后台刷新，不拖慢列表；这次先用缓存或安装包内置的价格
@@ -777,7 +836,7 @@ ipcMain.handle('models:list', async (_e, id?: ProviderId): Promise<{ ok: boolean
     const ids = await new OpenAIEngine({ baseURL: r.baseURL, apiKey: r.apiKey }, 'x').listModels()
     return { ok: true, models: sortByPrice(ids, bundled) }
   } catch (e) {
-    return { ok: false, models: [], message: e instanceof Error ? e.message : String(e) }
+    return { ok: false, models: [], message: errorText(e) }
   }
 })
 /** 识别 Key 属于哪家服务 */
@@ -789,7 +848,7 @@ ipcMain.handle('chatgpt:signin', async (): Promise<{ ok: boolean; message?: stri
     const s = settings.get()
     const sess = await signInChatGPT(s.installId, chatgptSession(s))
     if (settingsWin && !settingsWin.isDestroyed()) settingsWin.focus()
-    settings.update({ provider: 'chatgpt', providers: { chatgpt: { key: JSON.stringify(sess), label: sess.email ?? '', baseUrl: '' } } })
+    settings.update({ provider: 'chatgpt', providers: { chatgpt: { key: JSON.stringify(sess), label: sess.email ?? '', baseUrl: '', expired: false } } })
     return { ok: true }
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) }
@@ -797,7 +856,7 @@ ipcMain.handle('chatgpt:signin', async (): Promise<{ ok: boolean; message?: stri
 })
 ipcMain.on('chatgpt:cancel', () => cancelSignIn())
 ipcMain.handle('chatgpt:signout', () => {
-  settings.update({ providers: { chatgpt: { key: '', label: '' } } })
+  settings.update({ providers: { chatgpt: { key: '', label: '', expired: false } } })
   return settings.public()
 })
 
@@ -810,7 +869,7 @@ ipcMain.on('update:install', () => {
 })
 ipcMain.handle('ocr:info', async () => {
   await ocr.init().catch(() => {})
-  return ocr.provider === 'dml' ? 'GPU 加速 · DirectML' : 'CPU 推理'
+  return ocr.provider === 'dml' ? t('ocr.gpu') : t('ocr.cpu')
 })
 ipcMain.on('capture:start', () => void startCapture())
 ipcMain.on('settings:open', () => {
@@ -819,7 +878,8 @@ ipcMain.on('settings:open', () => {
 })
 
 ipcMain.handle('engine:test', async () => {
-  await ensureFreshToken()
+  const signInProblem = await ensureFreshToken()
+  if (signInProblem) return { ok: false, message: signInProblem }
   const s = settings.get()
   const eng = engine ?? buildEngine(s)
   if (!eng) return { ok: false, message: engineStatus().detail }
@@ -842,9 +902,9 @@ ipcMain.handle('engine:test', async () => {
       },
       ctl.signal
     )
-    return { ok: true, message: `「Good morning!」→「${got}」 · ${((Date.now() - t0) / 1000).toFixed(1)}s` }
+    return { ok: true, message: t('test.result', { got, s: ((Date.now() - t0) / 1000).toFixed(1) }) }
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) }
+    return { ok: false, message: (await chatgptAuthProblem(err)) ?? errorText(err) }
   }
 })
 
@@ -872,7 +932,7 @@ ipcMain.handle('hotkey:set', (_e, hotkey: string) => {
     return { ok: true }
   }
   registerHotkey(prev)
-  return { ok: false, message: '该快捷键已被其他程序占用或无效' }
+  return { ok: false, message: t('hotkey.taken') }
 })
 
 ipcMain.handle('hotkey:suspend', (_e, on: boolean) => {
@@ -883,28 +943,45 @@ ipcMain.handle('hotkey:suspend', (_e, on: boolean) => {
 
 function updateTray() {
   if (!tray) return
+  tray.setToolTip(`LavaTranslate · ${settings.get().hotkey.replace(/\+/g, ' + ')}`)
+  tray.setContextMenu(Menu.buildFromTemplate(trayMenu()))
+}
+
+function trayMenu(): Electron.MenuItemConstructorOptions[] {
   const s = settings.get()
   const u = updateState()
   const upd: Electron.MenuItemConstructorOptions =
     u.state === 'ready'
-      ? { label: `重启并更新到 v${u.next}`, click: () => ((quitting = true), installNow()) }
+      ? { label: t('tray.updateReady', { v: u.next }), click: () => ((quitting = true), installNow()) }
       : u.state === 'downloading' || u.state === 'available'
-        ? { label: `正在下载 v${u.next}（${u.percent}%）`, enabled: false }
-        : { label: u.state === 'checking' ? '正在检查更新…' : `检查更新（当前 v${u.version}）`, enabled: u.state !== 'checking' && u.state !== 'disabled', click: () => void checkUpdate() }
-  tray.setToolTip(`LavaTranslate · ${s.hotkey.replace(/\+/g, ' + ')}`)
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      // 快捷键用 accelerator 显示（右对齐）；不在这里注册，全局热键另有 globalShortcut。
-      // 菜单里不放勾选项：有勾选项时 Windows 会在左侧预留一整列空白（开机启动在设置里）
-      { label: '截图翻译', accelerator: s.hotkey, registerAccelerator: false, click: () => void startCapture() },
-      { label: '输入文字翻译（连按两次快捷键）', click: () => startQuick() },
-      { type: 'separator' },
-      { label: '设置…（双击图标）', click: openSettings },
-      upd,
-      { type: 'separator' },
-      { label: '退出', click: () => app.quit() }
-    ])
-  )
+        ? { label: t('tray.updateDownloading', { v: u.next, p: u.percent }), enabled: false }
+        : {
+            label: u.state === 'checking' ? t('tray.updateChecking') : t('tray.updateCheck', { v: u.version }),
+            enabled: u.state !== 'checking' && u.state !== 'disabled',
+            click: () => void checkUpdate()
+          }
+  // 子菜单标题带上英文：误选了看不懂的语言也找得回来
+  const langLabel = uiLang() === 'en' ? t('tray.language') : `${t('tray.language')} · Language`
+  const pick = (code: string) => () => void settings.update({ uiLang: code })
+  return [
+    // 快捷键用 accelerator 显示（右对齐）；不在这里注册，全局热键另有 globalShortcut。
+    // 这一层不放勾选项：有勾选项时 Windows 会在左侧预留一整列空白（语言的单选在子菜单里，不影响这一层）
+    { label: t('tray.capture'), accelerator: s.hotkey, registerAccelerator: false, click: () => void startCapture() },
+    { label: t('tray.quick'), click: () => startQuick() },
+    { type: 'separator' },
+    { label: t('tray.settings'), click: openSettings },
+    {
+      label: langLabel,
+      submenu: [
+        { label: t('tray.langSystem'), type: 'radio', checked: !UI_LANGS.some((l) => l.code === s.uiLang), click: pick('auto') },
+        { type: 'separator' },
+        ...UI_LANGS.map((l): Electron.MenuItemConstructorOptions => ({ label: l.native, type: 'radio', checked: s.uiLang === l.code, click: pick(l.code) }))
+      ]
+    },
+    upd,
+    { type: 'separator' },
+    { label: t('tray.quit'), click: () => app.quit() }
+  ]
 }
 
 function notify(title: string, body: string) {
@@ -914,6 +991,15 @@ function notify(title: string, body: string) {
 }
 
 // ------------------------------------------------------------------ 启动
+/** 系统显示语言里第一个能当目标语言的 */
+function systemTarget() {
+  for (const l of app.getPreferredSystemLanguages()) {
+    const hit = LANGUAGES.find((x) => langBase(x.code) === langBase(l))
+    if (hit) return hit.code
+  }
+  return settings.get().targetLang
+}
+
 app.on('second-instance', () => openSettings())
 
 /**
@@ -922,7 +1008,7 @@ app.on('second-instance', () => openSettings())
  * 格式转换（engine / openaiKey → providers）由 settings.load() 统一处理。
  */
 function migrateLegacy() {
-  if (AUTOTEST || process.env.LENS_ENGINE_TEST) return
+  if (AUTOTEST || process.env.LENS_ENGINE_TEST || process.env.LENS_SIGNIN_TEST) return
   const dir = app.getPath('userData')
   const legacy = join(app.getPath('appData'), 'Lens 截图翻译', 'settings.json')
   if (existsSync(join(dir, 'settings.json')) || !existsSync(legacy)) return
@@ -942,6 +1028,7 @@ app.whenReady().then(async () => {
   migrateLegacy()
   let s = settings.load()
   if (!s.installId) s = settings.update({ installId: `urn:uuid:${randomUUID()}` })
+  sentLang = uiLang()
   buildEngine(s)
   void ocr.init()
   syncOverlays()
@@ -976,7 +1063,7 @@ app.whenReady().then(async () => {
       if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('update:state', st)
       updateTray()
       if (st.state === 'ready') {
-        notify('新版本已就绪', `v${st.next} 已下载完成，退出时自动安装；也可以在托盘菜单里立即重启更新`)
+        notify(t('notify.updateReadyTitle'), t('notify.updateReadyBody', { v: st.next }))
       }
     }
   })
@@ -986,6 +1073,7 @@ app.whenReady().then(async () => {
     if (next.provider !== prev.provider || JSON.stringify(next.providers[next.provider]) !== JSON.stringify(prev.providers[prev.provider])) buildEngine(next)
     if (next.launchAtLogin !== prev.launchAtLogin) app.setLoginItemSettings({ openAtLogin: next.launchAtLogin })
     if (next.autoUpdate !== prev.autoUpdate) setAutoUpdate(next.autoUpdate)
+    if (next.uiLang !== prev.uiLang) broadcastUiLang()
     updateTray()
     if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('settings:changed', settings.public())
   })
@@ -1013,6 +1101,9 @@ app.whenReady().then(async () => {
     for (const k of process.env.LENS_DETECT_TEST.split(',')) console.log('[detect]', k.slice(0, 7) + '…', JSON.stringify(await detectProvider(k)))
     return app.quit()
   }
+
+  // LENS_SIGNIN_TEST=1：ChatGPT 登录刷新与设置保存（令牌接口用假响应，不需要真账号）
+  if (process.env.LENS_SIGNIN_TEST) return void runSignInTest({ ensure: ensureFreshToken, authProblem: chatgptAuthProblem, status: engineStatus })
 
   if (process.env.LENS_ENGINE_TEST) {
     const img = nativeImage.createFromPath(join(process.env.LENS_AUTOTEST_ROOT || app.getAppPath(), '.scratch', process.env.LENS_ENGINE_IMAGE ?? 'test1.png'))
@@ -1082,6 +1173,35 @@ app.whenReady().then(async () => {
   if (AUTOTEST) {
     await ocr.init()
     const display = screen.getPrimaryDisplay()
+    if (process.env.LENS_I18N) {
+      const langs = process.env.LENS_I18N === 'all' ? UI_LANGS.map((l) => l.code) : process.env.LENS_I18N.split(',')
+      setTimeout(
+        () =>
+          void runI18nShots(
+            {
+              display,
+              openSettings: () => {
+                openSettings()
+                return settingsWin!
+              },
+              mock: mockEngine instanceof MockEngine ? mockEngine : null,
+              setSettings: (p) => {
+                settings.update(p)
+              },
+              overlayWin: () => overlays.get(display.id)!.win,
+              inject: async (cap, refresh) => {
+                syncOverlays()
+                presentCaptures([cap], refresh)
+              },
+              waitDone: () => new Promise((resolve) => pipeline.once('end', () => resolve())),
+              trayMenu
+            },
+            langs
+          ),
+        1500
+      )
+      return
+    }
     setTimeout(() => {
       void runAutotest({
         display,
@@ -1112,13 +1232,14 @@ app.whenReady().then(async () => {
   }
 
   if (!s.firstRunDone) {
+    // 第一次运行：默认译成系统语言
+    settings.update({ firstRunDone: true, targetLang: systemTarget() })
     openSettings()
-    settings.update({ firstRunDone: true })
   } else if (!ok) {
-    notify('快捷键注册失败', `${s.hotkey} 已被占用，请在设置中更换`)
+    notify(t('notify.hotkeyFailedTitle'), t('notify.hotkeyFailedBody', { key: s.hotkey }))
     openSettings()
   } else {
-    notify('LavaTranslate 已在后台运行', `按 ${s.hotkey.replace(/\+/g, ' + ')} 框选屏幕任意区域即可翻译`)
+    notify(t('notify.runningTitle'), t('notify.runningBody', { key: s.hotkey.replace(/\+/g, ' + ') }))
   }
 })
 
