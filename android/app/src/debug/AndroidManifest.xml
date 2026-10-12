@@ -7,5 +7,13 @@
             android:exported="true"
             android:label="Lava Demo"
             android:taskAffinity="com.lavatranslate.app.demo" />
+        <!-- 模拟别的应用的小悬浮窗（录屏控制条），见 FloatTestActivity -->
+        <activity
+            android:name=".FloatTestActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:taskAffinity="com.lavatranslate.app.floattest"
+            android:theme="@android:style/Theme.NoDisplay" />
     </application>
 </manifest>

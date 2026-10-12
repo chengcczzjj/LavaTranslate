@@ -16,15 +16,7 @@ class Frame(
      * 把一块区域（自己的小胶囊）抹成旁边的颜色，免得 OCR 把它当成文字、模型也看不到它。
      * 每一行取区域左边（贴左边缘时取右边）紧挨着的像素来填
      */
-    fun fill(area: Rect) {
-        val r = Rect(area)
-        if (!r.intersect(0, 0, width, height)) return
-        for (y in r.top until r.bottom) {
-            val sx = if (r.left > 0) r.left - 1 else if (r.right < width) r.right else return
-            val si = (y * width + sx) * 4
-            for (x in r.left until r.right) System.arraycopy(rgba, si, rgba, (y * width + x) * 4, 4)
-        }
-    }
+    fun fill(area: Rect) = fill(rgba, width, height, area)
 
     fun crop(r: Rect): ByteArray {
         if (r.left == 0 && r.top == 0 && r.width() == width && r.height() == height) return rgba
@@ -32,6 +24,31 @@ class Frame(
         val row = r.width() * 4
         for (y in 0 until r.height()) System.arraycopy(rgba, ((r.top + y) * width + r.left) * 4, out, y * row, row)
         return out
+    }
+
+    /** 裁出一块，并在裁出的副本里抹掉 masks（屏幕坐标）：只给识别和模型用，画在屏幕上的截图不动 */
+    fun crop(r: Rect, masks: List<Rect>): ByteArray {
+        if (masks.isEmpty()) return crop(r)
+        val out = crop(r).let { if (it === rgba) it.copyOf() else it }
+        for (m in masks) {
+            val a = Rect(m)
+            if (!a.intersect(r)) continue
+            a.offset(-r.left, -r.top)
+            fill(out, r.width(), r.height(), a)
+        }
+        return out
+    }
+
+    private companion object {
+        fun fill(buf: ByteArray, width: Int, height: Int, area: Rect) {
+            val r = Rect(area)
+            if (!r.intersect(0, 0, width, height)) return
+            for (y in r.top until r.bottom) {
+                val sx = if (r.left > 0) r.left - 1 else if (r.right < width) r.right else return
+                val si = (y * width + sx) * 4
+                for (x in r.left until r.right) System.arraycopy(buf, si, buf, (y * width + x) * 4, 4)
+            }
+        }
     }
 }
 

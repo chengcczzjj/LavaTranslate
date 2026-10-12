@@ -2,7 +2,12 @@ package com.lavatranslate.app
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.Rect
 import android.os.Build
 import android.view.Gravity
 import android.view.KeyEvent
@@ -28,6 +33,11 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, private val windo
     private val density = ctx.resources.displayMetrics.density
     private var backCallback: Any? = null
 
+    /** 挖空的地方（屏幕坐标）：下面的系统界面从这里露出来，见 [holes] */
+    private val holes = ArrayList<Rect>()
+    private val clear = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
+    private val loc = IntArray(2)
+
     val root: FrameLayout = object : FrameLayout(ctx) {
         override fun dispatchKeyEvent(event: KeyEvent): Boolean {
             if (event.keyCode == KeyEvent.KEYCODE_BACK) {
@@ -35,6 +45,14 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, private val windo
                 return true
             }
             return super.dispatchKeyEvent(event)
+        }
+
+        // 网页画完后把挖空的地方抹成透明（窗口是半透明格式，透明处显示下面的窗口）
+        override fun dispatchDraw(canvas: Canvas) {
+            super.dispatchDraw(canvas)
+            if (holes.isEmpty()) return
+            getLocationOnScreen(loc)
+            for (r in holes) canvas.drawRect((r.left - loc[0]).toFloat(), (r.top - loc[1]).toFloat(), (r.right - loc[0]).toFloat(), (r.bottom - loc[1]).toFloat(), clear)
         }
     }
     val web = createWebView(ctx, "overlay.html", transparent = true)
@@ -137,6 +155,17 @@ class OverlayHost(ctx: Context, private val wm: WindowManager, private val windo
         visible = false
         touchable = false
         if (pauseWeb) LavaApp.instance.webVisible(web, false)
+    }
+
+    /**
+     * 在译文上挖空（屏幕坐标）：无障碍图层比截屏预览、录屏控制条、通知横幅、音量条、状态栏都高，
+     * 不挖空的话它们全被盖在译文下面。挖空处是透明的，触摸本来就穿透
+     */
+    fun holes(list: List<Rect>) {
+        if (list == holes) return
+        holes.clear()
+        holes.addAll(list)
+        root.invalidate()
     }
 
     /** 按住「对比」：只改透明度看下面的原文，其余不变 */

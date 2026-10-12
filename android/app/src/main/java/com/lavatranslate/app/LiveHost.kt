@@ -16,6 +16,7 @@ import android.provider.Settings
 import android.view.Choreographer
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import com.lavatranslate.app.capture.A11yCapturer
@@ -48,6 +49,7 @@ import kotlin.math.roundToInt
  *   [TOUCH_SETTLE_MS] 后把刚才的译文原样放回来。
  *   文字优先直接从无障碍节点读（每个字的位置都有时，比 OCR 快、准），否则截图做 OCR；
  *   小胶囊：按住「对比」看原文；译文收起时它变成「翻译」，点一下马上重新翻译；「回复」写回复；「退出」回到面板；
+ *   系统界面（截屏预览、录屏控制条、通知横幅、音量条…）始终露在译文上面，见 [systemUi]；
  * - **回复**：面板上的「回复」、快捷开关「快捷回复」，或译文收起时胶囊上的「回复」：输入翻译；
  *   译文显示时胶囊上的「回复」打开带对话上下文的回复框。写回复时小胶囊让开。
  *
@@ -100,6 +102,18 @@ class LiveHost(private val svc: LavaAccessibilityService) {
     private var restorable = false
     /** 这一屏翻译完了 */
     private var done = false
+
+    // ------------------------------------------------------------ 盖在译文上面的系统界面（见 systemUi）
+    /** 现在的小的系统窗口（屏幕坐标）：在译文上挖空露出来 */
+    private var floats: List<Rect> = emptyList()
+    /** 截这一帧时就在的小的系统窗口：截图里有它们（识别时抹掉了），这一帧显示期间一直挖空 */
+    private var captured: List<Rect> = emptyList()
+    /** 开始翻译时已经在的大的系统窗口 */
+    private var steady: Set<Int> = emptySet()
+    /** 大的系统窗口第一次出现的时间（没拿焦点的要停留一会儿才算，见 systemUi） */
+    private val largeSince = HashMap<Int, Long>()
+    /** 大的系统界面盖着（截屏预览、通知栏）：译文让开，等它收起 */
+    private var yielding = false
 
     val active get() = state == State.LIVE || state == State.QUICK
 
@@ -250,6 +264,7 @@ class LiveHost(private val svc: LavaAccessibilityService) {
             // 翻译界面先挂上（透明、不接触摸），小胶囊后加，保证在它上面
             overlay().attach()
             showCapsule()
+            systemUi(start = true)
             translate()
         }
         // 面板收上去之后再截屏（不能把面板截进去）
@@ -260,6 +275,11 @@ class LiveHost(private val svc: LavaAccessibilityService) {
     /** 截屏、读文字，交给网页画出截图和译文 */
     private fun translate() {
         if (state != State.LIVE || phase == Phase.CAPTURING) return
+        // 系统界面盖着（截屏预览、通知栏）：等它收起再截（见 systemUi），收起后重新翻译而不是放回旧的译文
+        if (yielding) {
+            if (phase == Phase.AWAY) restorable = false
+            return
+        }
         phase = Phase.CAPTURING
         // 截屏、读文字的时候应用换了页（例如刚点开的页面还在过场动画）：这张截图作废，等停稳了再截
         subscribe(EVENTS_SHOWN)
@@ -272,14 +292,18 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         val o = overlay()
         if (o.visible) o.conceal(pauseWeb = false)
         o.attach()
+        // 系统的小窗口会被截进去：不识别，这一帧显示期间那里一直挖空（它收起后露出的是下面的应用，不是截图里过时的它）
+        captured = floats
+        holes()
         val mask = capsuleRect()
         // 等两帧：确保收起的译文已经从屏幕上消失，不会被截进去
         val ch = Choreographer.getInstance()
-        ch.postFrameCallback { ch.postFrameCallback { app.worker.execute { capture(gen, mask) } } }
+        ch.postFrameCallback { ch.postFrameCallback { app.worker.execute { capture(gen, mask, captured) } } }
         main.postDelayed({ if (gen == scanGen && phase == Phase.CAPTURING) away() }, if (webReady) 6000L else 14000L)
     }
 
-    private fun capture(gen: Int, mask: Rect?) {
+    /** mask：自己的小胶囊（截图里抹掉，反正被它挡着）；floats：系统的小窗口（只在识别用的副本里抹掉） */
+    private fun capture(gen: Int, mask: Rect?, floats: List<Rect>) {
         val t0 = SystemClock.elapsedRealtime()
         val f = try {
             capturer.capture()
@@ -295,7 +319,7 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         FrameStore.current = f
         if (BuildConfig.DEBUG) FrameStore.last = f
         val c = f.content
-        val crop = f.crop(c)
+        val crop = f.crop(c, floats)
         textJob = app.worker.submit(Callable { readText(f, crop, captureMs) })
         imageJob = app.worker.submit(Callable { ScreenHost.encodeForModel(crop, c.width(), c.height()) })
         main.post {
@@ -392,7 +416,7 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         phase = Phase.SHOWN
         subscribe(EVENTS_SHOWN)
         main.removeCallbacks(waitingIcon)
-        o.reveal(touch = false)
+        reveal(o, touch = false)
         capsuleView?.waiting(false)
         capsuleView?.busy(!done)
     }
@@ -413,6 +437,12 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         imageJob = null
         capsuleView?.busy(false)
         capsule?.dismiss()
+        main.removeCallbacks(systemUiCheck)
+        overlay?.holes(emptyList())
+        floats = emptyList()
+        captured = emptyList()
+        largeSince.clear()
+        yielding = false
         state = if (toPanel) State.PANEL else State.HIDDEN
         if (toPanel) showPanelWindow()
         scheduleRelease()
@@ -427,13 +457,15 @@ class LiveHost(private val svc: LavaAccessibilityService) {
      */
     private fun settled() {
         val s = sig
-        dbg("settled restorable=$restorable scrolled=$scrolled sig=${s?.frame} frame=$frameId")
+        dbg("settled restorable=$restorable scrolled=$scrolled sig=${s?.frame} frame=$frameId yielding=$yielding")
+        // 系统界面还盖着：等它收起（systemUi 会再安排一次）
+        if (yielding) return
         if (!restorable || scrolled || s == null || s.frame != frameId) return translate()
         val gen = scanGen
         app.worker.execute {
             val now = runCatching { NodeText.read(svc, s.content, density) }.getOrNull()
             main.post {
-                if (gen != scanGen || state != State.LIVE || phase != Phase.AWAY) return@post
+                if (gen != scanGen || state != State.LIVE || phase != Phase.AWAY || yielding) return@post
                 if (now != null && now.signature == s.value) {
                     if (BuildConfig.DEBUG) android.util.Log.i("LavaTranslate", "settle: unchanged, restore")
                     restore()
@@ -452,6 +484,8 @@ class LiveHost(private val svc: LavaAccessibilityService) {
 
     fun onEvent(e: AccessibilityEvent) {
         if (state != State.LIVE) return
+        // 窗口出现、消失、挪动：系统界面盖上来或收起
+        if (e.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) return systemUi()
         val pkg = e.packageName?.toString() ?: return
         // 自己的窗口、状态栏（时钟、通知图标）的变化不算
         if (pkg == svc.packageName || pkg == "com.android.systemui") return
@@ -459,6 +493,8 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         if (pkg == Settings.Secure.getString(svc.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)?.substringBefore('/')) return
         // 译文层交出焦点（回复框收起）时应用会发一次「窗口状态变化」，不算
         if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && e.eventTime < quietUntil) return
+        // 厂商的截屏、录屏界面，别的应用的悬浮窗（不是应用本身的页面）：由 systemUi 处理
+        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && !appWindow(e.windowId)) return
         when (phase) {
             // 译文显示着、应用自己换了页（返回键、弹窗）：收起，没变的话放回来
             Phase.SHOWN -> {
@@ -475,6 +511,90 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         // 应用在滚动、换页：等它停下来再翻译
         main.removeCallbacks(settle)
         main.postDelayed(settle, SETTLE_MS)
+    }
+
+    // ------------------------------------------------------------ 系统界面（截屏预览、录屏控制条、通知横幅、音量条、通知栏）
+    /**
+     * 无障碍图层比所有系统界面都高（包括截屏预览、导航条），译文不让的话它们全被盖住。按大小分两种：
+     * - 小的（录屏控制条、截屏缩略图、通知横幅、音量条、状态栏、无障碍按钮、画中画）：在译文上挖空，从那里露出来，
+     *   译文照常显示（录屏录得到译文）；
+     * - 大的、翻译开始后才出现的（截屏后的整屏预览、下拉通知栏、关机菜单）：译文让开、不截屏，等它收起后把译文放回来
+     *   （屏幕变了就重新翻译）。
+     * 系统截屏本身照常截到译文（和屏幕上看到的一样）。
+     * 大窗口要拿了焦点（截屏预览、通知栏）或停留 [SYSTEM_UI_MS] 才算：音量条弹出的头一两帧报的是一大块。
+     * start：刚开始翻译时已经在的大窗口不算（有的系统常驻一个大的透明窗口）
+     */
+    private fun systemUi(start: Boolean = false) {
+        val size = Screen.size(svc)
+        val big = size.x.toLong() * size.y * 3 / 10
+        val now = SystemClock.uptimeMillis()
+        val small = ArrayList<Rect>()
+        val large = HashSet<Int>()
+        var over = false
+        var recheck = Long.MAX_VALUE
+        val r = Rect()
+        for (w in runCatching { svc.windows }.getOrNull().orEmpty()) {
+            when (w.type) {
+                // 应用本身（它的弹窗、菜单就是要翻译的内容）；画中画是浮在上面的小窗，按系统窗口算
+                AccessibilityWindowInfo.TYPE_APPLICATION -> if (!w.isInPictureInPictureMode) continue
+                // 输入法跟着应用或回复框走
+                AccessibilityWindowInfo.TYPE_INPUT_METHOD, AccessibilityWindowInfo.TYPE_SPLIT_SCREEN_DIVIDER -> continue
+                // 自己的窗口（标题都是 LavaTranslate …）
+                AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY -> if (w.title?.startsWith("LavaTranslate") == true) continue
+            }
+            w.getBoundsInScreen(r)
+            if (r.isEmpty) continue
+            if (r.width().toLong() * r.height() < big) {
+                small.add(Rect(r))
+                continue
+            }
+            large.add(w.id)
+            if (start || w.id in steady) continue
+            val since = largeSince.getOrPut(w.id) { now }
+            if (w.isFocused || now - since >= SYSTEM_UI_MS) over = true else recheck = minOf(recheck, since + SYSTEM_UI_MS - now)
+        }
+        largeSince.keys.retainAll(large)
+        if (start) steady = large
+        floats = small
+        holes()
+        main.removeCallbacks(systemUiCheck)
+        if (!over && recheck != Long.MAX_VALUE) main.postDelayed(systemUiCheck, recheck)
+        if (over == yielding) return
+        yielding = over
+        dbg("system ui ${if (over) "over" else "gone"} phase=$phase small=${small.size}")
+        if (over) when (phase) {
+            // 回复框、出错提示（可交互）开着时不动它
+            Phase.SHOWN -> if (overlay?.touchable != true) away(restore = true)
+            // 正在截的这张可能截到了系统界面：作废
+            Phase.CAPTURING -> away()
+            Phase.AWAY -> main.removeCallbacks(settle)
+        } else if (phase == Phase.AWAY) {
+            main.removeCallbacks(settle)
+            main.postDelayed(settle, SETTLE_MS)
+        }
+    }
+
+    private val systemUiCheck = Runnable { if (state == State.LIVE) systemUi() }
+
+    /**
+     * 现在的系统小窗口 + 截这一帧时就在的（截图里过时的它们不能露出来）。
+     * 后者只在显示截图（穿透）时挖掉：回复框这类可交互的界面上那里没有系统窗口，不能挖
+     */
+    private fun holes() {
+        val o = overlay ?: return
+        o.holes(if (captured.isEmpty() || o.touchable || state != State.LIVE) floats else (floats + captured).distinct())
+    }
+
+    /** 显示翻译界面（touch = false 穿透），挖空跟着变 */
+    private fun reveal(o: OverlayHost, touch: Boolean) {
+        o.reveal(touch)
+        holes()
+    }
+
+    /** 事件来自应用本身的窗口（找不到这个窗口时也算） */
+    private fun appWindow(id: Int): Boolean {
+        val w = runCatching { svc.windows }.getOrNull()?.firstOrNull { it.id == id } ?: return true
+        return w.type == AccessibilityWindowInfo.TYPE_APPLICATION && !w.isInPictureInPictureMode
     }
 
     // ------------------------------------------------------------ 回复
@@ -517,7 +637,7 @@ class LiveHost(private val svc: LavaAccessibilityService) {
             Phase.SHOWN -> {
                 val o = overlay ?: return
                 capsule?.dismiss()
-                o.reveal(touch = true)
+                reveal(o, touch = true)
                 o.bridge.emit("reply")
                 main.postDelayed({ overlay?.showKeyboard() }, 220)
             }
@@ -568,18 +688,20 @@ class LiveHost(private val svc: LavaAccessibilityService) {
             "shown" -> {
                 reply.ok()
                 main.post {
+                    // 挖空处跟上最新的系统窗口；这时盖上来了大的系统界面就先不显示
+                    if (state == State.LIVE) systemUi()
                     when (state) {
                         State.LIVE -> if (phase == Phase.CAPTURING) {
                             dbg("shown")
                             // 穿透：看得见，触摸照常交给下面的应用（手指一碰小胶囊就知道，见 touched）
-                            o.reveal(touch = false)
+                            reveal(o, touch = false)
                             phase = Phase.SHOWN
                             subscribe(EVENTS_SHOWN)
                             // 窗口拿到焦点后可能被系统挪到上层：小胶囊重新放到最上面
                             if (capsule?.showing != true) showCapsule()
                         }
                         State.QUICK -> {
-                            o.reveal()
+                            reveal(o, touch = true)
                             main.postDelayed({ o.showKeyboard() }, 160)
                         }
                         else -> {}
@@ -619,10 +741,10 @@ class LiveHost(private val svc: LavaAccessibilityService) {
                     done = true
                     capsuleView?.busy(false)
                     if (state != State.LIVE || phase != Phase.SHOWN || capsule?.showing != true) return@post
-                    if (err.isNotEmpty() && err != "no-text") o.reveal(touch = true)
+                    if (err.isNotEmpty() && err != "no-text") reveal(o, touch = true)
                     else if (o.touchable) {
                         quietUntil = SystemClock.uptimeMillis() + 600
-                        o.reveal(touch = false)
+                        reveal(o, touch = false)
                     }
                 }
             }
@@ -639,7 +761,7 @@ class LiveHost(private val svc: LavaAccessibilityService) {
                     // 回复框收起：译文回到穿透
                     if (phase == Phase.SHOWN && o.touchable) {
                         quietUntil = SystemClock.uptimeMillis() + 600
-                        o.reveal(touch = false)
+                        reveal(o, touch = false)
                     }
                     if (capsule?.showing != true) showCapsule()
                 }
@@ -772,9 +894,11 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         private const val SETTLE_MS = 450L
         /** 手指碰了屏幕、之后没有任何事件：这么久后检查屏幕变没变 */
         private const val TOUCH_SETTLE_MS = 700L
-        /** 截屏和译文显示时只听换页（返回键、弹窗、过场动画）；收起后再听滚动 */
-        private const val EVENTS_SHOWN = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
-        private const val EVENTS_AWAY = AccessibilityEvent.TYPE_VIEW_SCROLLED or AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        /** 没拿焦点的大的系统窗口停留这么久才让开（见 systemUi） */
+        private const val SYSTEM_UI_MS = 250L
+        /** 截屏和译文显示时只听换页（返回键、弹窗、过场动画）和系统界面；收起后再听滚动 */
+        private const val EVENTS_SHOWN = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOWS_CHANGED
+        private const val EVENTS_AWAY = EVENTS_SHOWN or AccessibilityEvent.TYPE_VIEW_SCROLLED
         /** 翻译界面和 OCR 模型用完后再留这么久 */
         const val WARM_MS = 3 * 60_000L
         /** 关屏这么久后结束进程，把网页引擎占的内存还给系统 */
