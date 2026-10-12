@@ -10,6 +10,7 @@ import {
   ImageDown,
   Layers,
   MessageSquareReply,
+  Pause,
   Pin,
   RotateCw,
   Search,
@@ -30,6 +31,8 @@ export interface ToolbarProps {
   stats: { ms: number; firstTokenMs?: number; engine: string } | null
   mode: 'overlay' | 'side'
   peek: boolean
+  /** 按着 Alt 看原文：翻译暂停 */
+  paused: boolean
   pickerUp: boolean
   onTarget: (code: string) => void
   onMode: (m: 'overlay' | 'side') => void
@@ -80,7 +83,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
     >
       {/* 状态 + 语言 */}
       <div className="tb-status">
-        <StatusIcon phase={p.phase} />
+        <StatusIcon phase={p.phase} paused={p.paused} />
         {p.phase === 'error' && p.error ? (
           <span className="tb-error" title={p.error.message}>
             {p.error.message}
@@ -149,7 +152,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
         </Tip>
       </div>
 
-      <Tip label={t('tb.peek')} keys="Space">
+      <Tip label={t('tb.peek')} keys="Alt">
         <button
           className={`tb-btn${p.peek ? ' on' : ''}`}
           disabled={p.mode === 'side'}
@@ -213,7 +216,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
       {/* 底部进度光带 */}
       <AnimatePresence>
         {busy && (
-          <motion.div className="tb-progress" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: 0.4 } }}>
+          <motion.div className="tb-progress" initial={{ opacity: 0 }} animate={{ opacity: p.paused ? 0.35 : 1 }} exit={{ opacity: 0, transition: { duration: 0.4 } }}>
             <motion.div className="tb-progress-bar" animate={{ scaleX: pct }} transition={{ type: 'spring', stiffness: 120, damping: 24 }} />
           </motion.div>
         )}
@@ -236,11 +239,16 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
   )
 })
 
-function StatusIcon({ phase }: { phase: Phase }) {
+function StatusIcon({ phase, paused }: { phase: Phase; paused: boolean }) {
+  const busy = phase === 'ocr' || phase === 'translating'
   return (
     <span className="tb-icon">
       <AnimatePresence mode="wait" initial={false}>
-        {phase === 'ocr' || phase === 'translating' ? (
+        {busy && paused ? (
+          <motion.span key="paused" className="tb-paused" initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }}>
+            <Pause size={10} strokeWidth={0} fill="currentColor" />
+          </motion.span>
+        ) : busy ? (
           <motion.span key="busy" initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }}>
             <span className="tb-spinner" style={{ display: 'block' }} />
           </motion.span>

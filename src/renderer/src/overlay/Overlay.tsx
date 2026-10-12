@@ -9,7 +9,8 @@ import {
   type Phase,
   type Rect,
   type Settings,
-  type TranslatedBlock
+  type TranslatedBlock,
+  type TranslateEvent
 } from '@shared/types'
 import { TranslationLayer } from '../components/TranslationLayer'
 import { sampleColors } from '../lib/colors'
@@ -40,8 +41,8 @@ const MIN_SIZE = 6
 const RP_W = 520
 const RP_RESERVE = 220
 const EDGES: Edge[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
-/** Alt 按住多久才让遮罩让开：Alt+C 这类组合键按得快，不会触发 */
-const ALT_HOLD_MS = 150
+/** 按住多久才生效（空格让遮罩让开 / Alt 看原文）：Alt+C 这类组合键、误碰一下空格都不会触发 */
+const HOLD_MS = 150
 /** 选区里变化的像素不超过这么多，就算画面没变（闪烁的输入光标之类） */
 const SAME_LIMIT = 40
 
@@ -96,8 +97,15 @@ export function Overlay() {
 
   /** 每来一帧截图加一，并排面板据此重画 */
   const [frameNo, setFrameNo] = useState(0)
-  /** 按住 Alt 回来后，要在新截图上重新翻译的选区 */
+  /** 按住空格操作完回来后，要在新截图上重新翻译的选区 */
   const resume = useRef<Rect | null>(null)
+  /** 有选区时按住 Alt：显示原文，翻译暂停 */
+  const [altPeek, setAltPeek] = useState(false)
+  /** 暂停期间收到的翻译事件，松开 Alt 后按顺序补上；不暂停时为 null */
+  const held = useRef<TranslateEvent[] | null>(null)
+  const applyRef = useRef<(e: TranslateEvent) => void>(() => {})
+  const altChipRef = useRef<HTMLDivElement>(null)
+  const [altChipW, setAltChipW] = useState(0)
   /** 帧回调只注册一次，靠它读当前状态 */
   const live = useRef({ stage, sel, meta })
   live.current = { stage, sel, meta }
@@ -129,16 +137,27 @@ export function Overlay() {
     replyDraft.current = ''
     replyDismissed.current = false
     resume.current = null
+    held.current = null
+    setAltPeek(false)
+  }, [])
+
+  /** 松开 Alt：恢复译文，补上暂停期间到达的翻译结果 */
+  const endAlt = useCallback(() => {
+    const q = held.current
+    held.current = null
+    setAltPeek(false)
+    if (q) for (const ev of q) applyRef.current(ev)
   }, [])
 
   useEffect(() => {
     const offFrame = window.lens.onFrame((f: CaptureFrame) => {
-      // 按住 Alt 操作完软件回来：这块屏上原来的选区留着；选区里的画面没变，译文也原样保留
+      // 按住空格操作完软件回来：这块屏上原来的选区留着；选区里的画面没变，译文也原样保留
       const prev = live.current
       const keep = f.refresh && !f.quick && prev.stage === 'selected' && prev.sel && prev.meta?.width === f.width && prev.meta.height === f.height ? prev.sel : null
       const same = !!keep && !!pixels.current && sameRegion(pixels.current, f.pixels, f.width, selPhys.current)
       const draft = replyDraft.current
       if (!same) reset()
+      else endAlt()
       pixels.current = f.pixels
       const c = canvas.current!
       c.width = f.width
@@ -214,7 +233,7 @@ export function Overlay() {
       offQuick()
       offReset()
     }
-  }, [reset])
+  }, [reset, endAlt])
 
   // ------------------------------------------------------------ 翻译
   const startTranslate = useCallback(
@@ -229,6 +248,8 @@ export function Overlay() {
         h: Math.round(rect.h * s)
       }
       selPhys.current = phys
+      // 按着 Alt 时重新开始翻译（换语言、重试）：仍然暂停，丢掉旧请求攒下的结果
+      if (held.current) held.current = []
       setPhase('ocr')
       setBlocks([])
       if (!opts.reuseOcr) setColors({})
@@ -246,43 +267,49 @@ export function Overlay() {
     [meta, target]
   )
 
+  applyRef.current = (event: TranslateEvent) => {
+    switch (event.type) {
+      case 'ocr': {
+        linesRef.current = event.lines
+        // OCR 一出来就按行采样颜色，译文到达时直接可用
+        const px = pixels.current
+        if (px && meta) {
+          const o = selPhys.current
+          const cs: Record<number, BlockColors> = {}
+          for (const l of event.lines) cs[l.id] = sampleColors(px, meta.width, meta.height, { x: l.box.x + o.x, y: l.box.y + o.y, w: l.box.w, h: l.box.h }, l.box.h)
+          setColors(cs)
+        }
+        setLines(event.lines)
+        setPhase('translating')
+        break
+      }
+      case 'lang':
+        setLang({ code: event.code, name: event.name, chat: event.chat })
+        break
+      case 'block':
+        setBlocks((bs) => [...bs, event.block])
+        break
+      case 'done':
+        setPhase('done')
+        setStats({ ms: event.ms, firstTokenMs: event.firstTokenMs, engine: event.engine })
+        break
+      case 'error':
+        setPhase('error')
+        setError({ message: event.message, code: event.code })
+        break
+    }
+  }
+
   useEffect(() => {
     return window.lens.onTranslate(({ requestId, event }) => {
       if (requestId !== reqId.current) return
-      switch (event.type) {
-        case 'ocr': {
-          linesRef.current = event.lines
-          // OCR 一出来就按行采样颜色，译文到达时直接可用
-          const px = pixels.current
-          if (px && meta) {
-            const o = selPhys.current
-            const cs: Record<number, BlockColors> = {}
-            for (const l of event.lines) cs[l.id] = sampleColors(px, meta.width, meta.height, { x: l.box.x + o.x, y: l.box.y + o.y, w: l.box.w, h: l.box.h }, l.box.h)
-            setColors(cs)
-          }
-          setLines(event.lines)
-          setPhase('translating')
-          break
-        }
-        case 'lang':
-          setLang({ code: event.code, name: event.name, chat: event.chat })
-          break
-        case 'block':
-          setBlocks((bs) => [...bs, event.block])
-          break
-        case 'done':
-          setPhase('done')
-          setStats({ ms: event.ms, firstTokenMs: event.firstTokenMs, engine: event.engine })
-          break
-        case 'error':
-          setPhase('error')
-          setError({ message: event.message, code: event.code })
-          break
-      }
+      // 按着 Alt 暂停中：请求照常进行，结果先攒着，松开后一起显示
+      if (held.current) held.current.push(event)
+      else applyRef.current(event)
     })
-  }, [meta])
+  }, [])
 
-  // 按住 Alt 回来、选区里的画面变了：在新截图上重新翻译同一块
+  // 按住空格回来、选区里的画面变了：在新截图上重新翻译同一块
   useEffect(() => {
     const r = resume.current
     if (!r || !meta) return
@@ -401,7 +428,7 @@ export function Overlay() {
           setStage('idle')
         }
       } else if (d.kind === 'press') {
-        if (d.block) copyBlock(d.block)
+        if (d.block) copyBlock(d.block, e.altKey)
       } else if (d.kind === 'move') {
         const r = d.rect
         finalize({
@@ -440,11 +467,12 @@ export function Overlay() {
     [blocks]
   )
 
-  const copyBlock = (key: string) => {
+  /** 单击一段：复制这段译文；按着 Alt（正在看原文）则复制这段原文 */
+  const copyBlock = (key: string, original = false) => {
     const b = blocks.find((x) => x.key === key)
     if (!b) return
-    window.lens.copyText(b.keep ? b.source : b.translation)
-    flash(currentI18n().t('ov.copiedBlock'))
+    window.lens.copyText(b.keep || original ? b.source : b.translation)
+    flash(currentI18n().t(original && !b.keep ? 'ov.copiedSource' : 'ov.copiedBlock'))
   }
 
   const copyAll = useCallback(() => {
@@ -493,6 +521,34 @@ export function Overlay() {
     window.lens.focusOverlay()
     if (ok) flash(currentI18n().t('ov.saved'))
   }, [captureRect, blocks, withChromeHidden])
+
+  /**
+   * 双击：像截图工具一样把双击的那块（选区 / 并排面板）按当前看到的样子复制成图片并退出；
+   * 还没有译文、正在看原文（Space / Alt）、或按着 Alt 双击时复制原图。
+   */
+  const copyShot = useCallback(
+    async (where: 'sel' | 'panel', original: boolean) => {
+      if (!sel) return
+      const translated = blocks.some((b) => !b.keep)
+      const raw = original || !translated || (where === 'sel' && (mode === 'side' || peek)) || (where === 'panel' && !panel)
+      if (raw) await window.lens.copyRaw(selPhys.current)
+      else {
+        const r = where === 'panel' && panel ? { x: panel.x, y: panel.y, w: sel.w * panel.s, h: sel.h * panel.s } : sel
+        await withChromeHidden(() => window.lens.copyImage(r))
+      }
+      window.lens.close()
+    },
+    [sel, blocks, mode, peek, panel, withChromeHidden]
+  )
+
+  const onDoubleClick = (e: React.MouseEvent) => {
+    if (stage !== 'selected' || !sel || adjusting || capturing) return
+    const t = e.target as HTMLElement
+    if (t.closest('.toolbar, .reply, .handle')) return
+    const inPanel = !!t.closest('.side-panel')
+    if (!inPanel && !inside(e.clientX, e.clientY, sel)) return
+    void copyShot(inPanel ? 'panel' : 'sel', e.altKey)
+  }
 
   const pin = useCallback(() => {
     if (!sel || !blocks.length || !canvas.current) return
@@ -584,9 +640,6 @@ export function Overlay() {
       if (k === 'r' && !e.ctrlKey && !e.altKey && !e.metaKey && !inReply) {
         e.preventDefault()
         toggleReply(true)
-      } else if (e.key === ' ') {
-        e.preventDefault()
-        if (!e.repeat && mode === 'overlay') setPeek(true)
       } else if (e.key === 'Tab') {
         e.preventDefault()
         changeMode(mode === 'overlay' ? 'side' : 'overlay')
@@ -616,20 +669,51 @@ export function Overlay() {
         copyOriginal()
       }
     }
-    const upK = (e: KeyboardEvent) => {
-      if (e.key === ' ') setPeek(false)
-    }
     window.addEventListener('keydown', down)
-    window.addEventListener('keyup', upK)
-    return () => {
-      window.removeEventListener('keydown', down)
-      window.removeEventListener('keyup', upK)
-    }
+    return () => window.removeEventListener('keydown', down)
   }, [stage, mode, blocks, allText, copyAll, copyImage, copyOriginal, saveImage, pin, retry, changeMode, toggleReply])
 
-  // 按住 Alt：遮罩暂时透明、鼠标穿透，可以直接操作下面的软件；松开后主进程重新截图
+  // 按住空格：遮罩暂时透明、鼠标穿透，可以直接点击、滚动下面的软件；松开后主进程重新截图
+  // （选区保留，画面变了就重译同一块）
   useEffect(() => {
     if (stage !== 'idle' && stage !== 'selected') return
+    let timer = 0
+    const cancel = () => {
+      clearTimeout(timer)
+      timer = 0
+    }
+    const typing = (e: KeyboardEvent) => !!(e.target as HTMLElement).closest?.('input, textarea')
+    const down = (e: KeyboardEvent) => {
+      if (e.key !== ' ') return cancel()
+      if (typing(e)) return
+      // 不让空格按到工具条上获得焦点的按钮
+      e.preventDefault()
+      if (e.repeat || timer || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
+      timer = window.setTimeout(() => {
+        timer = 0
+        if (!drag.current) window.lens.passthrough()
+      }, HOLD_MS)
+    }
+    const up = (e: KeyboardEvent) => {
+      if (e.key !== ' ') return
+      cancel()
+      if (!typing(e)) e.preventDefault()
+    }
+    // 捕获阶段：回复框会拦下大部分按键，这里也要看到
+    window.addEventListener('keydown', down, true)
+    window.addEventListener('keyup', up, true)
+    window.addEventListener('blur', cancel)
+    return () => {
+      cancel()
+      window.removeEventListener('keydown', down, true)
+      window.removeEventListener('keyup', up, true)
+      window.removeEventListener('blur', cancel)
+    }
+  }, [stage])
+
+  // 有选区时按住 Alt：显示原文、暂停翻译，松开恢复译文并接着显示；按着 Alt 双击复制原图
+  useEffect(() => {
+    if (stage !== 'selected') return
     let timer = 0
     const cancel = () => {
       clearTimeout(timer)
@@ -642,23 +726,33 @@ export function Overlay() {
       if ((e.target as HTMLElement).closest?.('input, textarea')) return
       timer = window.setTimeout(() => {
         timer = 0
-        if (!drag.current) window.lens.passthrough()
-      }, ALT_HOLD_MS)
+        if (drag.current) return
+        held.current ??= []
+        setAltPeek(true)
+      }, HOLD_MS)
     }
     const up = (e: KeyboardEvent) => {
-      if (e.key === 'Alt') cancel()
+      if (e.key !== 'Alt') return
+      cancel()
+      endAlt()
+    }
+    // 切走（Alt+Tab 之类）收不到 keyup，当作松开
+    const blur = () => {
+      cancel()
+      endAlt()
     }
     // 捕获阶段：回复框会拦下大部分按键，这里也要看到，好及时取消
     window.addEventListener('keydown', down, true)
     window.addEventListener('keyup', up, true)
-    window.addEventListener('blur', cancel)
+    window.addEventListener('blur', blur)
     return () => {
       cancel()
+      endAlt()
       window.removeEventListener('keydown', down, true)
       window.removeEventListener('keyup', up, true)
-      window.removeEventListener('blur', cancel)
+      window.removeEventListener('blur', blur)
     }
-  }, [stage])
+  }, [stage, endAlt])
 
   // ------------------------------------------------------------ 布局
   useLayoutEffect(() => {
@@ -705,6 +799,24 @@ export function Overlay() {
   const showReply = !!showToolbar && replyOpen && !!rpPos
   const s = scale
 
+  // 按住 Alt 时的说明条：放在选区上方或下方，和工具条错开；都放不下就贴在选区里顶部
+  const showAltChip = altPeek && stage === 'selected' && !adjusting && !capturing && !!sel
+  useLayoutEffect(() => {
+    if (showAltChip && altChipRef.current) setAltChipW(altChipRef.current.offsetWidth)
+  }, [showAltChip, phase])
+  const altChipPos = useMemo(() => {
+    if (!sel) return null
+    const H = 30
+    const g = 8
+    const m = 6
+    const tbAbove = !!tbPos && tbPos.y + tbSize.h <= sel.y + 1
+    const tbBelow = !!tbPos && tbPos.y >= sel.y + sel.h - 1
+    let top = sel.y + g
+    if (!tbAbove && sel.y - g - H >= m) top = sel.y - g - H
+    else if (!tbBelow && sel.y + sel.h + g + H <= vh - m) top = sel.y + sel.h + g
+    return { left: Math.max(m, Math.min(vw - altChipW - m, sel.x)), top }
+  }, [sel, tbPos, tbSize.h, altChipW, vw, vh])
+
   // 悬停原文提示
   useEffect(() => {
     if (!hoverKey || mode !== 'overlay') {
@@ -721,15 +833,10 @@ export function Overlay() {
 
   return (
     <div
-      className={`overlay stage-${stage}${shown ? ' is-shown' : ''}`}
+      className={`overlay stage-${stage}${shown ? ' is-shown' : ''}${capturing ? ' capturing' : ''}`}
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}
-      onDoubleClick={(e) => {
-        if (sel && inside(e.clientX, e.clientY, sel) && blocks.length) {
-          window.lens.copyText(allText('dst'))
-          window.lens.close()
-        }
-      }}
+      onDoubleClick={onDoubleClick}
     >
       <canvas ref={canvas} className="bg" />
 
@@ -777,8 +884,8 @@ export function Overlay() {
             width={selPhys.current.w / s}
             height={selPhys.current.h / s}
             targetLang={target}
-            peek={peek}
-            pending={pending}
+            peek={peek || altPeek}
+            pending={altPeek ? null : pending}
             hoverKey={capturing ? null : hoverKey}
             onHover={setHoverKey}
           />
@@ -805,8 +912,8 @@ export function Overlay() {
               width={selPhys.current.w / s}
               height={selPhys.current.h / s}
               targetLang={target}
-              peek={false}
-              pending={pending}
+              peek={altPeek}
+              pending={altPeek ? null : pending}
               hoverKey={capturing ? null : hoverKey}
               onHover={setHoverKey}
             />
@@ -817,7 +924,7 @@ export function Overlay() {
 
       {/* 选区框 */}
       {sel && (stage === 'drawing' || stage === 'selected') && !capturing && (
-        <div className={`sel-frame${working ? ' working' : ''}${phase === 'done' ? ' done' : ''}`} style={{ left: sel.x, top: sel.y, width: sel.w, height: sel.h }}>
+        <div className={`sel-frame${working ? ' working' : ''}${working && altPeek ? ' paused' : ''}${phase === 'done' ? ' done' : ''}`} style={{ left: sel.x, top: sel.y, width: sel.w, height: sel.h }}>
           <div className="sel-glow" />
           {stage === 'selected' && EDGES.map((ed) => <div key={ed} className={`handle h-${ed}`} data-edge={ed} />)}
           {phase === 'ocr' && <div className="scanline" />}
@@ -842,7 +949,7 @@ export function Overlay() {
 
       {/* 原文提示 */}
       <AnimatePresence>
-        {tipBlock && tipRect && !peek && !capturing && (
+        {tipBlock && tipRect && !peek && !altPeek && !capturing && (
           <motion.div
             key={tipBlock.key}
             className="orig-tip"
@@ -854,6 +961,24 @@ export function Overlay() {
           >
             <div className="orig-label">{i.t('ov.origLabel')}</div>
             <div className="orig-text">{tipBlock.source}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 按住 Alt：看原文 */}
+      <AnimatePresence>
+        {showAltChip && altChipPos && (
+          <motion.div
+            ref={altChipRef}
+            className="alt-chip"
+            style={altChipPos}
+            initial={{ opacity: 0, y: 4, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.12 } }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <span className="alt-badge">{working ? i.t('ov.altPaused') : i.t('ov.altOriginal')}</span>
+            <span>{i.t('ov.altCopy')}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -872,6 +997,7 @@ export function Overlay() {
             stats={stats}
             mode={mode}
             peek={peek}
+            paused={altPeek}
             pickerUp={tbPos!.pickerUp}
             onTarget={changeTarget}
             onMode={changeMode}
@@ -953,7 +1079,7 @@ export function Overlay() {
             <span className="hint-dot" />
             <span>{i.t('ov.hintClick')}</span>
             <span className="hint-dot" />
-            <span>{i.rich('ov.hintAlt', { k: <kbd>Alt</kbd> })}</span>
+            <span>{i.rich('ov.hintPass', { k: <kbd>Space</kbd> })}</span>
             <span className="hint-dot hint-quick" />
             <span className="hint-quick">{i.rich('ov.hintQuick', { k: <kbd>{hotkey.replace(/\+/g, ' + ')}</kbd> })}</span>
             <span className="hint-dot" />
@@ -998,7 +1124,7 @@ function SidePanel({
   sel: Rect
   phys: Rect
   source: HTMLCanvasElement | null
-  /** 截图换了（按住 Alt 回来）要重画 */
+  /** 截图换了（按住空格回来）要重画 */
   version: number
   capturing: boolean
   children: React.ReactNode

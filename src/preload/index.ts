@@ -38,7 +38,7 @@ const api = {
   frameReady: () => ipcRenderer.send('overlay:frame-ready'),
   visible: () => ipcRenderer.send('overlay:visible'),
   focusOverlay: () => ipcRenderer.send('overlay:focus'),
-  /** 按住 Alt：遮罩暂时透明、鼠标穿透，松开后重新截图 */
+  /** 按住空格：遮罩暂时透明、鼠标穿透，松开后重新截图（只在空格按着时生效） */
   passthrough: () => ipcRenderer.send('overlay:passthrough'),
   close: () => ipcRenderer.send('overlay:close'),
 
@@ -55,6 +55,8 @@ const api = {
   // 输出
   copyText: (text: string) => ipcRenderer.send('clipboard:text', text),
   copyImage: (rect: Rect): Promise<boolean> => ipcRenderer.invoke('image:copy', rect),
+  /** 选区原图（rect 是截图里的物理像素），不含译文 */
+  copyRaw: (rect: Rect): Promise<boolean> => ipcRenderer.invoke('image:copy-raw', rect),
   saveImage: (rect: Rect): Promise<boolean> => ipcRenderer.invoke('image:save', rect),
   pin: (p: PinPayload) => ipcRenderer.send('pin:create', p),
 

@@ -1,4 +1,4 @@
-// 少量 Win32 调用（koffi）。按住 Alt 穿透遮罩时用户可能点进了别的软件，
+// 少量 Win32 调用（koffi）。按住空格穿透遮罩时用户可能点进了别的软件，
 // 遮罩收不到 keyup，只能读全局按键状态；回来时也要绕过系统的前台锁把焦点抢回来。
 import { load } from 'koffi'
 
@@ -33,12 +33,12 @@ function win32(): User32 | null {
   return api
 }
 
-const VK_MENU = 0x12
+export const VK_SPACE = 0x20
 
-/** Alt 是否按着；读不到按键状态时返回 null */
-export function altDown(): boolean | null {
+/** 某个键此刻是否按着（全局状态，焦点在别的软件也能读到）；读不到按键状态时返回 null */
+export function keyDown(vk: number): boolean | null {
   const u = win32()
-  return u ? (u.GetAsyncKeyState(VK_MENU) & 0x8000) !== 0 : null
+  return u ? (u.GetAsyncKeyState(vk) & 0x8000) !== 0 : null
 }
 
 /** BrowserWindow.getNativeWindowHandle() → HWND（窗口句柄只用低 32 位） */

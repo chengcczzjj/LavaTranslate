@@ -50,7 +50,7 @@ import { check as checkUpdate, initUpdater, installNow, setAutoUpdate, updateSta
 import { settings } from './settings'
 import { errorText, t, uiLang } from './i18n'
 import { langBase, providerName, UI_LANGS } from '../shared/i18n'
-import { altDown, forceForeground, hwndOf } from './winapi'
+import { forceForeground, hwndOf, keyDown, VK_SPACE } from './winapi'
 import { OpenAIEngine, TranslateError, type Engine } from '../core/translator'
 import { cancelSignIn, listPlanModels, refresh as refreshChatGPT, SignInExpired, signIn as signInChatGPT } from './chatgpt'
 import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runI18nShots, runPassTest, runReview, runSignInTest } from './devtest'
@@ -430,6 +430,7 @@ function hideOverlays(immediate = false) {
   overlayActive = false
   framesShown = false
   if (passthrough?.timer) clearTimeout(passthrough.timer)
+  if (passthrough) releasePassKey(passthrough)
   passthrough = null
   refocus = false
   hiding = doHide(immediate).finally(() => (hiding = null))
@@ -455,27 +456,44 @@ async function doHide(immediate: boolean) {
 
 ipcMain.on('overlay:close', () => hideOverlays())
 
-// ------------------------------------------------------------------ 按住 Alt：遮罩暂时让开
-// 遮罩变成全透明、鼠标穿透，可以直接点、滚动下面的软件；松开 Alt 后重新截图。
-// 窗口不隐藏：键盘焦点留在遮罩上，按着 Alt 时顺手按到的 F4 之类不会落到别的软件里。
-let passthrough: { faded: Promise<unknown>; timer: NodeJS.Timeout | null } | null = null
+// ------------------------------------------------------------------ 按住空格：遮罩暂时让开
+// 遮罩变成全透明、鼠标穿透，可以直接点、滚动下面的软件（点击、滚轮都不带修饰键）；松开空格后重新截图。
+// 窗口不隐藏：键盘焦点留在遮罩上。按着期间把空格注册成全局热键，
+// 点进别的软件后空格的自动重复不会变成一串空格打进去。
+const PASS_KEY = 'Space'
+let passthrough: { faded: Promise<unknown>; timer: NodeJS.Timeout | null; grabbed: boolean } | null = null
 /** 穿透期间用户可能点进了别的软件，回来时要把焦点抢回来 */
 let refocus = false
 
 ipcMain.on('overlay:passthrough', () => {
-  // 只认此刻还按着的 Alt；读不到按键状态（没有 koffi）就不支持
-  if (!overlayActive || !framesShown || passthrough || hiding || altDown() !== true) return
+  // 只认此刻还按着的空格；读不到按键状态（没有 koffi）就不支持
+  if (!overlayActive || !framesShown || passthrough || hiding || keyDown(VK_SPACE) !== true) return
   const shown = [...overlays.values()].filter((o) => o.win.isVisible())
   for (const o of shown) o.win.setIgnoreMouseEvents(true)
-  const p = { faded: Promise.all(shown.map((o) => fadeOut(o.win, 90))), timer: null as NodeJS.Timeout | null }
+  let grabbed = false
+  try {
+    grabbed = !globalShortcut.isRegistered(PASS_KEY) && globalShortcut.register(PASS_KEY, () => {})
+  } catch (e) {
+    logError('passthrough key', e)
+  }
+  const p = { faded: Promise.all(shown.map((o) => fadeOut(o.win, 90))), timer: null as NodeJS.Timeout | null, grabbed }
   passthrough = p
   const poll = () => {
     if (passthrough !== p) return
-    if (altDown()) p.timer = setTimeout(poll, 16)
-    else void endPassthrough(p)
+    if (keyDown(VK_SPACE)) p.timer = setTimeout(poll, 16)
+    else {
+      releasePassKey(p)
+      void endPassthrough(p)
+    }
   }
   p.timer = setTimeout(poll, 16)
 })
+
+function releasePassKey(p: NonNullable<typeof passthrough>) {
+  if (!p.grabbed) return
+  p.grabbed = false
+  globalShortcut.unregister(PASS_KEY)
+}
 
 async function endPassthrough(p: NonNullable<typeof passthrough>) {
   // 淡出还没走完就松开了：等它走完，免得截到半透明的遮罩，或淡出盖掉之后的显示
@@ -643,9 +661,24 @@ ipcMain.handle('image:copy', async (e, rect: Rect) => {
   const o = overlayOf(e.sender)
   if (!o) return false
   const img = await o.win.webContents.capturePage(roundRect(rect))
-  await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(img.toPNG())], { type: 'image/png' }) })])
+  await copyPng(img.toPNG())
   return true
 })
+
+/** 选区的原始截图（物理像素，不含译文），直接从截图数据里裁 */
+ipcMain.handle('image:copy-raw', async (e, rect: Rect) => {
+  const o = overlayOf(e.sender)
+  const cap = o && captures.get(o.displayId)
+  if (!cap) return false
+  const r = clampRect(rect, cap.width, cap.height)
+  const img = nativeImage.createFromBitmap(rgbaToBgra(cropRgba(cap.rgba, cap.width, r)), { width: r.w, height: r.h })
+  await copyPng(img.toPNG())
+  return true
+})
+
+function copyPng(png: Buffer) {
+  return clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(png)], { type: 'image/png' }) })])
+}
 
 ipcMain.handle('image:save', async (e, rect: Rect) => {
   const o = overlayOf(e.sender)

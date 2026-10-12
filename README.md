@@ -112,15 +112,17 @@ LavaTranslate asks every model to skip "thinking" (each provider's own switch, f
 | Double-click the tray icon | Open Settings |
 | Drag / click | Select a region / select the window under the cursor |
 | Drag the selection or its handles | Move / resize — it translates again when you let go |
-| Hold <kbd>Alt</kbd> | The overlay steps aside so you can click and scroll the apps underneath; let go to capture again (an existing selection is re-translated if its content changed) |
-| Hold <kbd>Space</kbd> | Show the original |
+| Hold <kbd>Space</kbd> | The overlay steps aside so you can click and scroll the apps underneath (scroll a chat, press "Next"); let go to capture again. An existing selection stays and is re-translated if its content changed |
+| Hold <kbd>Alt</kbd> | Show the original and pause the translation (whatever is still coming in appears when you let go) |
 | <kbd>Tab</kbd> | Switch between *in place* and *side by side* |
 | Click a translated block | Copy that block |
 | <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Alt</kbd>+<kbd>C</kbd> | Copy all translations / all original text |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>S</kbd> | Copy / save the translated screenshot |
 | <kbd>F3</kbd> | Pin the result on the desktop (drag to move, scroll to zoom, double-click to close) |
 | <kbd>R</kbd> | Open the reply assistant |
-| <kbd>Enter</kbd> or double-click | Copy all translations and close |
+| Double-click the selection | Copy what you see (translated or original) as an image and close, like a screenshot tool |
+| <kbd>Alt</kbd>+double-click the selection | Copy the original image and close |
+| <kbd>Enter</kbd> | Copy all translations and close |
 | Right-click or <kbd>Esc</kbd> | Exit |
 
 ## Privacy

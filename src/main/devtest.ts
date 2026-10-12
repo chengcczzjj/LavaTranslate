@@ -1,6 +1,6 @@
 // 开发自测：LENS_AUTOTEST=1 时用测试图伪造截屏，离屏渲染遮罩并模拟鼠标操作，逐步截图到 .scratch/shots
 // LENS_MOCK=1 时使用模拟翻译引擎（不消耗额度）
-import { app, BrowserWindow, nativeImage, net, protocol, screen } from 'electron'
+import { app, BrowserWindow, clipboard, globalShortcut, nativeImage, net, protocol, screen } from 'electron'
 import { spawn } from 'node:child_process'
 import { load } from 'koffi'
 import { forceForeground, hwndOf } from './winapi'
@@ -127,7 +127,7 @@ export class MockEngine implements Engine {
 interface Hooks {
   openSettings: () => BrowserWindow
   overlayWin: () => BrowserWindow
-  /** refresh：模拟按住 Alt 操作完软件、松开后重新截的图 */
+  /** refresh：模拟按住空格操作完软件、松开后重新截的图 */
   inject: (cap: DisplayCapture, refresh?: boolean) => Promise<void>
   waitDone: () => Promise<void>
   display: Electron.Display
@@ -206,6 +206,90 @@ export async function runAutotest(h: Hooks) {
     { name: 'test2', file: join(root, '.scratch', 'test2.png'), at: { x: 600, y: 300 }, size: { w: 720, h: 300 } }
   ]
   const s = h.display.scaleFactor
+
+  // LENS_AUTOTEST=keys：只测「按住 Alt 看原文 / 暂停翻译」和「双击、Alt+双击复制图片」
+  if (process.env.LENS_AUTOTEST === 'keys') {
+    const sc = scenarios[0]
+    const js = <T>(code: string) => wc().executeJavaScript(code) as Promise<T>
+    const blocks = () => js<number>(`document.querySelectorAll('[data-block]').length`)
+    const alt = (type: 'keyDown' | 'keyUp') => wc().sendInputEvent({ type, keyCode: 'Alt', modifiers: type === 'keyDown' ? ['alt'] : [] })
+    const select = async () => {
+      if (h.mock) h.mock.scenario = sc.name
+      await h.inject(fakeCapture(h.display, sc.file, sc.at))
+      await sleep(600)
+      await drag(sc.at.x / s - 6, sc.at.y / s - 6, (sc.at.x + sc.size.w) / s + 6, (sc.at.y + sc.size.h) / s + 6)
+    }
+    const dblclick = async (mods: 'alt'[] = []) => {
+      const x = Math.round((sc.at.x + sc.size.w / 2) / s)
+      const y = Math.round((sc.at.y + sc.size.h / 2) / s)
+      for (const clickCount of [1, 2]) {
+        wc().sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount, modifiers: mods })
+        wc().sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount, modifiers: mods })
+        await sleep(40)
+      }
+    }
+    const clip = async (name: string) => {
+      const item = (await clipboard.read()).find((x) => x.types.includes('image/png'))
+      if (!item) return console.log('[keys]', name, 'clipboard has no image')
+      const png = Buffer.from(await ((await item.getType('image/png')) as Blob).arrayBuffer())
+      writeFileSync(join(dir, `${name}.png`), png)
+      console.log('[keys]', name, 'clipboard image', JSON.stringify(nativeImage.createFromBuffer(png).getSize()))
+    }
+
+    // 1. 翻译中按住 Alt：显示原文、暂停；结果攒着，松开后才出来
+    await select()
+    const done = h.waitDone()
+    await sleep(250)
+    alt('keyDown')
+    await sleep(300)
+    console.log('[keys] paused: chip', JSON.stringify(await js(`document.querySelector('.alt-chip')?.textContent`)), 'blocks', await blocks())
+    await shot('keys-1-paused')
+    await done
+    await sleep(400)
+    console.log('[keys] translation finished while held: blocks', await blocks(), 'phase-icon', await js(`!!document.querySelector('.tb-paused')`))
+    await shot('keys-1b-paused-done')
+    alt('keyUp')
+    await sleep(700)
+    console.log('[keys] released: blocks', await blocks(), 'chip', await js(`!!document.querySelector('.alt-chip')`))
+    await shot('keys-2-released')
+
+    // 2. 翻译完成后按住 Alt 看原文
+    alt('keyDown')
+    await sleep(500)
+    await shot('keys-3-alt-original')
+    alt('keyUp')
+    await sleep(400)
+
+    // 3. 双击选区：复制当前看到的（译文）图片并退出
+    clipboard.clear()
+    await dblclick()
+    await sleep(800)
+    await clip('keys-4-dbl')
+    console.log('[keys] overlay visible after dblclick', h.overlayWin().isVisible())
+
+    // 4. 按着 Alt 双击：复制原图
+    await select()
+    await h.waitDone()
+    await sleep(700)
+    clipboard.clear()
+    alt('keyDown')
+    await sleep(300)
+    await dblclick(['alt'])
+    await sleep(800)
+    alt('keyUp')
+    await clip('keys-5-altdbl')
+
+    // 5. 还没翻译完就双击：复制原图（没有译文）
+    await select()
+    await sleep(200)
+    clipboard.clear()
+    await dblclick()
+    await sleep(800)
+    await clip('keys-6-dbl-early')
+    console.log('[keys] done')
+    app.quit()
+    return
+  }
   for (const sc of scenarios) {
     if (h.mock) h.mock.scenario = sc.name
     await h.inject(fakeCapture(h.display, sc.file, sc.at))
@@ -235,7 +319,7 @@ export async function runAutotest(h: Hooks) {
     key('Tab')
     await sleep(500)
   }
-  // 按住 Alt 操作完回来：选区里画面没变 → 译文原样保留；变了 → 同一块重新翻译
+  // 按住空格操作完回来：选区里画面没变 → 译文原样保留；变了 → 同一块重新翻译
   {
     const sc = scenarios[0]
     if (h.mock) h.mock.scenario = sc.name
@@ -394,6 +478,12 @@ export async function runI18nShots(h: Hooks, langs: string[]) {
       await sleep(page === 'engine' ? 1600 : 600)
       await save(sw, `${lang}-settings-${page}`)
     }
+    // 概览页底部的快捷操作表
+    await sw.webContents.executeJavaScript(`document.querySelector('.nav-item[data-page=home]')?.click()`)
+    await sleep(300)
+    await sw.webContents.executeJavaScript(`document.querySelector('.content').scrollTop = 9999`)
+    await sleep(400)
+    await save(sw, `${lang}-settings-keys`)
     await sw.webContents.executeJavaScript(`document.querySelector('.nav-item[data-page=engine]')?.click()`)
     await sleep(900)
     await sw.webContents.executeJavaScript(`document.querySelector('.guide-row-head')?.click()`)
@@ -567,8 +657,8 @@ export async function runReview(h: Hooks & { engine: FixtureEngine; setTarget: (
 }
 
 /**
- * LENS_PASSTEST=1：在真窗口上走一遍「按住 Alt 穿透」。模拟按下 Alt → 遮罩应透明、鼠标穿透；
- * 打开另一个程序的窗口抢走焦点 → 松开 Alt → 遮罩应重新截图显示，并把焦点抢回来。屏幕会闪几秒。
+ * LENS_PASSTEST=1：在真窗口上走一遍「按住空格穿透」。模拟按下空格 → 遮罩应透明、鼠标穿透、空格被临时注册成全局热键；
+ * 打开另一个程序的窗口抢走焦点 → 松开空格 → 遮罩应重新截图显示，把焦点抢回来，并释放空格。屏幕会闪几秒。
  */
 export async function runPassTest(h: { start: () => Promise<void>; hide: () => Promise<void>; overlays: () => BrowserWindow[] }) {
   const u = load('user32.dll')
@@ -577,7 +667,7 @@ export async function runPassTest(h: { start: () => Promise<void>; hide: () => P
   const fromPoint = u.func('intptr_t __stdcall WindowFromPoint(int64_t pt)')
   const rootOf = u.func('intptr_t __stdcall GetAncestor(intptr_t hwnd, uint32_t flags)')
   const foreground = u.func('intptr_t __stdcall GetForegroundWindow()')
-  const VK_MENU = 0x12
+  const VK_SPACE = 0x20
   const KEYUP = 2
   const state = (tag: string) => {
     for (const w of h.overlays()) {
@@ -586,7 +676,10 @@ export async function runPassTest(h: { start: () => Promise<void>; hide: () => P
       const b = w.getBounds()
       const c = screen.dipToScreenPoint({ x: b.x + Math.round(b.width / 2), y: b.y + Math.round(b.height / 2) })
       const hit = Number(rootOf(fromPoint((BigInt(c.y) << 32n) | BigInt(c.x >>> 0)), 2))
-      console.log(`[passtest] ${tag}`, JSON.stringify({ opacity: +w.getOpacity().toFixed(2), focused: w.isFocused(), foreground: Number(foreground()) === hwnd, hitOverlay: hit === hwnd }))
+      console.log(
+        `[passtest] ${tag}`,
+        JSON.stringify({ opacity: +w.getOpacity().toFixed(2), focused: w.isFocused(), foreground: Number(foreground()) === hwnd, hitOverlay: hit === hwnd, spaceGrabbed: globalShortcut.isRegistered('Space') })
+      )
     }
   }
   let child: ReturnType<typeof spawn> | null = null
@@ -602,20 +695,20 @@ export async function runPassTest(h: { start: () => Promise<void>; hide: () => P
     }
     await sleep(300)
     state('shown')
-    keybd(VK_MENU, 0, 0, 0)
+    keybd(VK_SPACE, 0, 0, 0)
     await sleep(500)
-    state('alt-down')
-    // 另一个进程的窗口抢走焦点（相当于按着 Alt 点进了别的软件）
+    state('space-down')
+    // 另一个进程的窗口抢走焦点（相当于按着空格点进了别的软件）
     child = spawn('powershell', ['-NoProfile', '-Command', "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object Windows.Forms.Form; $f.Text = 'passtest'; $f.Add_Shown({ $f.Activate() }); [Windows.Forms.Application]::Run($f)"], { stdio: 'ignore' })
     const mineHwnd = mine ? hwndOf(mine.getNativeWindowHandle()) : 0
     for (let i = 0; i < 60 && Number(foreground()) === mineHwnd; i++) await sleep(100)
     await sleep(300)
     state('other-app')
-    keybd(VK_MENU, 0, KEYUP, 0)
+    keybd(VK_SPACE, 0, KEYUP, 0)
     await sleep(1000)
-    state('alt-up')
+    state('space-up')
   } finally {
-    keybd(VK_MENU, 0, KEYUP, 0)
+    keybd(VK_SPACE, 0, KEYUP, 0)
     child?.kill()
     await h.hide()
     app.quit()

@@ -146,12 +146,14 @@ export function Settings() {
 // ------------------------------------------------------------------ 概览
 const SHORTCUTS: [string | MsgKey, MsgKey][] = [
   ['sc.click', 'sc.clickDo'],
+  ['sc.space', 'sc.spaceDo'],
   ['sc.alt', 'sc.altDo'],
-  ['Space', 'sc.spaceDo'],
   ['Tab', 'sc.tabDo'],
   ['sc.clickText', 'sc.clickTextDo'],
   ['Ctrl C', 'sc.copyAll'],
   ['Ctrl Shift C', 'sc.copyImage'],
+  ['sc.dbl', 'sc.dblDo'],
+  ['sc.altDbl', 'sc.altDblDo'],
   ['F3', 'sc.pin'],
   ['sc.enter', 'sc.enterDo'],
   ['R', 'sc.replyDo'],
