@@ -366,6 +366,23 @@
   z-index: 20;
 }
 
+/* 切换原文 / 译文时扫过选区的一道光 */
+.peek-sweep {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+}
+.peek-sweep-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -40px;
+  height: 40px;
+  background: linear-gradient(180deg, transparent, rgba(255, 90, 31, 0.07) 65%, rgba(255, 176, 140, 0.32) 100%);
+  border-bottom: 1px solid rgba(255, 200, 175, 0.7);
+  box-shadow: 0 1px 10px rgba(255, 110, 60, 0.45);
+}
+
 /* 复制成图片的那一刻：骨架、提示都不能截进去 */
 .overlay.capturing .tl-skel,
 .overlay.capturing .toast {

@@ -106,6 +106,8 @@ export function Overlay() {
   const applyRef = useRef<(e: TranslateEvent) => void>(() => {})
   const altChipRef = useRef<HTMLDivElement>(null)
   const [altChipW, setAltChipW] = useState(0)
+  /** 原文 / 译文每切换一次加一：选区上扫过一道光 */
+  const [sweepN, setSweepN] = useState(0)
   /** 帧回调只注册一次，靠它读当前状态 */
   const live = useRef({ stage, sel, meta })
   live.current = { stage, sel, meta }
@@ -801,6 +803,16 @@ export function Overlay() {
 
   // 按住 Alt 时的说明条：放在选区上方或下方，和工具条错开；都放不下就贴在选区里顶部
   const showAltChip = altPeek && stage === 'selected' && !adjusting && !capturing && !!sel
+
+  // 原位覆盖时切换原文 / 译文：和译文从上到下依次切换同步，选区上扫过一道光
+  const viewOriginal = altPeek || peek
+  const lastView = useRef(viewOriginal)
+  useEffect(() => {
+    if (lastView.current === viewOriginal) return
+    lastView.current = viewOriginal
+    if (mode === 'overlay' && blocks.some((b) => !b.keep)) setSweepN((n) => n + 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewOriginal])
   useLayoutEffect(() => {
     if (showAltChip && altChipRef.current) setAltChipW(altChipRef.current.offsetWidth)
   }, [showAltChip, phase])
@@ -920,6 +932,17 @@ export function Overlay() {
           </SidePanel>
         )}
       </AnimatePresence>
+      {sweepN > 0 && sel && mode === 'overlay' && stage === 'selected' && !adjusting && !capturing && (
+        <div className="peek-sweep" style={{ left: sel.x, top: sel.y, width: sel.w, height: sel.h }}>
+          <motion.div
+            key={sweepN}
+            className="peek-sweep-line"
+            initial={{ y: 0, opacity: 1 }}
+            animate={{ y: sel.h + 40, opacity: [1, 1, 0] }}
+            transition={{ duration: Math.min(0.42, 0.26 + sel.h / 4000), ease: [0.4, 0, 0.2, 1], opacity: { times: [0, 0.7, 1] } }}
+          />
+        </div>
+      )}
       {hoverRect && !capturing && <div className="hover-outline" style={{ left: hoverRect.x - 3, top: hoverRect.y - 3, width: hoverRect.w + 6, height: hoverRect.h + 6 }} />}
 
       {/* 选区框 */}

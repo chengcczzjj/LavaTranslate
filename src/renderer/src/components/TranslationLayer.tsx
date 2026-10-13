@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { memo, useMemo } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import type { BlockColors, OcrLine, TranslatedBlock } from '@shared/types'
 import { breakLines, familyFor, fontOf, inkFactor, isCjk, longUnit, measure, mostlyCjk, MONO, scriptRatio, tokenize, type Slot } from '../lib/fit'
 import './translation-layer.css'
@@ -23,6 +23,11 @@ export interface LayerProps {
 }
 
 const PAD = 2
+const EASE = [0.22, 1, 0.36, 1] as const
+/** 原文 / 译文切换时，从上到下依次过渡：最上面一段和最下面一段相差这么多秒 */
+const SWEEP = 0.12
+/** 切换后这段时间（毫秒）里都按位置错开，期间新到的段落（暂停后补上的）也跟着一起扫过去 */
+const SWEEP_WINDOW = 700
 /** emoji（含肤色、组合序列）；© ® ™ 这类默认按文字显示的符号不算 */
 const EMOJI = /(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F)(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F?))*/gu
 
@@ -53,11 +58,22 @@ export const TranslationLayer = memo(function TranslationLayer(p: LayerProps) {
         .filter((l): l is Layout => !!l),
     [p.blocks, lineMap, p.lines, p.colors, p.scale, p.width, p.height, p.targetLang]
   )
-  const fade = {
+  // 记下切换原文 / 译文的时刻（渲染时就要知道，动画才能带上错开的延迟）
+  const flip = useRef({ peek: p.peek, at: 0 })
+  if (flip.current.peek !== p.peek) flip.current = { peek: p.peek, at: performance.now() }
+  const sweeping = performance.now() - flip.current.at < SWEEP_WINDOW
+  const delayOf = (y: number) => (sweeping ? Math.max(0, Math.min(1, y / Math.max(1, p.height))) * SWEEP : 0)
+  // 隐藏：译文先模糊淡出，补丁随后褪去露出原文；显示：补丁先盖回去，译文再从模糊变清晰
+  const patchMotion = (d: number) => ({
     initial: { opacity: 0 },
     animate: { opacity: p.peek ? 0 : 1 },
-    transition: { duration: p.peek ? 0.16 : 0.42, ease: [0.22, 1, 0.36, 1] as const }
-  }
+    transition: p.peek ? { duration: 0.22, delay: d + 0.05, ease: EASE } : { duration: 0.24, delay: d, ease: EASE }
+  })
+  const textMotion = (d: number) => ({
+    initial: { opacity: 0, filter: 'blur(6px)' },
+    animate: { opacity: p.peek ? 0 : 1, filter: p.peek ? 'blur(4px)' : 'blur(0px)' },
+    transition: p.peek ? { duration: 0.2, delay: d, ease: EASE } : { duration: 0.3, delay: d + 0.06, ease: EASE }
+  })
 
   return (
     <div className="tl-layer" style={{ width: p.width, height: p.height }}>
@@ -80,7 +96,7 @@ export const TranslationLayer = memo(function TranslationLayer(p: LayerProps) {
 
       {/* 先画所有补丁，再画所有文字：相邻块的补丁不会盖住别的块的文字 */}
       {layouts.map((L) => (
-        <motion.div key={`pg${L.key}`} className="tl-pgroup" {...fade}>
+        <motion.div key={`pg${L.key}`} className="tl-pgroup" {...patchMotion(delayOf(L.box.y))}>
           {L.pieces.map((q, i) => (
             <div
               key={i}
@@ -99,9 +115,7 @@ export const TranslationLayer = memo(function TranslationLayer(p: LayerProps) {
           onMouseEnter={() => p.onHover?.(L.key)}
           onMouseLeave={() => p.onHover?.(null)}
           style={{ left: L.box.x, top: L.box.y, width: L.box.w, height: L.box.h, color: L.fg, fontFamily: L.family, fontWeight: L.weight, fontSize: L.fontSize }}
-          initial={{ opacity: 0, filter: 'blur(6px)' }}
-          animate={{ opacity: p.peek ? 0 : 1, filter: p.peek ? 'blur(2px)' : 'blur(0px)' }}
-          transition={fade.transition}
+          {...textMotion(delayOf(L.box.y))}
         >
           {L.pieces.map((q, i) =>
             q.text ? (

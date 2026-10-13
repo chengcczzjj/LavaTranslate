@@ -253,11 +253,22 @@ export async function runAutotest(h: Hooks) {
     console.log('[keys] released: blocks', await blocks(), 'chip', await js(`!!document.querySelector('.alt-chip')`))
     await shot('keys-2-released')
 
-    // 2. 翻译完成后按住 Alt 看原文
+    // 2. 翻译完成后按住 Alt 看原文；连拍几帧看切换动画（按下约 150ms 后才开始切换）
+    const frames = async (tag: string) => {
+      const t0 = Date.now()
+      for (let i = 0; i < 8; i++) {
+        const img = await h.overlayWin().webContents.capturePage()
+        writeFileSync(join(dir, `keys-anim-${tag}-${i}-${Date.now() - t0}ms.png`), img.toPNG())
+        await sleep(30)
+      }
+    }
     alt('keyDown')
-    await sleep(500)
+    await sleep(150)
+    await frames('down')
+    await sleep(200)
     await shot('keys-3-alt-original')
     alt('keyUp')
+    await frames('up')
     await sleep(400)
 
     // 3. 双击选区：复制当前看到的（译文）图片并退出
