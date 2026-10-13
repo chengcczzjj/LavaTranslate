@@ -40,10 +40,8 @@ interface Status {
   a11ySupported: boolean
   a11yEnabled: boolean
   a11yConnected: boolean
-  /** 系统无障碍按钮（或音量键快捷方式）已指给 LavaTranslate */
-  a11yButton: boolean
-  /** 「同时按住两个音量键」快捷方式已指给 LavaTranslate */
-  a11yVolume: boolean
+  /** 老版本留下的系统无障碍按钮（或音量键快捷方式）还指着 LavaTranslate：现在点它会关掉无障碍 */
+  a11yShortcut: boolean
   running: boolean
   projection: boolean
   battery: boolean
@@ -178,7 +176,7 @@ function A11yCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => P
         <div className="s-enable">
           <ol className="s-enable-steps">
             <li>
-              找到 <b>LavaTranslate 屏幕翻译</b>，打开开关（有的手机这里只有「快捷方式」开关，打开它就是开启）
+              找到 <b>LavaTranslate 屏幕翻译</b>，打开开关（「快捷方式」不用开）
             </li>
             {st.sdk >= 33 && (
               <li>
@@ -193,14 +191,25 @@ function A11yCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => P
                 )}
               </li>
             )}
-            <li>
-              快捷方式选 <b>无障碍按钮</b>：屏幕边上会出现系统的小按钮，点一下就翻译（也可以选同时按住两个音量键）
-            </li>
           </ol>
           <button className="s-btn primary wide" onClick={() => void call('openAccessibility')}>
             <Accessibility size={16} /> 去无障碍里开启
           </button>
           <p className="s-small">系统会提示该权限可以控制设备。LavaTranslate 只在你点击时截一次屏用于翻译，不读取界面内容、不执行任何操作。</p>
+        </div>
+      )}
+
+      {ready && st.a11yShortcut && (
+        <div className="s-tip s-leftover">
+          <AlertCircle size={14} />
+          <div>
+            <span>
+              屏幕边上的系统无障碍悬浮按钮已经用不到了，现在点它会关掉 LavaTranslate。到系统「无障碍」里点 <b>LavaTranslate 屏幕翻译</b>，关掉 <b>快捷方式</b> 开关，按钮就会消失，翻译照常可用。
+            </span>
+            <button className="s-btn sm" onClick={() => void call('openAccessibility')}>
+              去关闭
+            </button>
+          </div>
         </div>
       )}
 
@@ -215,27 +224,6 @@ function A11yCard({ s, st, update }: { s: S; st: Status; update: (p: Patch) => P
           <div className="s-ways-title">从这些地方打开</div>
           <Way icon={<img className="s-way-app" src={appIcon} alt="" />} title="LavaTranslate 图标" desc="点桌面上的图标就弹出悬浮面板（不再打开这个设置页，设置在面板上）">
             <></>
-          </Way>
-          <Way
-            icon={<Accessibility size={18} />}
-            title="系统无障碍按钮"
-            desc={
-              st.a11yButton
-                ? `由系统显示，不用时自动变淡；点一下打开或收起面板，翻译时点一下退出${st.a11yVolume ? '。也可以同时按住两个音量键' : ''}`
-                : st.a11yVolume
-                  ? '已设为同时按住两个音量键：按一下打开或收起面板。也可以在 LavaTranslate 的无障碍页面「快捷方式」里加上「无障碍按钮」'
-                  : '可选：在 LavaTranslate 的无障碍页面打开「快捷方式」，选「无障碍按钮」或「同时按住两个音量键」，用来打开或收起面板'
-            }
-          >
-            {st.a11yButton || st.a11yVolume ? (
-              <span className="s-chip ok">
-                <Check size={12} strokeWidth={3} /> 已设置
-              </span>
-            ) : (
-              <button className="s-btn sm" onClick={() => void call('openAccessibility')}>
-                去设置
-              </button>
-            )}
           </Way>
           <Way icon={<PanelTop size={18} />} title="下拉快捷开关" desc="在任何应用里下拉通知栏：「翻译屏幕」直接开始翻译，「快捷回复」直接打开回复">
             <></>

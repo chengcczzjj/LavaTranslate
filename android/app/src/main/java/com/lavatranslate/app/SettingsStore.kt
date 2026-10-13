@@ -112,8 +112,8 @@ class SettingsStore(ctx: Context) {
             .put("bubbleSide", "right")
             .put("bubbleY", 0.38)
             .put("firstRunDone", false)
-            // 无障碍模式第一次连上时按是否有系统无障碍按钮决定要不要显示悬浮球（只做一次）
-            .put("a11yIntroDone", false)
+            // 升级后第一次点图标：还留着系统无障碍按钮的话，先打开设置页提示去关掉（只一次）
+            .put("shortcutNotice", false)
             // 应用内更新：自动检查（Wi-Fi 下自动下载）、上次检查时间
             .put("autoUpdate", true)
             .put("updateCheckedAt", 0)

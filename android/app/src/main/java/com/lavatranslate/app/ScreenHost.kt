@@ -170,15 +170,6 @@ class ScreenHost(
     }
 
     // ------------------------------------------------------------ 打开
-    /** 无障碍按钮、快捷开关：开着就关，没开就翻译 */
-    fun toggle() {
-        if (overlay?.attached == true) {
-            if (!busy) overlay?.bridge?.emit("dismiss")
-            return
-        }
-        translate()
-    }
-
     fun translate() {
         if (active || locked || !owner.ready()) return
         val capturer = owner.capturer() ?: return

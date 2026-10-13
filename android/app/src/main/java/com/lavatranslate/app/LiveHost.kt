@@ -42,7 +42,7 @@ import kotlin.math.roundToInt
 /**
  * 无障碍模式的界面（整个都在无障碍服务里，见 LavaAccessibilityService）：
  *
- * - **面板**：点 LavaTranslate 图标（或系统无障碍按钮）从屏幕上方弹下的一条毛玻璃横条：翻译 / 回复 / 设置，最右边关闭；
+ * - **面板**：点 LavaTranslate 图标从屏幕上方弹下的一条毛玻璃横条：翻译 / 回复 / 设置，最右边关闭；
  * - **翻译**：点「翻译」面板收起，屏幕边上出现小胶囊；整屏译文盖在截图上（和原来的屏幕一模一样），小胶囊始终在它上面。
  *   译文是穿透的：触摸、返回键照常交给下面的应用。手指一碰屏幕（小胶囊的窗口外触摸）译文立刻让开，同一下就滑动、点按了应用；
  *   应用滚动、换页停下 [SETTLE_MS] 后自动重新翻译整屏，翻过的内容走网页里的缓存，立刻出现；只是点了一下、屏幕没变时，
@@ -128,16 +128,6 @@ class LiveHost(private val svc: LavaAccessibilityService) {
         app.settings.update(JSONObject().put("panelOpen", true))
         showPanelWindow()
         prewarm()
-    }
-
-    /** 系统无障碍按钮：面板开着就收起；翻译中就退出翻译 */
-    fun togglePanel() {
-        when (state) {
-            State.HIDDEN -> showPanel()
-            State.PANEL -> closePanel()
-            State.LIVE -> stopLive()
-            State.QUICK -> {}
-        }
     }
 
     /** 换成了截屏授权模式：无障碍这边的界面都收起 */

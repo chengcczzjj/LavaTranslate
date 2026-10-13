@@ -125,7 +125,7 @@ src/core/        两端共用、与平台无关：translator（提示词、JSONL
 src/mobile/      手机版网页：overlay.html（全屏翻译）、settings.html（设置），vite.mobile.config.ts 构建到 out/mobile
 android/         Kotlin 原生壳（Gradle）：
   capture/LavaAccessibilityService
-                   无障碍模式（推荐，Android 11+）的服务：界面全在 LiveHost；接系统无障碍按钮 / 音量键快捷方式、界面事件；
+                   无障碍模式（推荐，Android 11+）的服务：界面全在 LiveHost；接界面事件、截屏；
                    没有前台服务、通知，不需要悬浮窗权限
   LiveHost         无障碍模式的界面与状态：顶部毛玻璃横条 → 整屏翻译（穿透的冻结截图 + 小胶囊）→ 手指一碰让开、停下自动重译 → 回复；读屏、释放、锁屏
   capture/NodeText 从无障碍节点读屏幕文字：逐行、带每个字的位置（EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY），被上层窗口盖住的不读
@@ -147,10 +147,10 @@ android/         Kotlin 原生壳（Gradle）：
 - **两种模式**（`captureMode`）：无障碍模式开一次一直有效，开机由系统拉起；系统截屏授权在 Android 14 起每个会话都要用户同意一次，
   Android 15 QPR1 起锁屏会结束会话，授权期间状态栏的共享计时每秒刷新一次（静止画面上每分钟多合成约 60 帧，屏幕降不到最低刷新率），
   所以关掉翻译 5 分钟后主动结束会话。会话期间虚拟显示器平时不接画面（`setSurface(null)`），截屏时才接上取一帧。
-- **无障碍按钮**：服务带 `flagRequestAccessibilityButton` 时，Android 12+ 的无障碍页面只有「快捷方式」开关（打开它就是开启服务，
-  默认选无障碍按钮）；点按钮、音量键快捷方式都走 `AccessibilityButtonCallback.onClicked`。全面屏手势下的悬浮按钮
-  `isAccessibilityButtonAvailable` 总是 false，所以用可读的 `accessibility_button_targets` / `accessibility_shortcut_target_service` 判断有没有指给本应用。
-  无障碍模式里按钮的作用是打开 / 收起面板，翻译中按一下退出。
+- **不要系统无障碍按钮**：入口是点图标弹出的面板。服务带 `flagRequestAccessibilityButton` 时（1.3.9 及以前），Android 12+ 的无障碍页面
+  只有「快捷方式」开关，打开它就是开启服务，同时系统自动在屏幕边上加一个悬浮的无障碍按钮——多余且不好关，所以去掉了这个标记，
+  页面上就是普通的开关。从老版本升级的手机上按钮还在（系统不会撤掉 `accessibility_button_targets`，应用也改不了），而且没有这个标记后
+  点它会直接关掉本服务：`LavaAccessibilityService.shortcutLeft` 检测到时设置页提示去关掉「快捷方式」，升级后第一次点图标先打开设置页（`shortcutNotice`）。
   侧载应用开启无障碍要先解除「受限制的设置」（vivo 是「风险受限 → 解除限制」，同时解除悬浮窗权限的限制）。
   调研过「默认数字助理」入口：Android 17 实测第三方助理拿不到截图和屏幕文字，vivo 上也藏起了该设置，不可用。
 - **整屏翻译**（`LiveHost`）：和截屏授权模式一样是冻结截图 + 译文（v1.3.6 只画译文块、不画截图的实时方案，在读不到逐字位置的

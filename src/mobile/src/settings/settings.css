@@ -959,6 +959,16 @@ body {
 .s-enable .s-small {
   margin: 0 4px;
 }
+.s-leftover > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.s-leftover b {
+  color: var(--text);
+  font-weight: 650;
+}
 .s-ways {
   margin-top: 16px;
   padding-top: 14px;

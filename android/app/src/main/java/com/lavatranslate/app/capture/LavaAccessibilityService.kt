@@ -1,6 +1,5 @@
 package com.lavatranslate.app.capture
 
-import android.accessibilityservice.AccessibilityButtonController
 import android.accessibilityservice.AccessibilityService
 import android.content.ComponentName
 import android.content.Context
@@ -22,7 +21,7 @@ import java.util.concurrent.TimeUnit
 /**
  * 无障碍模式（推荐）：整个翻译功能都在这个服务里，用户在系统「无障碍」里打开一次后一直可用，开机由系统拉起。
  * 不需要悬浮窗权限、前台服务和常驻通知；界面（悬浮面板、小胶囊、译文层）都在无障碍图层上，见 [LiveHost]。
- * 唤出：点 LavaTranslate 图标、系统无障碍按钮（音量键快捷方式）、下拉快捷开关。
+ * 唤出：点 LavaTranslate 图标、下拉快捷开关。不要系统的无障碍按钮（见 accessibility_service.xml）。
  * 截屏用 takeScreenshot（不弹授权）；文字优先直接从界面节点读，只在翻译时读。
  * 平时不订阅任何界面事件，只在译文收起、等应用停下时订阅滚动、换页（LiveHost.subscribe）。
  */
@@ -31,23 +30,15 @@ class LavaAccessibilityService : AccessibilityService() {
     var host: LiveHost? = null
         private set
 
-    private val button = object : AccessibilityButtonController.AccessibilityButtonCallback() {
-        override fun onClicked(controller: AccessibilityButtonController) {
-            host?.togglePanel()
-        }
-    }
-
     /** 正在翻译或写回复 */
     val active get() = host?.active == true
 
     override fun onServiceConnected() {
         instance = this
         host = LiveHost(this)
-        accessibilityButtonController.registerAccessibilityButtonCallback(button, main)
     }
 
     override fun onDestroy() {
-        runCatching { accessibilityButtonController.unregisterAccessibilityButtonCallback(button) }
         host?.destroy()
         host = null
         if (instance === this) instance = null
@@ -96,13 +87,10 @@ class LavaAccessibilityService : AccessibilityService() {
         fun enabled(ctx: Context) = listed(ctx, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
 
         /**
-         * 系统的无障碍按钮（导航栏里的小人图标，或全面屏手势下贴边的悬浮按钮）指给了本服务。
-         * 不用 AccessibilityButtonController.isAccessibilityButtonAvailable：它只认导航栏里的按钮，悬浮按钮时总是 false
+         * 1.3.9 及以前留下的系统无障碍按钮（或音量键快捷方式）还指着本服务：系统不会自动撤掉，现在点它会直接关掉本服务。
+         * 应用改不了这项设置，只能请用户到无障碍页面关掉「快捷方式」
          */
-        fun buttonAssigned(ctx: Context) = listed(ctx, "accessibility_button_targets")
-
-        /** 「同时按住两个音量键」快捷方式指给了本服务 */
-        fun volumeAssigned(ctx: Context) = listed(ctx, "accessibility_shortcut_target_service")
+        fun shortcutLeft(ctx: Context) = listed(ctx, "accessibility_button_targets") || listed(ctx, "accessibility_shortcut_target_service")
 
         private fun listed(ctx: Context, key: String): Boolean {
             val list = runCatching { Settings.Secure.getString(ctx.contentResolver, key) }.getOrNull() ?: return false
