@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowRight, Check, ChevronDown, Copy, CornerDownLeft, Languages, MessageSquareReply, RotateCcw, X } from 'lucide-react'
+import { ArrowLeftRight, ArrowRight, Check, ChevronDown, Copy, CornerDownLeft, Languages, MessageSquareReply, RotateCcw, Sparkles, X } from 'lucide-react'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { LANGUAGES, type Settings } from '@shared/types'
 import type { MsgKey } from '@shared/i18n'
@@ -7,15 +7,15 @@ import { useI18n } from '../lib/i18n'
 import './reply.css'
 
 // 回复助手：看懂对方的消息后，直接用自己的语言写回复，译成对方的语言，一键复制去发送
-// 快速输入（quick）：连按两次快捷键打开，不框选，直接输入一句话翻译成上次的目标语言
+// 快速输入（quick）：连按两次快捷键打开，不框选，直接输入一句话翻译
+// 目标语言可以「自动」也可以手动选：自动时回复译成对方的语言，快速输入在自己的语言和常用外语之间互译。
+// 「自己的语言」取界面语言（默认跟随系统），不取截图翻译的目标语言——那个可能被临时改成外语
 
 type Tone = Settings['replyTone']
 type Status = 'idle' | 'streaming' | 'done' | 'error'
 
 export interface ReplyProps {
   style: React.CSSProperties
-  /** 用户自己的语言（截图翻译的目标语言） */
-  userLang: string
   /** 对方的语言（截图识别出的语言） */
   peer: { code: string; name: string } | null
   /** 屏幕上的对话原文，让模型跟随语气、称呼 */
@@ -23,6 +23,8 @@ export interface ReplyProps {
   tone: Tone
   /** 草稿：收起再打开时保留 */
   draft: React.MutableRefObject<string>
+  /** 回复时手动选的语言：这次截图里收起再打开时保留，换一张截图回到自动（快速输入的选择长期记住） */
+  pick?: React.MutableRefObject<string | null>
   /** 语言菜单向上展开（回复框贴着屏幕底部时） */
   menuUp: boolean
   /** 快速输入模式 */
@@ -45,6 +47,8 @@ const TONES: { id: Tone; label: MsgKey; tip: MsgKey }[] = [
 const MARK = '⟲'
 const HISTORY_KEY = 'lens.reply.history'
 const LAST_TO_KEY = 'lens.reply.lastTo'
+const QUICK_TO_KEY = 'lens.quick.to'
+const AUTO = 'auto'
 /** 停顿多久才开始翻译：不追求实时，等一句话写完再翻（Enter 立即翻译） */
 const DEBOUNCE = { reply: 1800, quick: 2200 }
 let seq = 0
@@ -78,18 +82,29 @@ function readHistory(): string[] {
 export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function ReplyComposer(p, ref) {
   const i = useI18n()
 
-  // 对方语言：默认取截图识别结果；截图本身就是自己的语言时，沿用上次的回复语言
-  const autoTo = useMemo(() => {
-    if (p.peer && langBase(p.peer.code) !== langBase(p.userLang)) return p.peer.code
+  const home = i.lang
+  const homeName = findLang(home)?.name ?? home
+  const homeLabel = i.langLabel(home, homeName)
+
+  const [choice, setChoice] = useState<string>(() => (p.quick ? localStorage.getItem(QUICK_TO_KEY) : p.pick?.current) || AUTO)
+  const auto = choice === AUTO
+  // 常用外语：上次译成的语言（不是自己的语言），没有就英语（自己是英语时中文）
+  const away = useMemo(() => {
     const last = localStorage.getItem(LAST_TO_KEY)
-    if (last && langBase(last) !== langBase(p.userLang)) return last
-    return langBase(p.userLang) === 'en' ? 'zh-Hans' : 'en'
-  }, [p.peer, p.userLang])
-  const [picked, setPicked] = useState<string | null>(null)
-  const to = picked ?? autoTo
+    if (last && langBase(last) !== langBase(home)) return last
+    return langBase(home) === 'en' ? 'zh-Hans' : 'en'
+    // 手动选语言时 LAST_TO 刚更新过
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [home, choice])
+  // 自动：回复译成对方的语言（截图本身是自己的语言时用常用外语）；快速输入互译
+  const peerForeign = !!p.peer && langBase(p.peer.code) !== langBase(home)
+  const autoTo = !p.quick && peerForeign ? p.peer!.code : away
+  const to = auto ? autoTo : choice
+  /** 快速输入的自动：输入自己的语言译成外语，输入其他语言译成自己的语言 */
+  const both = !!p.quick && auto
+  const nameOf = (code: string) => findLang(code)?.name ?? (p.peer && langBase(p.peer.code) === langBase(code) ? p.peer.name : undefined)
   // 给模型的语言名（中文名，和截图翻译一致）；界面上另按界面语言显示
-  const toName = findLang(to)?.name ?? (p.peer && langBase(p.peer.code) === langBase(to) ? p.peer.name : to)
-  const userLabel = i.langLabel(p.userLang, findLang(p.userLang)?.name)
+  const toName = nameOf(to) ?? to
   const toLabel = i.langLabel(to, toName)
 
   const [text, setText] = useState(p.draft.current)
@@ -106,7 +121,7 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
   const after = useRef<'close' | 'stay' | null>(null)
   const histIdx = useRef(-1)
 
-  const keyOf = (t: string, l: string, tone: Tone) => `${langBase(l)}|${tone}|${t.trim()}`
+  const keyOf = (t: string, l: string, tone: Tone, b = both) => `${b ? '⇄' : ''}${langBase(l)}|${tone}|${t.trim()}`
   const key = keyOf(text, to, p.tone)
   const { text: out, back } = split(raw)
   const busy = status === 'streaming'
@@ -117,7 +132,7 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
   const live = useRef({ raw, text, to, p })
   live.current = { raw, text, to, p }
 
-  const translate = (t: string, l = to, tone = p.tone) => {
+  const translate = (t: string, l = to, tone = p.tone, b = both) => {
     window.clearTimeout(timer.current)
     timer.current = 0
     if (!t.trim()) {
@@ -132,9 +147,8 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
     setStatus('streaming')
     setError('')
     setRaw('')
-    setShownKey(keyOf(t, l, tone))
-    const name = findLang(l)?.name ?? (p.peer && langBase(p.peer.code) === langBase(l) ? p.peer.name : undefined)
-    window.lens.replyStart({ requestId: id, text: t.trim(), to: l, toName: name, tone, context: p.context, quick: p.quick })
+    setShownKey(keyOf(t, l, tone, b))
+    window.lens.replyStart({ requestId: id, text: t.trim(), to: l, toName: nameOf(l), from: home, both: b, tone, context: p.context, quick: p.quick })
   }
 
   const copy = (close: boolean) => {
@@ -185,12 +199,12 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 重新识别后对方语言变了：没手动选过就跟着变
+  // 重新识别后对方语言变了：自动模式下跟着变
   const autoRef = useRef(autoTo)
   useEffect(() => {
     if (autoRef.current === autoTo) return
     autoRef.current = autoTo
-    if (!picked && text.trim()) translate(text, autoTo)
+    if (auto && text.trim()) translate(text, autoTo)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoTo])
 
@@ -265,13 +279,25 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
     } else if (!e.altKey && (e.key.length === 1 || editKeys.includes(k))) e.stopPropagation()
   }
 
+  // 切回自动：目标语言要等重新渲染才算得出来，再翻译
+  const retrans = useRef(false)
   const pickLang = (code: string) => {
     setMenu(false)
-    setPicked(code)
-    localStorage.setItem(LAST_TO_KEY, code)
-    if (text.trim()) translate(text, code)
+    setChoice(code)
+    if (p.quick) localStorage.setItem(QUICK_TO_KEY, code)
+    else if (p.pick) p.pick.current = code === AUTO ? null : code
+    if (code !== AUTO) {
+      localStorage.setItem(LAST_TO_KEY, code)
+      if (text.trim()) translate(text, code, p.tone, false)
+    } else if (text.trim()) retrans.current = true
     input.current?.focus()
   }
+  useEffect(() => {
+    if (!retrans.current) return
+    retrans.current = false
+    if (text.trim() && key !== shownKey) translate(text)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [choice])
 
   const pickTone = (t: Tone) => {
     p.onTone(t)
@@ -288,13 +314,17 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
     return () => window.removeEventListener('mousedown', away, true)
   }, [menu])
 
+  // 全部语言都能选，包括自己的语言
   const langs = useMemo(() => {
-    const list = LANGUAGES.filter((l) => langBase(l.code) !== langBase(p.userLang))
+    const list = [...LANGUAGES]
     // 识别出的语言不在常用列表里（如印尼语）时补上
-    if (p.peer && !findLang(p.peer.code) && langBase(p.peer.code) !== langBase(p.userLang))
-      list.unshift({ code: p.peer.code, name: p.peer.name, native: p.peer.name })
+    if (p.peer && !findLang(p.peer.code)) list.unshift({ code: p.peer.code, name: p.peer.name, native: p.peer.name })
     return list
-  }, [p.userLang, p.peer])
+  }, [p.peer])
+
+  const autoDesc = p.quick
+    ? i.t('rp.autoBoth', { me: homeLabel, to: i.langLabel(away, nameOf(away) ?? away) })
+    : i.t(peerForeign ? 'rp.autoPeer' : 'rp.autoLast', { to: i.langLabel(autoTo, nameOf(autoTo) ?? autoTo) })
 
   const hasOut = status !== 'idle'
   const hasHistory = !text && readHistory().length > 0
@@ -318,9 +348,10 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
           {p.quick ? i.t('rp.translate') : i.t('rp.reply')}
         </span>
         <div className="rp-route">
-          <span className="rp-from">{userLabel}</span>
-          <ArrowRight size={12} className="rp-arrow" />
-          <button className={`rp-to${menu ? ' open' : ''}`} onClick={() => setMenu((v) => !v)}>
+          <span className="rp-from">{p.quick && !auto ? i.t('rp.detect') : homeLabel}</span>
+          {both ? <ArrowLeftRight size={12} className="rp-arrow" /> : <ArrowRight size={12} className="rp-arrow" />}
+          <button className={`rp-to${menu ? ' open' : ''}`} title={auto ? `${i.t('rp.auto')} · ${autoDesc}` : undefined} onClick={() => setMenu((v) => !v)}>
+            {auto && <Sparkles size={11} className="rp-auto-mark" />}
             <AnimatePresence mode="popLayout" initial={false}>
               <motion.span
                 key={toLabel}
@@ -344,12 +375,19 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
                 transition={{ type: 'spring', stiffness: 560, damping: 36 }}
               >
                 <div className="rp-langs-label">{i.t('rp.to')}</div>
+                <button className={`rp-auto${auto ? ' on' : ''}`} onClick={() => pickLang(AUTO)}>
+                  <Sparkles size={13} className="rp-auto-icon" />
+                  <span className="rp-auto-name">{i.t('rp.auto')}</span>
+                  <span className="rp-auto-desc">{autoDesc}</span>
+                </button>
                 <div className="rp-langs-grid">
                   {langs.map((l) => (
-                    <button key={l.code} className={`rp-lang${langBase(l.code) === langBase(to) ? ' on' : ''}`} onClick={() => pickLang(l.code)}>
-                      <span>{i.langLabel(l.code, l.name)}</span>
+                    <button key={l.code} className={`rp-lang${!auto && langBase(l.code) === langBase(to) ? ' on' : ''}`} onClick={() => pickLang(l.code)}>
+                      <span className="rp-lang-row">
+                        <span className="rp-lang-name">{i.langLabel(l.code, l.name)}</span>
+                        {p.peer && langBase(p.peer.code) === langBase(l.code) && <span className="rp-detected">{i.t('rp.peer')}</span>}
+                      </span>
                       <span className="rp-native">{l.native}</span>
-                      {p.peer && langBase(p.peer.code) === langBase(l.code) && <span className="rp-detected">{i.t('rp.peer')}</span>}
                     </button>
                   ))}
                 </div>
@@ -377,9 +415,11 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
         rows={1}
         spellCheck={false}
         placeholder={
-          p.quick
-            ? i.t('rp.placeholderQuick', { to: i.langLabel(to, toName, true) })
-            : i.t('rp.placeholder', { me: i.langLabel(p.userLang, findLang(p.userLang)?.name, true), to: i.langLabel(to, toName, true) })
+          both
+            ? i.t('rp.placeholderBoth', { me: i.langLabel(home, homeName, true), to: i.langLabel(to, toName, true) })
+            : p.quick
+              ? i.t('rp.placeholderQuick', { to: i.langLabel(to, toName, true) })
+              : i.t('rp.placeholder', { me: i.langLabel(home, homeName, true), to: i.langLabel(to, toName, true) })
         }
         onChange={(e) => edit(e.target.value)}
         onKeyDown={onKeyDown}
@@ -415,7 +455,7 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
                     className={`rp-text${out ? '' : ' wait'}`}
                     title={out && !busy ? i.t('rp.clickCopy') : undefined}
                     onClick={() => out && !busy && copy(false)}
-                    lang={to}
+                    lang={both ? undefined : to}
                   >
                     {out || i.t('rp.translating')}
                     {busy && out && <span className="rp-caret" />}

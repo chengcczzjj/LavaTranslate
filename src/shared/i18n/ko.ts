@@ -318,6 +318,7 @@ const ko: Messages = {
   'tb.copy': '번역 복사',
   'tb.copyImage': '이미지로 복사',
   'tb.pin': '바탕화면에 고정',
+  'tb.pinOriginal': '원본 그대로 고정',
   'tb.save': '이미지 저장',
   'tb.reply': '답장',
   'tb.replyClose': '답장 닫기',
@@ -340,6 +341,12 @@ const ko: Messages = {
   'rp.peer': '상대',
   'rp.collapse': '닫기',
   'rp.placeholderQuick': '입력하고 잠시 멈추면 {to}(으)로 번역합니다',
+  'rp.auto': '자동',
+  'rp.autoBoth': '{me} ⇄ {to} 상호 번역',
+  'rp.autoPeer': '상대 언어 · {to}',
+  'rp.autoLast': '자주 쓰는 언어 · {to}',
+  'rp.detect': '자동 감지',
+  'rp.placeholderBoth': '입력: {me} → {to}, 다른 언어 → {me}',
   'rp.placeholder': '{me}(으)로 답장을 쓰고 잠시 멈추면 {to}(으)로 번역합니다',
   'rp.retry': '다시 시도',
   'rp.clickCopy': '클릭해서 복사',
@@ -357,6 +364,9 @@ const ko: Messages = {
   'pin.copied': '번역을 복사했습니다',
   'pin.peek': '누르는 동안 원문 (Space)',
   'pin.copy': '번역 복사 (Ctrl+C)',
+  'pin.copyOriginal': '원문 복사 (Ctrl+C)',
+  'pin.copiedOriginal': '원문을 복사했습니다',
+  'pin.top': '항상 위에 표시',
   'pin.close': '닫기 (Esc / 더블클릭)'
 }
 

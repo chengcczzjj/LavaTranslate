@@ -80,6 +80,7 @@ export function MobileOverlay() {
   const [replyOpen, setReplyOpen] = useState(false)
   const [tone, setTone] = useState<MobileSettings['replyTone']>('auto')
   const replyDraft = useRef('')
+  const replyPick = useRef<string | null>(null)
   const quickDraft = useRef('')
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null)
   const [pillOpen, setPillOpen] = useState(true)
@@ -113,6 +114,7 @@ export function MobileOverlay() {
     setPillOpen(true)
     setClosing(false)
     replyDraft.current = ''
+    replyPick.current = null
     quickDraft.current = ''
   }, [])
 
@@ -627,11 +629,11 @@ export function MobileOverlay() {
             quick={stage === 'quick'}
             style={{ left: 10, right: 10, bottom: sheetBottom }}
             menuUp
-            userLang={target}
             peer={stage === 'quick' ? null : lang}
             context={stage === 'quick' ? '' : replyContext}
             tone={tone}
             draft={stage === 'quick' ? quickDraft : replyDraft}
+            pick={replyPick}
             onTone={changeTone}
             onCollapse={() => (stage === 'quick' ? void close() : setReplyOpen(false))}
             onExit={() => void close()}

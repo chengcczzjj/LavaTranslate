@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { Copy, Eye, X } from 'lucide-react'
+import { Copy, Eye, Pin as PinIcon, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PinPayload } from '@shared/types'
 import { TranslationLayer } from '../components/TranslationLayer'
@@ -16,20 +16,35 @@ export function Pin() {
   const [closing, setClosing] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [hoverKey, setHoverKey] = useState<string | null>(null)
+  /** 刚钉上：飞到左上角的一路上亮着描边，看得出钉好了 */
+  const [fresh, setFresh] = useState(true)
+  const [top, setTop] = useState(false)
   const moved = useRef(false)
 
   useEffect(() => window.lens.onPinData(setData), [])
+  useEffect(() => {
+    if (!data) return
+    const t = setTimeout(() => setFresh(false), 1300)
+    return () => clearTimeout(t)
+  }, [data])
 
   const close = useCallback(() => {
     setClosing(true)
     setTimeout(() => window.lens.pinClose(), 160)
   }, [])
 
+  // 原图钉的是不翻译的版本：复制识别出的原文
+  const text = data ? (data.original ? data.lines.map((l) => l.text).join('\n') : data.blocks.map((b) => (b.keep ? b.source : b.translation)).join('\n')) : ''
   const copy = useCallback(() => {
-    if (!data) return
-    window.lens.copyText(data.blocks.map((b) => (b.keep ? b.source : b.translation)).join('\n'))
-    setToast(t('pin.copied'))
-  }, [data, t])
+    if (!data || !text) return
+    window.lens.copyText(text)
+    setToast(t(data.original ? 'pin.copiedOriginal' : 'pin.copied'))
+  }, [data, text, t])
+
+  const toggleTop = () => {
+    window.lens.pinTop(!top)
+    setTop(!top)
+  }
 
   useEffect(() => {
     if (!toast) return
@@ -40,7 +55,7 @@ export function Pin() {
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close()
-      else if (e.key === ' ') setPeek(e.type === 'keydown')
+      else if (e.key === ' ') setPeek(e.type === 'keydown' && !data?.original)
       else if (e.ctrlKey && e.key.toLowerCase() === 'c' && e.type === 'keydown') copy()
     }
     window.addEventListener('keydown', key)
@@ -49,7 +64,7 @@ export function Pin() {
       window.removeEventListener('keydown', key)
       window.removeEventListener('keyup', key)
     }
-  }, [close, copy])
+  }, [close, copy, data])
 
   useEffect(() => {
     const up = () => window.lens.pinDrag(false)
@@ -77,7 +92,7 @@ export function Pin() {
         animate={{
           opacity: closing ? 0 : 1,
           scale: closing ? 0.96 : 1,
-          boxShadow: hover
+          boxShadow: hover || fresh
             ? '0 0 0 1px rgba(255,90,31,0.85), 0 0 0 4px rgba(255,90,31,0.18), 0 10px 26px rgba(0,0,0,0.38)'
             : '0 0 0 1px rgba(255,255,255,0.22), 0 0 0 0 rgba(255,90,31,0), 0 8px 22px rgba(0,0,0,0.32)'
         }}
@@ -111,19 +126,21 @@ export function Pin() {
               void e.currentTarget.decode().finally(() => setTimeout(() => window.lens.pinReady(), 16))
             }}
           />
-          <TranslationLayer
-            lines={data.lines}
-            blocks={data.blocks}
-            colors={data.colors}
-            scale={data.scale}
-            width={w}
-            height={h}
-            targetLang={data.targetLang}
-            peek={peek}
-            pending={null}
-            hoverKey={hoverKey}
-            onHover={setHoverKey}
-          />
+          {!data.original && (
+            <TranslationLayer
+              lines={data.lines}
+              blocks={data.blocks}
+              colors={data.colors}
+              scale={data.scale}
+              width={w}
+              height={h}
+              targetLang={data.targetLang}
+              peek={peek}
+              pending={null}
+              hoverKey={hoverKey}
+              onHover={setHoverKey}
+            />
+          )}
         </div>
 
         <AnimatePresence>
@@ -135,17 +152,24 @@ export function Pin() {
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.15 }}
             >
-              <button
-                className={peek ? 'on' : ''}
-                title={t('pin.peek')}
-                onMouseDown={() => setPeek(true)}
-                onMouseUp={() => setPeek(false)}
-                onMouseLeave={() => setPeek(false)}
-              >
-                <Eye size={14} />
-              </button>
-              <button title={t('pin.copy')} onClick={copy}>
-                <Copy size={13} />
+              {!data.original && (
+                <button
+                  className={peek ? 'on' : ''}
+                  title={t('pin.peek')}
+                  onMouseDown={() => setPeek(true)}
+                  onMouseUp={() => setPeek(false)}
+                  onMouseLeave={() => setPeek(false)}
+                >
+                  <Eye size={14} />
+                </button>
+              )}
+              {!!text && (
+                <button title={t(data.original ? 'pin.copyOriginal' : 'pin.copy')} onClick={copy}>
+                  <Copy size={13} />
+                </button>
+              )}
+              <button className={top ? 'on' : ''} title={t('pin.top')} onClick={toggleTop}>
+                <PinIcon size={13} className={top ? 'pin-top-on' : 'pin-top-off'} />
               </button>
               <button title={t('pin.close')} onClick={close}>
                 <X size={14} />

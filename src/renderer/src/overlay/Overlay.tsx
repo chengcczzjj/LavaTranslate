@@ -87,6 +87,7 @@ export function Overlay() {
   const [replyAssist, setReplyAssist] = useState(true)
   const [replyTone, setReplyTone] = useState<Settings['replyTone']>('auto')
   const replyDraft = useRef('')
+  const replyPick = useRef<string | null>(null)
   const quickDraft = useRef('')
   /** 快速输入：本屏是否显示输入框（多显示器时只在鼠标所在的屏显示） */
   const [quickHere, setQuickHere] = useState(false)
@@ -137,6 +138,7 @@ export function Overlay() {
     setCapturing(false)
     setReplyOpen(false)
     replyDraft.current = ''
+    replyPick.current = null
     replyDismissed.current = false
     resume.current = null
     held.current = null
@@ -552,25 +554,31 @@ export function Overlay() {
     void copyShot(inPanel ? 'panel' : 'sel', e.altKey)
   }
 
-  const pin = useCallback(() => {
-    if (!sel || !blocks.length || !canvas.current) return
-    const o = selPhys.current
-    const c = document.createElement('canvas')
-    c.width = o.w
-    c.height = o.h
-    c.getContext('2d')!.drawImage(canvas.current, o.x, o.y, o.w, o.h, 0, 0, o.w, o.h)
-    window.lens.pin({
-      screenRect: { x: o.x / scale, y: o.y / scale, w: o.w / scale, h: o.h / scale },
-      image: c.toDataURL('image/png'),
-      scale,
-      lines,
-      blocks,
-      colors,
-      langName: lang?.name ?? '',
-      targetLang: target,
-      targetName: LANGUAGES.find((l) => l.code === target)?.name ?? target
-    })
-  }, [sel, blocks, lines, colors, lang, target, scale])
+  /** 钉在桌面；按着 Alt（或开着看原文）时钉不翻译的原图 */
+  const pin = useCallback(
+    (alt = false) => {
+      const original = alt || altPeek || peek
+      if (!sel || (!blocks.length && !original) || !canvas.current) return
+      const o = selPhys.current
+      const c = document.createElement('canvas')
+      c.width = o.w
+      c.height = o.h
+      c.getContext('2d')!.drawImage(canvas.current, o.x, o.y, o.w, o.h, 0, 0, o.w, o.h)
+      window.lens.pin({
+        screenRect: { x: o.x / scale, y: o.y / scale, w: o.w / scale, h: o.h / scale },
+        image: c.toDataURL('image/png'),
+        scale,
+        lines,
+        blocks: original ? [] : blocks,
+        colors,
+        langName: lang?.name ?? '',
+        targetLang: target,
+        targetName: LANGUAGES.find((l) => l.code === target)?.name ?? target,
+        original
+      })
+    },
+    [sel, blocks, lines, colors, lang, target, scale, altPeek, peek]
+  )
 
   const retry = useCallback(() => {
     if (sel) startTranslate(sel)
@@ -656,7 +664,7 @@ export function Overlay() {
         void saveImage()
       } else if (e.key === 'F3' || (e.ctrlKey && k === 't')) {
         e.preventDefault()
-        pin()
+        pin(e.altKey)
       } else if ((e.ctrlKey && k === 'r') || e.key === 'F5') {
         e.preventDefault()
         retry()
@@ -1027,7 +1035,7 @@ export function Overlay() {
             onPeek={setPeek}
             onCopy={copyAll}
             onCopyImage={copyImage}
-            onPin={pin}
+            onPin={() => pin()}
             onSave={saveImage}
             onRetry={retry}
             onSettings={() => window.lens.openSettings()}
@@ -1046,7 +1054,6 @@ export function Overlay() {
             quick
             style={{ left: Math.max(8, (vw - Math.min(560, vw - 16)) / 2), top: Math.round(vh * 0.26), width: Math.min(560, vw - 16) }}
             menuUp={false}
-            userLang={target}
             peer={null}
             context=""
             tone={replyTone}
@@ -1069,11 +1076,11 @@ export function Overlay() {
             ref={replyRef}
             style={rpPos!.style}
             menuUp={rpPos!.menuUp}
-            userLang={target}
             peer={lang}
             context={replyContext}
             tone={replyTone}
             draft={replyDraft}
+            pick={replyPick}
             onTone={changeTone}
             onCollapse={() => {
               replyDismissed.current = true

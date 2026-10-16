@@ -176,8 +176,8 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
           <ImageDown size={17} />
         </button>
       </Tip>
-      <Tip label={t('tb.pin')} keys="F3">
-        <button className="tb-btn" disabled={!p.progress.done} onClick={p.onPin}>
+      <Tip label={p.paused || p.peek ? t('tb.pinOriginal') : t('tb.pin')} keys="F3">
+        <button className="tb-btn" disabled={!p.progress.done && !p.paused && !p.peek} onClick={p.onPin}>
           <Pin size={16} />
         </button>
       </Tip>

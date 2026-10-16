@@ -597,10 +597,11 @@ ipcMain.on('reply:start', async (e, msg: ReplyStartMsg) => {
     await eng.reply(
       {
         text: msg.text,
-        from: langFor(s.targetLang),
+        from: langFor(msg.from ?? s.targetLang),
         to: langFor(msg.to, msg.toName),
         context: msg.context,
         tone: msg.tone,
+        both: msg.both,
         quick: msg.quick
       },
       (d) => send({ type: 'delta', text: d }),
@@ -702,15 +703,77 @@ function roundRect(r: Rect) {
 }
 
 // ------------------------------------------------------------------ 钉图窗口
+// 钉好后从选区飞到这块屏幕的左上角，一张张错开排；落位后是普通窗口：显示在最上面，
+// 点了别的窗口就会被盖住（钉图上可以打开「始终在最上层」）
 const PIN_MARGIN = 18
-const pins = new Map<number, { win: BrowserWindow; payload: PinPayload }>()
+const PIN_INSET = 20
+const PIN_STEP = 32
+const PIN_FLY_MS = 460
+interface PinWin {
+  win: BrowserWindow
+  payload: PinPayload
+  displayId: number
+  slot: number
+  /** 排好的位置（窗口坐标）；拖走后这个位置就空出来给下一张 */
+  home: { x: number; y: number }
+  fly: NodeJS.Timeout | null
+  top: boolean
+}
+const pins = new Map<number, PinWin>()
+
+/** 左上角往右下错开的第一个空位 */
+function pinSlot(area: Electron.Rectangle, displayId: number, w: number, h: number) {
+  const pos = (k: number) => ({ x: area.x + PIN_INSET + k * PIN_STEP - PIN_MARGIN, y: area.y + PIN_INSET + k * PIN_STEP - PIN_MARGIN })
+  const fit = Math.max(0, Math.floor(Math.min((area.width - w - PIN_INSET * 2) / PIN_STEP, (area.height - h - PIN_INSET * 2) / PIN_STEP)))
+  const taken = new Set<number>()
+  for (const p of pins.values()) {
+    if (p.displayId !== displayId || p.win.isDestroyed()) continue
+    const [x, y] = p.win.getPosition()
+    // 缩放比例不是整数的屏幕上，位置换算会差一两个像素
+    if (p.fly || (Math.abs(x - p.home.x) <= 2 && Math.abs(y - p.home.y) <= 2)) taken.add(p.slot)
+  }
+  let k = 0
+  while (k <= fit && taken.has(k)) k++
+  if (k > fit) k = taken.size % (fit + 1)
+  return { slot: k, ...pos(k) }
+}
+
+/** 落位：不再强制置顶，停在普通窗口的最上面 */
+function settlePin(p: PinWin) {
+  if (p.fly) clearInterval(p.fly)
+  p.fly = null
+  if (p.win.isDestroyed() || p.top) return
+  p.win.setAlwaysOnTop(false)
+  p.win.moveTop()
+}
+
+function flyPin(p: PinWin) {
+  const b = p.win.getBounds()
+  const dx = p.home.x - b.x
+  const dy = p.home.y - b.y
+  if (Math.hypot(dx, dy) < 4) {
+    p.win.setBounds({ ...b, ...p.home })
+    return settlePin(p)
+  }
+  const t0 = Date.now()
+  // 快起慢停（ease-out quint），和界面里的动画一个手感
+  const ease = (t: number) => 1 - Math.pow(1 - t, 5)
+  p.fly = setInterval(() => {
+    if (p.win.isDestroyed()) return settlePin(p)
+    const t = Math.min(1, (Date.now() - t0) / PIN_FLY_MS)
+    const e = ease(t)
+    p.win.setBounds({ x: Math.round(b.x + dx * e), y: Math.round(b.y + dy * e), width: b.width, height: b.height })
+    if (t >= 1) settlePin(p)
+  }, 8)
+}
 
 ipcMain.on('pin:create', (e, payload: PinPayload) => {
   const o = overlayOf(e.sender)
-  const display = o && screen.getAllDisplays().find((d) => d.id === o.displayId)
-  const ox = display?.bounds.x ?? 0
-  const oy = display?.bounds.y ?? 0
+  const display = (o && screen.getAllDisplays().find((d) => d.id === o.displayId)) ?? screen.getPrimaryDisplay()
+  const ox = display.bounds.x
+  const oy = display.bounds.y
   const r = payload.screenRect
+  const slot = pinSlot(display.workArea, display.id, r.w, r.h)
   const win = new BrowserWindow({
     x: Math.round(ox + r.x - PIN_MARGIN),
     y: Math.round(oy + r.y - PIN_MARGIN),
@@ -732,8 +795,10 @@ ipcMain.on('pin:create', (e, payload: PinPayload) => {
   win.setAlwaysOnTop(true, 'floating')
   // 窗口销毁后不能再访问 webContents，先记下 id
   const id = win.webContents.id
-  pins.set(id, { win, payload })
+  const pin: PinWin = { win, payload, displayId: display.id, slot: slot.slot, home: { x: slot.x, y: slot.y }, fly: null, top: false }
+  pins.set(id, pin)
   win.on('closed', () => {
+    if (pin.fly) clearInterval(pin.fly)
     pins.delete(id)
     clearInterval(drags.get(id))
     drags.delete(id)
@@ -746,7 +811,18 @@ ipcMain.on('pin:create', (e, payload: PinPayload) => {
     if (win.isDestroyed()) return
     win.showInactive()
     hideOverlays(true)
+    // 先在原处停一拍，再飞去左上角
+    setTimeout(() => !win.isDestroyed() && flyPin(pin), 90)
   })
+})
+
+ipcMain.on('pin:top', (e, on: boolean) => {
+  const pin = pins.get(e.sender.id)
+  if (!pin || pin.win.isDestroyed()) return
+  pin.top = on
+  if (pin.fly) return
+  if (on) pin.win.setAlwaysOnTop(true, 'floating')
+  else settlePin(pin)
 })
 
 ipcMain.on('pin:ready', (e) => ipcMain.emit(`pin:ready:${e.sender.id}`))
@@ -761,6 +837,8 @@ ipcMain.on('pin:drag', (e, on: boolean) => {
   clearInterval(drags.get(id))
   drags.delete(id)
   if (!on) return
+  const pin = pins.get(id)
+  if (pin?.fly) settlePin(pin)
   const start = screen.getCursorScreenPoint()
   const [wx, wy] = win.getPosition()
   drags.set(
@@ -777,6 +855,7 @@ ipcMain.on('pin:zoom', (e, factor: number) => {
   const win = BrowserWindow.fromWebContents(e.sender)
   const pin = pins.get(e.sender.id)
   if (!win || !pin) return
+  if (pin.fly) settlePin(pin)
   const r = pin.payload.screenRect
   const b = win.getBounds()
   const w = Math.round(r.w * factor + PIN_MARGIN * 2)

@@ -318,6 +318,7 @@ const ja: Messages = {
   'tb.copy': '訳文をコピー',
   'tb.copyImage': '画像としてコピー',
   'tb.pin': 'デスクトップに固定',
+  'tb.pinOriginal': '原文のまま固定',
   'tb.save': '画像を保存',
   'tb.reply': '返信',
   'tb.replyClose': '返信を閉じる',
@@ -340,6 +341,12 @@ const ja: Messages = {
   'rp.peer': '相手',
   'rp.collapse': '閉じる',
   'rp.placeholderQuick': '入力して少し待つと{to}に翻訳します',
+  'rp.auto': '自動',
+  'rp.autoBoth': '{me} ⇄ {to} 相互翻訳',
+  'rp.autoPeer': '相手の言語 · {to}',
+  'rp.autoLast': 'いつもの言語 · {to}',
+  'rp.detect': '自動検出',
+  'rp.placeholderBoth': '{me}は{to}に、ほかの言語は{me}に翻訳します',
   'rp.placeholder': '{me}で返信を書き、少し待つと{to}に翻訳します',
   'rp.retry': '再試行',
   'rp.clickCopy': 'クリックでコピー',
@@ -357,6 +364,9 @@ const ja: Messages = {
   'pin.copied': '訳文をコピーしました',
   'pin.peek': '押している間は原文（Space）',
   'pin.copy': '訳文をコピー（Ctrl+C）',
+  'pin.copyOriginal': '原文をコピー（Ctrl+C）',
+  'pin.copiedOriginal': '原文をコピーしました',
+  'pin.top': '常に最前面に表示',
   'pin.close': '閉じる（Esc / ダブルクリック）'
 }
 

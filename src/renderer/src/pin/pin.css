@@ -65,6 +65,18 @@ body,
   background: rgba(255, 255, 255, 0.14);
 }
 
+/* 始终在最上层：平时图钉斜着，打开后竖起来、点亮 */
+.pin-tools svg {
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), color 0.2s, fill 0.2s;
+}
+.pin-tools .pin-top-off {
+  transform: rotate(45deg);
+}
+.pin-tools .pin-top-on {
+  color: #ff8a5c;
+  fill: rgba(255, 138, 92, 0.35);
+}
+
 .pin-zoom,
 .pin-toast {
   position: absolute;

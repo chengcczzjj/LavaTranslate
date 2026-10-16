@@ -330,6 +330,7 @@ const zhHans = {
   'tb.copy': '复制译文',
   'tb.copyImage': '复制为图片',
   'tb.pin': '钉在桌面',
+  'tb.pinOriginal': '钉在桌面（原图，不翻译）',
   'tb.save': '保存图片',
   'tb.reply': '回复对方',
   'tb.replyClose': '收起回复',
@@ -353,6 +354,12 @@ const zhHans = {
   'rp.peer': '对方',
   'rp.collapse': '收起',
   'rp.placeholderQuick': '输入文字，停顿后自动译成{to}',
+  'rp.auto': '自动',
+  'rp.autoBoth': '{me} ⇄ {to} 互译',
+  'rp.autoPeer': '跟随对方 · {to}',
+  'rp.autoLast': '常用外语 · {to}',
+  'rp.detect': '自动检测',
+  'rp.placeholderBoth': '输入{me}译成{to}，输入其他语言译成{me}',
   'rp.placeholder': '用{me}写回复，停顿后自动译成{to}',
   'rp.retry': '重试',
   'rp.clickCopy': '点击复制',
@@ -371,6 +378,9 @@ const zhHans = {
   'pin.copied': '已复制译文',
   'pin.peek': '按住看原文（Space）',
   'pin.copy': '复制译文（Ctrl+C）',
+  'pin.copyOriginal': '复制原文（Ctrl+C）',
+  'pin.copiedOriginal': '已复制原文',
+  'pin.top': '始终在最上层',
   'pin.close': '关闭（Esc / 双击）'
 }
 

@@ -12,6 +12,7 @@ import { DEFAULT_SETTINGS, type OcrLine, type ProviderId, type SettingsPatch, ty
 import type { DisplayCapture } from './capture'
 import { chatgptSession } from './credentials'
 import { settings } from './settings'
+import { langFor } from '../core/lang'
 import { TranslateError, type Emit, type Engine, type ReplyRequest, type TranslateRequest, type TranslateResult } from '../core/translator'
 
 /** 自测用的回复：逐字流式输出，模拟模型的节奏 */
@@ -20,6 +21,7 @@ async function mockReply(req: ReplyRequest, onText: (d: string) => void, signal:
     en: ['Thanks! Tomorrow works for me — see you at 3 😊', '谢谢！明天可以——下午三点见 😊'],
     ja: ['ありがとう！明日なら大丈夫です。3時に会いましょう 😊', '谢谢！明天的话没问题。三点见吧 😊']
   }
+  console.log('[mock] reply', JSON.stringify({ to: req.to.code, from: req.from.code, both: !!req.both, quick: !!req.quick }))
   const [t, back] = samples[req.to.code] ?? [`(${req.to.native}) ${req.text}`, req.text]
   const out = `${t}
 ⟲
@@ -360,13 +362,45 @@ export async function runAutotest(h: Hooks) {
   await drag(scenarios[0].at.x / s - 6, scenarios[0].at.y / s - 6, (scenarios[0].at.x + 900) / s + 6, (scenarios[0].at.y + 560) / s + 6)
   await h.waitDone()
   await sleep(700)
+  const f3 = Date.now()
   key('F3')
-  await sleep(1500)
-  const pinWin = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('pin.html'))
+  const pinWins = () => BrowserWindow.getAllWindows().filter((w) => w.webContents.getURL().includes('pin.html'))
+  // 等钉图显示、飞到左上角落位（落位后不再强制置顶）
+  const settled = async (w: BrowserWindow) => {
+    for (let i = 0; i < 100 && (!w.isVisible() || w.isAlwaysOnTop()); i++) await sleep(50)
+  }
+  for (let i = 0; i < 60 && !pinWins().length; i++) await sleep(50)
+  const pinWin = pinWins()[0]
   if (pinWin) {
+    for (let i = 0; i < 100 && !pinWin.isVisible(); i++) await sleep(20)
+    console.log('[autotest] pin shown after', Date.now() - f3, 'ms at', JSON.stringify(pinWin.getBounds()))
+    await settled(pinWin)
+    console.log('[autotest] pin settled after', Date.now() - f3, 'ms')
+    await sleep(1000)
     const img = await pinWin.webContents.capturePage()
     writeFileSync(join(dir, 'pin.png'), img.toPNG())
-    console.log('[autotest] shot pin', JSON.stringify(pinWin.getBounds()), 'visible', pinWin.isVisible())
+    console.log('[autotest] shot pin', JSON.stringify(pinWin.getBounds()), 'visible', pinWin.isVisible(), 'onTop', pinWin.isAlwaysOnTop(), 'workArea', JSON.stringify(h.display.workArea))
+    // 按着 Alt 钉原图
+    await h.inject(fakeCapture(h.display, scenarios[0].file, scenarios[0].at))
+    await sleep(600)
+    await drag(scenarios[0].at.x / s - 6, scenarios[0].at.y / s - 6, (scenarios[0].at.x + 900) / s + 6, (scenarios[0].at.y + 560) / s + 6)
+    await h.waitDone()
+    await sleep(700)
+    // 合成的 Alt+F3 会变成系统键，不进网页；直接派发键盘事件
+    await wc().executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F3', altKey: true }))`)
+    for (let i = 0; i < 60 && pinWins().length < 2; i++) await sleep(50)
+    const second = pinWins().find((w) => w !== pinWin)
+    if (second) {
+      await settled(second)
+      await sleep(1000)
+      const img2 = await second.webContents.capturePage()
+      writeFileSync(join(dir, 'pin-original.png'), img2.toPNG())
+      const info = await second.webContents.executeJavaScript(
+        `({ layer: !!document.querySelector('[data-block]'), tools: document.querySelectorAll('.pin-tools button').length })`
+      )
+      console.log('[autotest] pin2', JSON.stringify(second.getBounds()), 'onTop', second.isAlwaysOnTop(), JSON.stringify(info))
+      second.close()
+    } else console.log('[autotest] pin2 missing')
     pinWin.close()
     console.log('[autotest] pin closed')
   } else console.log('[autotest] pin window missing')
@@ -374,24 +408,45 @@ export async function runAutotest(h: Hooks) {
   // 回复助手：英文聊天截图 → 自动弹出回复框 → 输入中文 → 实时译成英语
   {
     const at = { x: 380, y: 160 }
+    h.setSettings({ targetLang: 'en' })
+    await sleep(200)
     if (h.mock) h.mock.scenario = 'chat'
     await h.inject(fakeCapture(h.display, join(root, '.scratch', 'chat.png'), at))
     await sleep(600)
     await drag(at.x / s - 4, at.y / s - 4, (at.x + 560) / s + 4, (at.y + 640) / s + 4)
     await h.waitDone()
     await sleep(900)
+    // 截图本身就是目标语言时不会自动弹出回复框，按 R 打开
+    if (!(await wc().executeJavaScript(`!!document.querySelector('.reply')`))) {
+      key('R')
+      await sleep(700)
+    }
     await shot('reply-1-open')
     wc().insertText('好的，我明天带上。下午三点见')
     await sleep(300)
     await shot('reply-2-typing')
     await sleep(1600)
     await shot('reply-3-result')
+    const route = () => wc().executeJavaScript(`document.querySelector('.rp-route')?.innerText.replace(/\\s+/g, ' ')`)
+    console.log('[autotest] reply route (screenshot target en):', await route())
     // 语言菜单
     await wc().executeJavaScript(`document.querySelector('.rp-to')?.click()`)
     await sleep(500)
     await shot('reply-4-langs')
+    console.log(
+      '[autotest] reply menu:',
+      await wc().executeJavaScript(`[document.querySelector('.rp-auto')?.innerText.replace(/\\s+/g, ' '), document.querySelectorAll('.rp-lang').length].join(' | ')`)
+    )
+    // 手动选日语，再切回自动
+    await wc().executeJavaScript(`[...document.querySelectorAll('.rp-lang')].find((b) => b.textContent.includes('日'))?.click()`)
+    await sleep(900)
+    console.log('[autotest] reply route after pick:', await route())
     await wc().executeJavaScript(`document.querySelector('.rp-to')?.click()`)
-    await sleep(300)
+    await sleep(400)
+    await wc().executeJavaScript(`document.querySelector('.rp-auto')?.click()`)
+    await sleep(900)
+    console.log('[autotest] reply route back to auto:', await route())
+    h.setSettings({ targetLang: 'zh-Hans' })
     // 选区贴着屏幕底部、整屏高：回复框应放到侧边
     await h.inject(fakeCapture(h.display, join(root, '.scratch', 'chat.png'), { x: 300, y: Math.round(h.display.bounds.height * s) - 640 }))
     await sleep(600)
@@ -413,6 +468,30 @@ export async function runAutotest(h: Hooks) {
     await shot('quick-2-typing')
     await sleep(3600)
     await shot('quick-3-result')
+    const route = () => wc().executeJavaScript(`document.querySelector('.rp-route')?.innerText.replace(/\\s+/g, ' ')`)
+    console.log('[autotest] quick route (auto):', await route())
+    await wc().executeJavaScript(`document.querySelector('.rp-to')?.click()`)
+    await sleep(500)
+    await shot('quick-4-langs')
+    await wc().executeJavaScript(`[...document.querySelectorAll('.rp-lang')].find((b) => b.textContent.includes('英'))?.click()`)
+    await sleep(3200)
+    await shot('quick-5-manual')
+    console.log('[autotest] quick route (picked):', await route())
+    // 关掉再连按两次：手动选的语言还在
+    key('Escape')
+    await sleep(400)
+    key('Escape')
+    await sleep(600)
+    await h.inject(fakeCapture(h.display, join(root, '.scratch', 'chat.png'), { x: 380, y: 160 }))
+    await sleep(500)
+    h.quick()
+    await sleep(700)
+    console.log('[autotest] quick route (reopened):', await route())
+    await wc().executeJavaScript(`document.querySelector('.rp-to')?.click()`)
+    await sleep(400)
+    await wc().executeJavaScript(`document.querySelector('.rp-auto')?.click()`)
+    await sleep(400)
+    console.log('[autotest] quick route (auto again):', await route())
   }
 
   // 设置窗口各页
@@ -524,6 +603,11 @@ export async function runI18nShots(h: Hooks, langs: string[]) {
     wc().insertText('OK')
     await sleep(2600)
     await save(h.overlayWin(), `${lang}-overlay-reply`)
+    await wc().executeJavaScript(`document.querySelector('.rp-to')?.click()`)
+    await sleep(500)
+    await save(h.overlayWin(), `${lang}-overlay-reply-langs`)
+    await wc().executeJavaScript(`document.querySelector('.rp-to')?.click()`)
+    await sleep(300)
   }
   fake.close()
   console.log('[i18n] done')
@@ -557,9 +641,12 @@ export async function runEngineTest(engine: Engine, ocrLines: OcrLine[], image: 
         {
           text: process.env.LENS_REPLY_TEST,
           from: { code: 'zh-Hans', name: '简体中文', native: '简体中文' },
-          to: { code: process.env.LENS_REPLY_TO ?? 'en', name: 'English', native: 'English' },
-          context: ocrLines.map((l) => l.text).join('\n'),
-          tone: (process.env.LENS_REPLY_TONE as 'auto') ?? 'auto'
+          to: langFor(process.env.LENS_REPLY_TO ?? 'en'),
+          context: process.env.LENS_REPLY_BOTH ? '' : ocrLines.map((l) => l.text).join('\n'),
+          tone: (process.env.LENS_REPLY_TONE as 'auto') ?? 'auto',
+          // LENS_REPLY_BOTH=1：输入翻译的「自动」互译
+          both: !!process.env.LENS_REPLY_BOTH,
+          quick: !!process.env.LENS_REPLY_BOTH
         },
         (d) => {
           if (!first) first = Date.now() - t2

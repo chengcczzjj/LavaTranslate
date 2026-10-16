@@ -318,6 +318,7 @@ const en: Messages = {
   'tb.copy': 'Copy translation',
   'tb.copyImage': 'Copy as image',
   'tb.pin': 'Pin to desktop',
+  'tb.pinOriginal': 'Pin original (no translation)',
   'tb.save': 'Save image',
   'tb.reply': 'Reply',
   'tb.replyClose': 'Hide reply',
@@ -340,6 +341,12 @@ const en: Messages = {
   'rp.peer': 'Them',
   'rp.collapse': 'Hide',
   'rp.placeholderQuick': 'Type here; it turns into {to} when you pause',
+  'rp.auto': 'Auto',
+  'rp.autoBoth': '{me} ⇄ {to}, both ways',
+  'rp.autoPeer': 'Their language · {to}',
+  'rp.autoLast': 'Usual language · {to}',
+  'rp.detect': 'Any language',
+  'rp.placeholderBoth': 'Type here: {me} → {to}, other languages → {me}',
   'rp.placeholder': 'Write your reply in {me}; it turns into {to} when you pause',
   'rp.retry': 'Retry',
   'rp.clickCopy': 'Click to copy',
@@ -357,6 +364,9 @@ const en: Messages = {
   'pin.copied': 'Copied translation',
   'pin.peek': 'Hold to see original (Space)',
   'pin.copy': 'Copy translation (Ctrl+C)',
+  'pin.copyOriginal': 'Copy original text (Ctrl+C)',
+  'pin.copiedOriginal': 'Copied original text',
+  'pin.top': 'Always on top',
   'pin.close': 'Close (Esc / double-click)'
 }
 

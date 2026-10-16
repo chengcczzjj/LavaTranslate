@@ -318,6 +318,7 @@ const zhHant: Messages = {
   'tb.copy': '複製譯文',
   'tb.copyImage': '複製為圖片',
   'tb.pin': '釘在桌面',
+  'tb.pinOriginal': '釘在桌面（原圖，不翻譯）',
   'tb.save': '儲存圖片',
   'tb.reply': '回覆對方',
   'tb.replyClose': '收起回覆',
@@ -340,6 +341,12 @@ const zhHant: Messages = {
   'rp.peer': '對方',
   'rp.collapse': '收起',
   'rp.placeholderQuick': '輸入文字，停頓後自動譯成{to}',
+  'rp.auto': '自動',
+  'rp.autoBoth': '{me} ⇄ {to} 互譯',
+  'rp.autoPeer': '跟隨對方 · {to}',
+  'rp.autoLast': '常用外語 · {to}',
+  'rp.detect': '自動偵測',
+  'rp.placeholderBoth': '輸入{me}譯成{to}，輸入其他語言譯成{me}',
   'rp.placeholder': '用{me}寫回覆，停頓後自動譯成{to}',
   'rp.retry': '重試',
   'rp.clickCopy': '點一下複製',
@@ -357,6 +364,9 @@ const zhHant: Messages = {
   'pin.copied': '已複製譯文',
   'pin.peek': '按住看原文（Space）',
   'pin.copy': '複製譯文（Ctrl+C）',
+  'pin.copyOriginal': '複製原文（Ctrl+C）',
+  'pin.copiedOriginal': '已複製原文',
+  'pin.top': '永遠在最上層',
   'pin.close': '關閉（Esc / 按兩下）'
 }
 

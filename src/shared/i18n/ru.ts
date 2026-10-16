@@ -318,6 +318,7 @@ const ru: Messages = {
   'tb.copy': 'Копировать перевод',
   'tb.copyImage': 'Копировать как изображение',
   'tb.pin': 'Закрепить на рабочем столе',
+  'tb.pinOriginal': 'Закрепить оригинал (без перевода)',
   'tb.save': 'Сохранить изображение',
   'tb.reply': 'Ответить',
   'tb.replyClose': 'Скрыть ответ',
@@ -340,6 +341,12 @@ const ru: Messages = {
   'rp.peer': 'Собеседник',
   'rp.collapse': 'Скрыть',
   'rp.placeholderQuick': 'Введите текст — после паузы он будет переведён на {to}',
+  'rp.auto': 'Авто',
+  'rp.autoBoth': '{me} ⇄ {to}, в обе стороны',
+  'rp.autoPeer': 'Язык собеседника · {to}',
+  'rp.autoLast': 'Обычный язык · {to}',
+  'rp.detect': 'Любой язык',
+  'rp.placeholderBoth': 'Введите текст: {me} → {to}, другие языки → {me}',
   'rp.placeholder': 'Напишите ответ ({me}) — после паузы он будет переведён на {to}',
   'rp.retry': 'Повторить',
   'rp.clickCopy': 'Щёлкните, чтобы скопировать',
@@ -357,6 +364,9 @@ const ru: Messages = {
   'pin.copied': 'Перевод скопирован',
   'pin.peek': 'Удерживайте — оригинал (Пробел)',
   'pin.copy': 'Копировать перевод (Ctrl+C)',
+  'pin.copyOriginal': 'Копировать оригинал (Ctrl+C)',
+  'pin.copiedOriginal': 'Оригинал скопирован',
+  'pin.top': 'Поверх всех окон',
   'pin.close': 'Закрыть (Esc / двойной щелчок)'
 }
 

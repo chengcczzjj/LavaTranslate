@@ -19,7 +19,8 @@
 | 单击某段译文 | 复制这一段 |
 | `Ctrl C` / `Alt C` | 复制全部译文 / 原文 |
 | `Ctrl Shift C` / `Ctrl S` | 复制 / 保存翻译后的截图 |
-| `F3` | 钉在桌面（可拖动、滚轮缩放、双击关闭） |
+| `F3` | 钉在桌面（可拖动、滚轮缩放、双击关闭）。主进程把钉图从选区飞到这块屏幕工作区的左上角，按「没被拖走的钉图占着的位置」依次往右下错开 32px；飞行中置顶，落位后 `setAlwaysOnTop(false)` 停在普通窗口的最上面（钉图工具条可改成始终置顶） |
+| `Alt F3`（或按着 Alt / 开着看原文时点钉图按钮） | 钉原图：`PinPayload.original`，不带译文层，复制按钮复制识别出的原文 |
 | 双击选区 / 并排面板 | 按当前看到的样子复制成图片并退出（还没有译文、正在看原文时复制原图） |
 | `Alt` + 双击 | 复制原图并退出（直接从截图数据裁，物理像素） |
 | `Enter` | 复制译文并退出 |
@@ -31,7 +32,10 @@
 ### 回复助手
 
 - 模型判断截图是聊天、私信、评论或邮件时，翻译完成后自动在工具条旁弹出回复框（设置 → 翻译 里可关闭；任何时候按 `R` 都能打开）；
-- 用自己的语言输入，停顿约半秒就开始流式翻译；默认译成截图里识别出的语言，可手动改；语气可选「跟随语境 / 正式 / 随意」；
+- 用自己的语言输入，停顿片刻就开始流式翻译；语气可选「跟随语境 / 正式 / 随意」；
+- 目标语言菜单：「自动」+ 全部语言（包括自己的语言）。「自己的语言」取界面语言（`i18n.lang`，默认跟随系统），**不取截图翻译的目标语言**——那个可能被临时改成外语。
+  回复的「自动」= 截图识别出的对方语言，对方就是自己的语言时用常用外语（上次译成的外语，没有就英语）；手动选的语言这张截图内有效（`pick` ref，换截图回到自动）。
+  输入翻译（连按两次快捷键）的「自动」= 自己的语言 ⇄ 常用外语互译（`ReplyStartMsg.both`，方向交给模型判断）；手动选的语言存在 `localStorage['lens.quick.to']`，一直有效；
 - 译文下方附**回译**（再翻回你的语言），不懂对方语言也能确认意思没走样；
 - `Enter` 复制并关闭（还没翻完会等翻完再复制）、`Ctrl Enter` 只复制、`Shift Enter` 换行、单击译文复制；`↑ / ↓` 翻看发过的回复；
 - 输入框为空时，`Space` / `Enter` / `Tab` 等截图快捷键照常可用；有内容时 `Esc` 先收起回复框（保留草稿），空白时直接退出。
@@ -108,7 +112,7 @@ npm run dist     # 打包 NSIS 安装程序到 dist/
 真实引擎（独立数据目录，Key 不写盘）：
 - 某家服务：`LENS_ENGINE_TEST=1 LENS_PROVIDER=<服务商> LENS_PROVIDER_KEY=<Key> LENS_OPENAI_MODEL=<模型> npx electron .`
 - 本机 Codex / CC Switch 的中转：`LENS_ENGINE_TEST=1 LENS_OPENAI_SOURCE=ccs:<供应商名> LENS_OPENAI_MODEL=<模型> npx electron .`
-- 可加 `LENS_ENGINE_IMAGE=chat.png`（换测试图）、`LENS_REPLY_TEST="要回复的话"`（同时测回复助手）、
+- 可加 `LENS_ENGINE_IMAGE=chat.png`（换测试图）、`LENS_REPLY_TEST="要回复的话"`（同时测回复助手，`LENS_REPLY_TO=<语言>` 改目标、`LENS_REPLY_BOTH=1` 测输入翻译的自动互译）、
   `LENS_OPENAI_EFFORT=default`（不关思考，对照用）、`LENS_OPENAI_FAKE=1`（本地假服务，检查接口回退）。
 - 旧格式设置迁移：`LENS_AUTOTEST=1 LENS_MOCK=1 LENS_AUTOTEST_SEED=<旧 settings.json> npx electron .`
 - 识别 Key：`LENS_DETECT_TEST=<Key1,Key2…> npx electron .`（只打印识别结果，不打印 Key）

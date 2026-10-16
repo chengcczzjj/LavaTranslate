@@ -318,6 +318,7 @@ const it: Messages = {
   'tb.copy': 'Copia traduzione',
   'tb.copyImage': 'Copia come immagine',
   'tb.pin': 'Fissa sul desktop',
+  'tb.pinOriginal': 'Fissa l’originale (senza traduzione)',
   'tb.save': 'Salva immagine',
   'tb.reply': 'Rispondi',
   'tb.replyClose': 'Nascondi risposta',
@@ -340,6 +341,12 @@ const it: Messages = {
   'rp.peer': 'Loro',
   'rp.collapse': 'Nascondi',
   'rp.placeholderQuick': 'Scrivi qui; dopo una pausa viene tradotto in {to}',
+  'rp.auto': 'Auto',
+  'rp.autoBoth': '{me} ⇄ {to}, in entrambe le direzioni',
+  'rp.autoPeer': 'La loro lingua · {to}',
+  'rp.autoLast': 'Lingua abituale · {to}',
+  'rp.detect': 'Qualsiasi lingua',
+  'rp.placeholderBoth': 'Scrivi qui: {me} → {to}, altre lingue → {me}',
   'rp.placeholder': 'Scrivi la risposta in {me}; dopo una pausa viene tradotta in {to}',
   'rp.retry': 'Riprova',
   'rp.clickCopy': 'Clic per copiare',
@@ -357,6 +364,9 @@ const it: Messages = {
   'pin.copied': 'Traduzione copiata',
   'pin.peek': 'Tieni premuto per l’originale (Spazio)',
   'pin.copy': 'Copia traduzione (Ctrl+C)',
+  'pin.copyOriginal': 'Copia testo originale (Ctrl+C)',
+  'pin.copiedOriginal': 'Testo originale copiato',
+  'pin.top': 'Sempre in primo piano',
   'pin.close': 'Chiudi (Esc / doppio clic)'
 }
 

@@ -318,6 +318,7 @@ const vi: Messages = {
   'tb.copy': 'Sao chép bản dịch',
   'tb.copyImage': 'Sao chép dạng ảnh',
   'tb.pin': 'Ghim lên màn hình',
+  'tb.pinOriginal': 'Ghim bản gốc (không dịch)',
   'tb.save': 'Lưu ảnh',
   'tb.reply': 'Trả lời',
   'tb.replyClose': 'Ẩn trả lời',
@@ -340,6 +341,12 @@ const vi: Messages = {
   'rp.peer': 'Họ',
   'rp.collapse': 'Ẩn',
   'rp.placeholderQuick': 'Gõ ở đây; dừng một chút sẽ tự dịch sang {to}',
+  'rp.auto': 'Tự động',
+  'rp.autoBoth': '{me} ⇄ {to}, hai chiều',
+  'rp.autoPeer': 'Ngôn ngữ của họ · {to}',
+  'rp.autoLast': 'Ngôn ngữ hay dùng · {to}',
+  'rp.detect': 'Mọi ngôn ngữ',
+  'rp.placeholderBoth': 'Gõ ở đây: {me} → {to}, ngôn ngữ khác → {me}',
   'rp.placeholder': 'Viết trả lời bằng {me}; dừng một chút sẽ tự dịch sang {to}',
   'rp.retry': 'Thử lại',
   'rp.clickCopy': 'Nhấp để sao chép',
@@ -357,6 +364,9 @@ const vi: Messages = {
   'pin.copied': 'Đã sao chép bản dịch',
   'pin.peek': 'Giữ để xem bản gốc (Space)',
   'pin.copy': 'Sao chép bản dịch (Ctrl+C)',
+  'pin.copyOriginal': 'Sao chép văn bản gốc (Ctrl+C)',
+  'pin.copiedOriginal': 'Đã sao chép văn bản gốc',
+  'pin.top': 'Luôn ở trên cùng',
   'pin.close': 'Đóng (Esc / nhấp đúp)'
 }
 

@@ -39,7 +39,7 @@ You can read the other person's message now — LavaTranslate also helps you ans
 <img src="docs/images/reply.png" width="520" align="right" alt="Reply assistant">
 
 - When the screenshot is a **chat, DM, comment thread or email**, a reply box opens under the toolbar after the translation finishes. Press <kbd>R</kbd> to open it anytime.
-- Type in your own language. It starts translating after a short pause, into the language detected on screen (you can change it).
+- Type in your own language. It starts translating after a short pause. **Auto** translates into the language detected on screen; open the language menu to pick any other language instead (your choice holds until you take a new screenshot).
 - Pick a tone: **Match the conversation**, **Formal** or **Casual**. The model reads the conversation on screen to get the wording and form of address right.
 - A **back-translation** below the result shows you what you are actually sending.
 - <kbd>Enter</kbd> copies and closes so you can paste straight into the chat. <kbd>Ctrl</kbd>+<kbd>Enter</kbd> copies only, <kbd>Shift</kbd>+<kbd>Enter</kbd> adds a new line, and <kbd>↑</kbd>/<kbd>↓</kbd> go through your previous replies.
@@ -48,7 +48,7 @@ You can read the other person's message now — LavaTranslate also helps you ans
 
 ## Type to translate
 
-Press the hotkey **twice** (<kbd>Alt</kbd>+<kbd>Q</kbd> <kbd>Q</kbd>) to skip the screenshot and just type. LavaTranslate waits until you pause (about 1.4 s, or press <kbd>Enter</kbd>), then translates into the language you last translated a reply into. If what you typed is already in that language, it translates it into yours instead. <kbd>Enter</kbd> copies and closes.
+Press the hotkey **twice** (<kbd>Alt</kbd>+<kbd>Q</kbd> <kbd>Q</kbd>) to skip the screenshot and just type. LavaTranslate waits until you pause (about 2 s, or press <kbd>Enter</kbd>), then translates. It does not follow the screenshot's target language. On **Auto** it translates both ways between your language (the interface language) and the foreign language you last translated into: type your language to get the other one, type anything else to get yours. Or pick a language from the menu and everything you type goes into that language; the choice is remembered. <kbd>Enter</kbd> copies and closes.
 
 <img src="docs/images/quick.png" width="520" alt="Type to translate">
 
@@ -118,7 +118,8 @@ LavaTranslate asks every model to skip "thinking" (each provider's own switch, f
 | Click a translated block | Copy that block |
 | <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Alt</kbd>+<kbd>C</kbd> | Copy all translations / all original text |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>S</kbd> | Copy / save the translated screenshot |
-| <kbd>F3</kbd> | Pin the result on the desktop (drag to move, scroll to zoom, double-click to close) |
+| <kbd>F3</kbd> | Pin the result on the desktop: it lands in the top-left corner of the screen, each new pin a little lower and to the right. It shows on top of your windows but can be covered by them, unless you turn on **Always on top** in its toolbar (drag to move, scroll to zoom, double-click to close) |
+| <kbd>Alt</kbd>+<kbd>F3</kbd> | Pin the original, untranslated (also when you click the pin button while holding <kbd>Alt</kbd>) |
 | <kbd>R</kbd> | Open the reply assistant |
 | Double-click the selection | Copy what you see (translated or original) as an image and close, like a screenshot tool |
 | <kbd>Alt</kbd>+double-click the selection | Copy the original image and close |

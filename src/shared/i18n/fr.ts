@@ -318,6 +318,7 @@ const fr: Messages = {
   'tb.copy': 'Copier la traduction',
   'tb.copyImage': 'Copier en image',
   'tb.pin': 'Épingler sur le bureau',
+  'tb.pinOriginal': 'Épingler l’original (sans traduction)',
   'tb.save': 'Enregistrer l’image',
   'tb.reply': 'Répondre',
   'tb.replyClose': 'Masquer la réponse',
@@ -340,6 +341,12 @@ const fr: Messages = {
   'rp.peer': 'Eux',
   'rp.collapse': 'Masquer',
   'rp.placeholderQuick': 'Tapez ici ; après une pause, c’est traduit en {to}',
+  'rp.auto': 'Auto',
+  'rp.autoBoth': '{me} ⇄ {to}, dans les deux sens',
+  'rp.autoPeer': 'Leur langue · {to}',
+  'rp.autoLast': 'Langue habituelle · {to}',
+  'rp.detect': 'Toute langue',
+  'rp.placeholderBoth': 'Tapez ici : {me} → {to}, autres langues → {me}',
   'rp.placeholder': 'Écrivez votre réponse en {me} ; après une pause, elle est traduite en {to}',
   'rp.retry': 'Réessayer',
   'rp.clickCopy': 'Cliquer pour copier',
@@ -357,6 +364,9 @@ const fr: Messages = {
   'pin.copied': 'Traduction copiée',
   'pin.peek': 'Maintenir pour voir l’original (Espace)',
   'pin.copy': 'Copier la traduction (Ctrl+C)',
+  'pin.copyOriginal': 'Copier le texte original (Ctrl+C)',
+  'pin.copiedOriginal': 'Texte original copié',
+  'pin.top': 'Toujours au premier plan',
   'pin.close': 'Fermer (Échap / double-clic)'
 }
 

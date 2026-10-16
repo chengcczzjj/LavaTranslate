@@ -138,13 +138,17 @@ export interface OpenAISource {
 export interface ReplyStartMsg {
   requestId: number
   text: string
-  /** 对方的语言代码（默认取截图识别出的语言） */
+  /** 译成的语言代码（回复默认取截图识别出的语言） */
   to: string
   toName?: string
+  /** 用户自己的语言（界面语言）；旧版不传时用截图翻译的目标语言 */
+  from?: string
+  /** 互译：输入的是自己的语言就译成 to，其他语言译成自己的语言（快速输入的「自动」） */
+  both?: boolean
   tone: 'auto' | 'formal' | 'casual'
   /** 屏幕上的对话文本，供模型把握语气和称呼 */
   context: string
-  /** 快速输入模式：输入的已经是目标语言时，改为译成用户自己的语言 */
+  /** 快速输入模式 */
   quick?: boolean
 }
 
@@ -207,6 +211,8 @@ export interface PinPayload {
   langName: string
   targetLang: string
   targetName: string
+  /** 钉的是不翻译的原图（按着 Alt 钉的） */
+  original?: boolean
 }
 
 /** 一行原文的视觉样式（从截图像素分析得到） */

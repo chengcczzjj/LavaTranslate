@@ -21,7 +21,15 @@ export function installReplyHost(getSettings: () => MobileSettings | null) {
       const t0 = Date.now()
       eng
         .reply(
-          { text: msg.text, from: langFor(s.targetLang), to: langFor(msg.to, msg.toName), context: msg.context, tone: msg.tone, quick: msg.quick },
+          {
+            text: msg.text,
+            from: langFor(msg.from ?? s.targetLang),
+            to: langFor(msg.to, msg.toName),
+            context: msg.context,
+            tone: msg.tone,
+            both: msg.both,
+            quick: msg.quick
+          },
           (d) => send(msg.requestId, { type: 'delta', text: d }),
           c.signal
         )

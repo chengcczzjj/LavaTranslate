@@ -66,6 +66,7 @@ const api = {
   pinClose: () => ipcRenderer.send('pin:close'),
   pinDrag: (on: boolean) => ipcRenderer.send('pin:drag', on),
   pinZoom: (factor: number) => ipcRenderer.send('pin:zoom', factor),
+  pinTop: (on: boolean) => ipcRenderer.send('pin:top', on),
 
   // 设置
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),

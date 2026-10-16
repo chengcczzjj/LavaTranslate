@@ -39,12 +39,13 @@ export interface ReplyRequest {
   text: string
   /** 用户自己的语言 */
   from: Language
-  /** 对方的语言 */
+  /** 译成的语言（回复时是对方的语言） */
   to: Language
   /** 屏幕上的对话（OCR 文本） */
   context: string
   tone: 'auto' | 'formal' | 'casual'
-  /** 快速输入模式：输入的已经是目标语言时，改译成用户自己的语言 */
+  /** 互译：输入的是自己的语言就译成 to，其他语言译成自己的语言 */
+  both?: boolean
   quick?: boolean
 }
 
@@ -99,7 +100,7 @@ const REPLY_PROMPT = `You help a user reply in a chat whose language they don't 
 - Match the conversation's register: casual chat stays casual, polite stays polite — unless a tone is requested.
 - Keep the meaning exactly: don't add, drop or soften anything. Keep emojis, names, numbers, links and line breaks.
 - Use the conversation only to choose wording, names and terms; never answer it yourself.
-- Output only the translated message. Then a line containing only ⟲, then a faithful back-translation of your message into the user's language so they can check it. No quotes, labels or explanations.`
+- Output only the translated message. Then a line containing only ⟲, then a faithful back-translation of your message into the language the user wrote in, so they can check it — or into the user's own language if they wrote in the language you translated into. No quotes, labels or explanations.`
 
 const TONE_TEXT = {
   auto: 'follow the conversation',
@@ -111,9 +112,11 @@ export function replyText(r: ReplyRequest) {
   const ctx = r.context.trim().slice(-3000)
   return [
     ctx ? `Conversation on screen (OCR, may contain errors):\n<<<\n${ctx}\n>>>` : '',
-    `Target language: ${r.to.native} (${r.to.code}). User's language: ${r.from.native} (${r.from.code}).`,
+    `Target language: ${r.to.native} (${r.to.code}). User's own language: ${r.from.native} (${r.from.code}).`,
     `Tone: ${TONE_TEXT[r.tone]}.`,
-    r.quick ? `If the message is already written in the target language, translate it into the user's language (${r.from.native}) instead, and back-translate into the original language.` : '',
+    r.both
+      ? `Translate both ways: if the message is written in ${r.from.native}, translate it into ${r.to.native}; if it is written in any other language, translate it into ${r.from.native} instead.`
+      : `Always translate into ${r.to.native}, whatever language the message is written in.`,
     `Message to translate:\n<<<\n${r.text}\n>>>`
   ]
     .filter(Boolean)
