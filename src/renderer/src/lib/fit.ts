@@ -109,10 +109,11 @@ export function breakLines(
     const k = lines.length
     if (k >= maxLines) return null
     const w = widthOf(k)
+    if (!(w > 0)) return null
     let line = ''
     while (i < us.length) {
       const next = line + us[i]
-      if (measure(font, next.trimEnd()) <= w + 0.5) {
+      if (measure(font, next.trimEnd()) <= w) {
         line = next
         i++
         continue
@@ -124,19 +125,23 @@ export function breakLines(
       if (how === 'hyphen' && /^[A-Za-zÀ-ɏ]{6,}$/.test(word)) {
         // 两侧各至少留 3 个字母
         let n = 3
+        if (measure(font, word.slice(0, n) + '-') > w) return null
         while (n < word.length - 3 && measure(font, word.slice(0, n + 1) + '-') <= w) n++
         line = word.slice(0, n) + '-'
         us[i] = us[i].slice(n)
       } else if (how === 'break' || how === 'hyphen') {
         let cut = ''
-        for (const ch of us[i]) {
-          if (cut && measure(font, cut + ch) > w) break
+        for (const { segment: ch } of new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(us[i])) {
+          if (measure(font, cut + ch) > w) break
           cut += ch
         }
+        if (!cut) return null
         line = cut
         us[i] = us[i].slice(cut.length)
         if (!us[i]) i++
       }
+      // 不允许在无上限的空行里一直跳过同一个单元。
+      if (how === 'skip' && !Number.isFinite(maxLines)) return null
       break
     }
     lines.push(line.trimEnd())

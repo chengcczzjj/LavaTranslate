@@ -21,18 +21,17 @@
   will-change: opacity, filter;
 }
 
-/* 每一行原文位置一块补丁，用背景色向外羽化，边缘与原图自然过渡 */
+/* 补丁边界由布局统一计算并裁去相邻文字，不用外扩阴影覆盖旁边的小字。 */
 .tl-patch {
   position: absolute;
   border-radius: 3px;
-  box-shadow: 0 0 2px 2px var(--bg);
 }
 
 .tl-line {
   position: absolute;
   display: flex;
   align-items: center;
-  overflow: visible;
+  overflow: hidden;
   text-rendering: optimizeLegibility;
   font-kerning: normal;
   letter-spacing: 0;
