@@ -48,7 +48,7 @@ import { PaddleOcr } from './ocr'
 import { refreshPrices, sortByPrice } from './pricing'
 import { check as checkUpdate, initUpdater, installNow, setAutoUpdate, updateState } from './updater'
 import { settings } from './settings'
-import { credentialRecovery, secretLocked, unlockSecret } from './secrets'
+import { secretLocked } from './secrets'
 import { errorText, t, uiLang } from './i18n'
 import { langBase, providerName, UI_LANGS } from '../shared/i18n'
 import { forceForeground, hwndOf, keyDown, VK_SPACE } from './winapi'
@@ -164,7 +164,7 @@ async function refreshChatGPTToken(force: boolean): Promise<string | null> {
   const stillCurrent = () => chatgptSession(settings.get())?.refreshToken === sess.refreshToken
   try {
     const next = await refreshChatGPT(sess)
-    if (stillCurrent()) await settings.updateAsync({ providers: { chatgpt: { key: JSON.stringify(next) } } })
+    if (stillCurrent()) settings.update({ providers: { chatgpt: { key: JSON.stringify(next) } } })
     return null
   } catch (e) {
     logError('chatgpt refresh', e)
@@ -191,8 +191,8 @@ function engineStatus(): EngineStatus {
   const info = providerInfo(s.provider)
   if (secretLocked(s.providers[info.id]?.key ?? '')) {
     return { provider: info.id, ok: false, locked: true, detail: uiLang().startsWith('zh')
-      ? '已保存的 Key 尚未解锁；你可以先使用设置界面。'
-      : 'Your saved key is locked. Settings remain available.' }
+      ? '旧版 Key 已加密，请重新填写一次 API Key。'
+      : 'Your old key is encrypted. Enter your API key again.' }
   }
   const r = resolveProvider(s)
   if (!r)
@@ -965,48 +965,21 @@ function broadcastUiLang() {
   // 更新状态里的提示语也换成新语言
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('update:state', updateState())
 }
-ipcMain.handle('settings:set', async (_e, patch: SettingsPatch) => {
-  await settings.updateAsync(patch)
+ipcMain.handle('settings:set', (_e, patch: SettingsPatch) => {
+  settings.update(patch)
   return settings.public()
 })
-ipcMain.handle('engine:status', () => ({ ...engineStatus(), ...(isMac ? { credentialRecovery: credentialRecovery() } : {}) }))
+ipcMain.handle('engine:status', () => engineStatus())
 ipcMain.handle('mac:settings-status', () => macSettingsStatus())
 ipcMain.handle('mac:open-settings', (_event, pane: string) => openMacSettings(pane))
-ipcMain.handle('credentials:unlock', async () => {
-  if (!isMac) return { ok: true }
-  try {
-    const stored = settings.providerConfig().key
-    await unlockSecret(stored)
-    buildEngine(settings.get())
-    updateTray()
-    settingsWin?.webContents.send('settings:changed', settings.public())
-    return { ok: !engineStatus().locked }
-  } catch {
-    return { ok: false, recovery: credentialRecovery() }
-  }
-})
-let credentialRestartScheduled = false
-ipcMain.handle('credentials:restart', (event) => {
-  if (!isMac || !credentialRecovery() || event.sender !== settingsWin?.webContents) return false
-  if (!credentialRestartScheduled) {
-    credentialRestartScheduled = true
-    // Return the IPC response before exiting. A fresh process resets Electron's
-    // cached denial; do not automatically prompt, change settings, or loop.
-    setTimeout(() => {
-      app.relaunch({ args: [...process.argv.slice(1).filter((arg) => arg !== '--retry-keychain'), '--retry-keychain'] })
-      app.exit(0)
-    }, 150)
-  }
-  return true
-})
 /** 本机已有的 OpenAI 兼容凭据（Codex 配置、CC Switch），可一键导入 */
 ipcMain.handle('openai:sources', (): OpenAISource[] =>
   findOpenAISources().map((f) => ({ id: f.id, label: f.label, baseURL: f.baseURL, hasKey: !!f.apiKey, model: f.model }))
 )
-ipcMain.handle('openai:import', async (_e, id: string) => {
+ipcMain.handle('openai:import', (_e, id: string) => {
   const src = findOpenAISources().find((f) => f.id === id)
   if (!src) return settings.public()
-  await settings.updateAsync({ provider: 'custom', providers: { custom: { baseUrl: src.baseURL, key: src.apiKey, model: '' } } })
+  settings.update({ provider: 'custom', providers: { custom: { baseUrl: src.baseURL, key: src.apiKey, model: '' } } })
   return settings.public()
 })
 /** 打开服务商的网页（获取 Key、文档）；只允许 https */
@@ -1044,7 +1017,7 @@ ipcMain.handle('chatgpt:signin', async (): Promise<{ ok: boolean; message?: stri
     const s = settings.get()
     const sess = await signInChatGPT(s.installId, chatgptSession(s))
     if (settingsWin && !settingsWin.isDestroyed()) settingsWin.focus()
-    await settings.updateAsync({ provider: 'chatgpt', providers: { chatgpt: { key: JSON.stringify(sess), label: sess.email ?? '', baseUrl: '', expired: false } } })
+    settings.update({ provider: 'chatgpt', providers: { chatgpt: { key: JSON.stringify(sess), label: sess.email ?? '', baseUrl: '', expired: false } } })
     return { ok: true }
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) }
@@ -1453,9 +1426,7 @@ app.whenReady().then(async () => {
     return
   }
 
-  if (isMac && process.argv.includes('--retry-keychain')) {
-    openSettings()
-  } else if (!s.firstRunDone) {
+  if (!s.firstRunDone) {
     // 第一次运行：默认译成系统语言
     settings.update({ firstRunDone: true, targetLang: systemTarget() })
     openSettings()

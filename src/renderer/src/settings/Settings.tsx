@@ -64,9 +64,6 @@ export function Settings() {
   const [version, setVersion] = useState('')
   const [upd, setUpd] = useState<UpdateState | null>(null)
   const [loadError, setLoadError] = useState('')
-  const [unlocking, setUnlocking] = useState(false)
-  const [unlockMessage, setUnlockMessage] = useState('')
-  const [restarting, setRestarting] = useState(false)
   const zh = i.lang.startsWith('zh')
 
   const loadSettings = useCallback(() => {
@@ -134,7 +131,7 @@ export function Settings() {
           <div className="nav-foot">
             <button className="nav-status" onClick={() => setPage('engine')}>
               <span className={`dot ${status?.ok ? 'ok' : 'bad'}`} />
-              {status?.locked ? (zh ? 'Key 待解锁' : 'Key locked') : status?.ok ? t('nav.ready') : t('nav.needSetup')}
+              {status?.locked ? (zh ? '需重新填写 Key' : 'Re-enter key') : status?.ok ? t('nav.ready') : t('nav.needSetup')}
             </button>
             <button className={`nav-ver${upd?.state === 'ready' ? ' hot' : ''}`} onClick={() => setPage('about')}>
               v{version} · {updateShort(upd, i)}
@@ -142,42 +139,13 @@ export function Settings() {
           </div>
         </nav>
         <main className="content">
-          {isMac && (status?.locked || status?.credentialRecovery) && (
+          {isMac && status?.locked && (
             <div className="mac-credentials" role="status">
-            <div className="status-bar">
-              <KeyRound size={18} />
-              <span className="status-text">{unlockMessage || (status?.credentialRecovery
-                ? (status.credentialRecovery === 'timeout'
-                  ? (zh ? '系统验证等待超时。原配置已保留，请重新打开应用后再解锁。' : 'macOS verification timed out. Reopen the app to retry. Your saved configuration is unchanged.')
-                  : (zh ? '钥匙串访问未完成。原配置已保留，请重新打开应用后再解锁。' : 'Keychain access did not complete. Reopen the app to retry. Your saved configuration is unchanged.'))
-                : (zh ? '已保存的 Key 尚未解锁，原配置已保留。' : 'Your saved key is locked. Your configuration is preserved.'))}</span>
-              {status?.credentialRecovery ? <button className="btn" disabled={restarting} onClick={async () => {
-                setRestarting(true)
-                setUnlockMessage('')
-                try {
-                  if (!await window.lens.restartCredentials()) throw new Error('restart unavailable')
-                } catch {
-                  setRestarting(false)
-                  setUnlockMessage(zh ? '未能重新打开。请按 ⌘Q 退出 LavaTranslate，再从「应用程序」打开。' : 'Could not reopen. Quit LavaTranslate with ⌘Q, then open it from Applications.')
-                }
-              }}>{restarting ? (zh ? '正在重新打开…' : 'Reopening…') : (zh ? '重新打开应用' : 'Reopen app')}</button> : <button className="btn" disabled={unlocking} onClick={async () => {
-                setUnlocking(true)
-                setUnlockMessage('')
-                try {
-                  const result = await window.lens.unlockCredentials()
-                  if (result.recovery) setStatus((s) => s && ({ ...s, credentialRecovery: result.recovery }))
-                  else if (!result.ok) setUnlockMessage(zh ? '当前服务的 Key 仍待解锁，请重试。' : 'The current service key is still locked. Try again.')
-                } catch {
-                  setUnlockMessage(zh ? '未能完成解锁，请重试；如果系统没有响应，请退出并重新打开应用。' : 'Could not complete unlocking. Try again, or quit and reopen the app if macOS does not respond.')
-                } finally { setUnlocking(false) }
-                refreshStatus()
-              }}>{unlocking ? (zh ? '等待系统验证…' : 'Waiting for macOS…') : (zh ? '解锁 Key' : 'Unlock key')}</button>}
-            </div>
-            <div className="note">{status?.credentialRecovery
-              ? (zh ? '重新打开后再点「解锁 Key」。尚未保存的输入不会保留。' : 'After reopening, click “Unlock key” again. Unsaved input will not be kept.')
-              : (zh ? '请在 macOS 验证窗口输入登录钥匙串密码，通常是 Mac 登录密码。' : 'Enter your login keychain password in the macOS dialog, usually your Mac login password.')}
-              {' '}<button className="link" onClick={() => window.lens.openExternal(`https://support.apple.com/${zh ? 'zh-cn' : 'en-us'}/guide/keychain-access/kyca2429/mac`)}>{zh ? '忘记钥匙串密码？' : 'Forgot your keychain password?'}</button>
-            </div>
+              <div className="status-bar">
+                <KeyRound size={18} />
+                <span className="status-text">{zh ? '旧版 Key 已加密，请重新填写一次。新 Key 将直接保存在此 Mac，无需钥匙串密码。' : 'Your old key is encrypted. Enter it again to save it locally on this Mac without Keychain.'}</span>
+                <button className="btn" onClick={() => setPage('engine')}>{zh ? '重新填写 Key' : 'Enter key again'}</button>
+              </div>
             </div>
           )}
           <AnimatePresence mode="wait">
@@ -581,7 +549,7 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
     try { await update({ provider: id, providers: { [id]: { key: key.trim(), baseUrl } } }) }
     catch (error) {
       if (!isMac) throw error
-      setResult({ kind: 'err', text: i.lang.startsWith('zh') ? '未能保存 Key，原配置未修改。若页面上方提示钥匙串访问失败，请先重新打开应用，再输入 Key 保存。' : 'Could not save the key. Your saved configuration is unchanged. If the Keychain notice appears above, reopen the app before entering and saving the key again.' })
+      setResult({ kind: 'err', text: i.lang.startsWith('zh') ? '未能保存 Key，请检查本机存储空间与配置目录的写入权限。' : 'Could not save the key. Check disk space and access to the app’s settings folder.' })
       return
     }
     setKey('')
@@ -616,7 +584,7 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
     try { await window.lens.openaiImport(id) }
     catch (error) {
       if (!isMac) throw error
-      setResult({ kind: 'err', text: i.lang.startsWith('zh') ? '未能导入，原配置未修改。若页面上方提示钥匙串访问失败，请先重新打开应用，再导入。' : 'Could not import. Your saved configuration is unchanged. If the Keychain notice appears above, reopen the app before importing again.' })
+      setResult({ kind: 'err', text: i.lang.startsWith('zh') ? '未能导入，请检查本机存储空间与配置目录的写入权限。' : 'Could not import. Check disk space and access to the app’s settings folder.' })
       return
     }
     setResult({ kind: 'ok', text: t('key.imported') })

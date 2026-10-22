@@ -74,8 +74,6 @@ const api = {
   onSettings: (cb: (s: Settings) => void) => on('settings:changed', cb),
   openSettings: () => ipcRenderer.send('settings:open'),
   engineStatus: (): Promise<EngineStatus> => ipcRenderer.invoke('engine:status'),
-  unlockCredentials: (): Promise<{ ok: boolean; recovery?: 'failed' | 'timeout' }> => ipcRenderer.invoke('credentials:unlock'),
-  restartCredentials: (): Promise<boolean> => ipcRenderer.invoke('credentials:restart'),
   macSettingsStatus: (): Promise<{ screen: boolean; input: boolean; launchAtLogin: boolean } | null> => ipcRenderer.invoke('mac:settings-status'),
   openMacSettings: (pane: 'screen' | 'input' | 'login' | 'keyboard'): Promise<void> => ipcRenderer.invoke('mac:open-settings', pane),
   testEngine: (): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('engine:test'),

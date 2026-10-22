@@ -1,8 +1,8 @@
 import { app } from 'electron'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, providerForUrl, type ProviderConfig, type ProviderId, type Settings, type SettingsPatch } from '../shared/types'
-import { encryptSecret, encryptSecretAsync, isMasked, maskSecret } from './secrets'
+import { encryptSecret, isMasked, maskSecret } from './secrets'
 
 type Listener = (next: Settings, prev: Settings) => void
 
@@ -41,6 +41,7 @@ class SettingsStore {
     mkdirSync(dir, { recursive: true })
     this.file = join(dir, 'settings.json')
     if (existsSync(this.file)) {
+      if (process.platform === 'darwin') chmodSync(this.file, 0o600)
       let changed = false
       try {
         ;({ data: this.data, changed } = migrate(JSON.parse(readFileSync(this.file, 'utf8'))))
@@ -74,12 +75,15 @@ class SettingsStore {
   private write() {
     const json = JSON.stringify(this.data, null, 2)
     const tmp = `${this.file}.tmp`
-    writeFileSync(tmp, json, { flush: true })
+    if (process.platform === 'darwin' && existsSync(tmp)) chmodSync(tmp, 0o600)
+    writeFileSync(tmp, json, { flush: true, ...(process.platform === 'darwin' ? { mode: 0o600 } : {}) })
+    if (process.platform === 'darwin') chmodSync(tmp, 0o600)
     try {
       renameSync(tmp, this.file)
     } catch {
       // 杀毒软件等临时占用文件时改名会失败：退回直接覆盖
-      writeFileSync(this.file, json)
+      writeFileSync(this.file, json, process.platform === 'darwin' ? { mode: 0o600 } : {})
+      if (process.platform === 'darwin') chmodSync(this.file, 0o600)
       rmSync(tmp, { force: true })
     }
   }
@@ -101,17 +105,6 @@ class SettingsStore {
   }
 
   /** providers 按服务商逐项合并；界面回传的打码 Key 表示未修改 */
-  async updateAsync(patch: SettingsPatch): Promise<Settings> {
-    if (process.platform !== 'darwin' || !patch.providers) return this.update(patch)
-    const providers = { ...patch.providers }
-    for (const [id, config] of Object.entries(providers)) {
-      if (config?.key !== undefined && !isMasked(config.key)) {
-        providers[id as ProviderId] = { ...config, key: await encryptSecretAsync(config.key.trim()) }
-      }
-    }
-    return this.update({ ...patch, providers })
-  }
-
   update(patch: SettingsPatch): Settings {
     const prev = this.data
     const { providers: pp, ...rest } = patch

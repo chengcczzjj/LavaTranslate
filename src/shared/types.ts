@@ -174,7 +174,6 @@ export interface EngineStatus {
   ok: boolean
   detail: string
   locked?: boolean
-  credentialRecovery?: 'failed' | 'timeout'
 }
 
 /** 截图帧：主进程 → 遮罩窗口 */
