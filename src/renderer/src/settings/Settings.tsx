@@ -41,6 +41,7 @@ import {
 } from '@shared/types'
 import { UI_LANGS, type MsgKey } from '@shared/i18n'
 import { useI18n, type I18n } from '../lib/i18n'
+import { isMac, shortcutLabel } from '../lib/desktop'
 
 type Page = 'home' | 'translate' | 'engine' | 'general' | 'about'
 
@@ -97,7 +98,7 @@ export function Settings() {
 
   if (!s) return null
   return (
-    <div className="app">
+    <div className={`app${isMac ? ' mac' : ''}`}>
       <header className="titlebar">
         <img src="./icon.png" alt="" />
         <span>LavaTranslate</span>
@@ -234,7 +235,7 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
       <div className="shortcuts">
         {SHORTCUTS.map(([k, d]) => (
           <div key={d} className="sc">
-            <kbd>{k.includes('.') ? t(k as MsgKey) : k}</kbd>
+            <kbd>{isMac && k === 'sc.tray' ? 'Cmd ,' : isMac && k === 'F3' ? 'Cmd T' : shortcutLabel(k.includes('.') ? t(k as MsgKey) : k)}</kbd>
             <span>{t(d)}</span>
           </div>
         ))}
@@ -927,7 +928,7 @@ function GeneralPage({ s, update }: { s: S; update: (p: SettingsPatch) => void }
           onChange={(v) => update({ uiLang: v })}
         />
       </Card>
-      <Card title={t('gen.launch')} desc={t('gen.launchDesc')} icon={<Power size={18} />}>
+      <Card title={t('gen.launch', { system: isMac ? 'macOS' : 'Windows' })} desc={t('gen.launchDesc', { system: isMac ? 'macOS' : 'Windows' })} icon={<Power size={18} />}>
         <Toggle on={s.launchAtLogin} onChange={(v) => update({ launchAtLogin: v })} />
       </Card>
     </>
@@ -949,7 +950,7 @@ function HotkeyInput({ value }: { value: string }) {
         setRec(false)
         return
       }
-      const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean) as string[]
+      const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && (isMac ? 'Command' : 'Super')].filter(Boolean) as string[]
       const key = keyName(e.code)
       setDraft(key ? [...mods, key] : mods)
       if (!key) return
@@ -983,7 +984,7 @@ function HotkeyInput({ value }: { value: string }) {
         {keys.length ? (
           keys.map((k, n) => (
             <motion.span key={k + n} className="keycap sm" initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-              {k}
+              {shortcutLabel(k)}
             </motion.span>
           ))
         ) : (
@@ -1074,9 +1075,9 @@ function About({ s, update, version, ocr }: { s: S; update: (p: SettingsPatch) =
           </button>
         )}
       </div>
-      <Card title={t('about.autoUpdate')} desc={t('about.autoUpdateDesc')} icon={<Download size={18} />}>
+      {(!isMac || u?.state !== 'disabled') && <Card title={t('about.autoUpdate')} desc={t('about.autoUpdateDesc')} icon={<Download size={18} />}>
         <Toggle on={s.autoUpdate} onChange={(v) => update({ autoUpdate: v })} />
-      </Card>
+      </Card>}
 
       <h3 className="h3">{t('about.tech')}</h3>
       <Card title={t('about.translate')} desc={t('about.translateDesc')} />

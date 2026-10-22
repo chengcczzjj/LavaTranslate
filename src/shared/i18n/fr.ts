@@ -261,7 +261,7 @@ const fr: Messages = {
   'gen.hotkey': 'Raccourci',
   'gen.hotkeyDesc': 'Appuyez n’importe où pour sélectionner une zone ; deux fois (ex. Alt+Q Q) pour saisir du texte',
   'gen.uiLang': 'Langue',
-  'gen.launch': 'Lancer avec Windows',
+  'gen.launch': 'Lancer avec {system}',
   'gen.launchDesc': 'Reste dans la zone de notification après la connexion',
   'hotkey.needMod': 'Incluez au moins une touche de modification (Ctrl / Alt / Maj)',
   'hotkey.failed': 'Impossible de définir le raccourci',

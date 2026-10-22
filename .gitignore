@@ -3,6 +3,7 @@ out/
 dist/
 *.log
 *.tsbuildinfo
+.DS_Store
 
 # OCR 模型由 npm run models 下载（约 30 MB）
 resources/models/

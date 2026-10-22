@@ -55,7 +55,7 @@ export class PaddleOcr {
   init(): Promise<void> {
     if (!this.ready) {
       this.ready = (async () => {
-        // 优先 DirectML（GPU），失败回退 CPU
+        // Windows 优先 DirectML（GPU）；macOS 用 ONNX Runtime CPU 后端。
         const create = async (ep: 'dml' | 'cpu') => {
           const opts: ort.InferenceSession.SessionOptions = {
             graphOptimizationLevel: 'all',
@@ -68,10 +68,15 @@ export class PaddleOcr {
             ort.InferenceSession.create(join(this.modelDir, 'rec.onnx'), opts)
           ])
         }
-        try {
-          ;[this.det, this.rec] = await create('dml')
-          this.provider = 'dml'
-        } catch {
+        if (process.platform === 'win32') {
+          try {
+            ;[this.det, this.rec] = await create('dml')
+            this.provider = 'dml'
+          } catch {
+            ;[this.det, this.rec] = await create('cpu')
+            this.provider = 'cpu'
+          }
+        } else {
           ;[this.det, this.rec] = await create('cpu')
           this.provider = 'cpu'
         }

@@ -261,7 +261,7 @@ const ru: Messages = {
   'gen.hotkey': 'Сочетание клавиш',
   'gen.hotkeyDesc': 'Нажмите где угодно, чтобы выделить область; дважды (например, Alt+Q Q) — чтобы ввести текст',
   'gen.uiLang': 'Язык интерфейса',
-  'gen.launch': 'Запускать с Windows',
+  'gen.launch': 'Запускать с {system}',
   'gen.launchDesc': 'Работает в трее после входа в систему',
   'hotkey.needMod': 'Нужна хотя бы одна клавиша-модификатор (Ctrl / Alt / Shift)',
   'hotkey.failed': 'Не удалось задать сочетание',

@@ -272,7 +272,7 @@ const zhHans = {
   'gen.hotkeyDesc': '随时按下开始框选；连按两次（如 Alt+Q Q）输入文字翻译',
   'gen.uiLang': '界面语言',
   'gen.launch': '开机启动',
-  'gen.launchDesc': '登录 Windows 后在托盘后台运行',
+  'gen.launchDesc': '登录 {system} 后在后台运行',
   'hotkey.needMod': '至少包含一个修饰键（Ctrl / Alt / Shift）',
   'hotkey.failed': '设置失败',
   'hotkey.press': '按下新的组合键…',

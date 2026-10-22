@@ -262,7 +262,7 @@ const zhHant: Messages = {
   'gen.hotkeyDesc': '隨時按下開始框選；連按兩次（如 Alt+Q Q）輸入文字翻譯',
   'gen.uiLang': '介面語言',
   'gen.launch': '開機啟動',
-  'gen.launchDesc': '登入 Windows 後在系統匣背景執行',
+  'gen.launchDesc': '登入 {system} 後在背景執行',
   'hotkey.needMod': '至少包含一個輔助鍵（Ctrl / Alt / Shift）',
   'hotkey.failed': '設定失敗',
   'hotkey.press': '按下新的組合鍵…',

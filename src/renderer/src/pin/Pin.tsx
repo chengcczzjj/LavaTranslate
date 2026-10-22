@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PinPayload } from '@shared/types'
 import { TranslationLayer } from '../components/TranslationLayer'
 import { useI18n } from '../lib/i18n'
+import { primaryModifier } from '../lib/desktop'
 
 const MARGIN = 18
 
@@ -56,7 +57,7 @@ export function Pin() {
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close()
       else if (e.key === ' ') setPeek(e.type === 'keydown' && !data?.original)
-      else if (e.ctrlKey && e.key.toLowerCase() === 'c' && e.type === 'keydown') copy()
+      else if (primaryModifier(e) && e.key.toLowerCase() === 'c' && e.type === 'keydown') copy()
     }
     window.addEventListener('keydown', key)
     window.addEventListener('keyup', key)

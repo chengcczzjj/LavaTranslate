@@ -58,6 +58,10 @@
 2. 运行安装程序。如果 Windows SmartScreen 提示「未知发布者」，点 **更多信息 → 仍要运行**；
 3. 装好后 LavaTranslate 常驻在系统托盘，之后的新版本会在后台自动下载（见[自动更新](#自动更新)）。
 
+## Mac 版（调试预览）
+
+已添加面向 **Apple Silicon（M 系列芯片）** 的 macOS 源码适配。可在 Windows 修改与构建代码，再带到 Mac 运行、调试和打包；当前尚未完成 Mac 真机验证。迁移、授权和打包步骤见 [Mac 调试指南](docs/MACOS.md)。
+
 ## 安卓版
 
 在 [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest) 下载 **`LavaTranslate-Android-x.y.z.apk`**（Android 10 及以上，arm64），装好后打开，按页面上的提示在系统「无障碍」里打开 LavaTranslate、填 API Key。

@@ -261,7 +261,7 @@ const ja: Messages = {
   'gen.hotkey': 'ショートカット',
   'gen.hotkeyDesc': 'どこでも押せば範囲選択を開始。2 回押す（例：Alt+Q Q）と文字を入力して翻訳',
   'gen.uiLang': '表示言語',
-  'gen.launch': 'Windows 起動時に開始',
+  'gen.launch': '{system} 起動時に開始',
   'gen.launchDesc': 'サインイン後にトレイで常駐します',
   'hotkey.needMod': '修飾キー（Ctrl / Alt / Shift）を 1 つ以上含めてください',
   'hotkey.failed': '設定できませんでした',

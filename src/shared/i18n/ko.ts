@@ -261,7 +261,7 @@ const ko: Messages = {
   'gen.hotkey': '단축키',
   'gen.hotkeyDesc': '어디서든 누르면 영역 선택 시작. 두 번 누르면(예: Alt+Q Q) 글자를 입력해 번역',
   'gen.uiLang': '표시 언어',
-  'gen.launch': 'Windows 시작 시 실행',
+  'gen.launch': '{system} 시작 시 실행',
   'gen.launchDesc': '로그인 후 트레이에서 실행됩니다',
   'hotkey.needMod': '보조 키(Ctrl / Alt / Shift)를 하나 이상 포함하세요',
   'hotkey.failed': '설정하지 못했습니다',

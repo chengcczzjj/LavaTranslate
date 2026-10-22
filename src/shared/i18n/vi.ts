@@ -261,7 +261,7 @@ const vi: Messages = {
   'gen.hotkey': 'Phím tắt',
   'gen.hotkeyDesc': 'Nhấn ở bất kỳ đâu để chọn vùng; nhấn hai lần (vd Alt+Q Q) để gõ chữ',
   'gen.uiLang': 'Ngôn ngữ giao diện',
-  'gen.launch': 'Khởi động cùng Windows',
+  'gen.launch': 'Khởi động cùng {system}',
   'gen.launchDesc': 'Chạy ở khay hệ thống sau khi đăng nhập',
   'hotkey.needMod': 'Cần ít nhất một phím bổ trợ (Ctrl / Alt / Shift)',
   'hotkey.failed': 'Không đặt được phím tắt',

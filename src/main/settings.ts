@@ -7,13 +7,14 @@ import { encryptSecret, isMasked, maskSecret } from './secrets'
 type Listener = (next: Settings, prev: Settings) => void
 
 const EMPTY: ProviderConfig = { key: '', baseUrl: '', model: '' }
+const defaults: Settings = { ...DEFAULT_SETTINGS, hotkey: process.platform === 'darwin' ? 'Command+Shift+2' : DEFAULT_SETTINGS.hotkey }
 
 /**
  * 旧版设置（engine + apiKey / openaiKey…）转成按服务商保存的结构。
  * 已加密的 Key 原样搬过去：同一个数据目录，照样能解密
  */
 function migrate(raw: any): { data: Settings; changed: boolean } {
-  if (raw.providers && raw.provider) return { data: { ...DEFAULT_SETTINGS, ...raw }, changed: false }
+  if (raw.providers && raw.provider) return { data: { ...defaults, ...raw }, changed: false }
   const providers: Settings['providers'] = { ...(raw.providers ?? {}) }
   let provider: ProviderId = DEFAULT_SETTINGS.provider
   if (raw.openaiKey || raw.openaiBaseUrl) {
@@ -25,13 +26,13 @@ function migrate(raw: any): { data: Settings; changed: boolean } {
     providers.claude = { key: raw.apiKey, baseUrl: raw.apiBaseUrl ?? '', model: /^claude/.test(raw.model ?? '') ? raw.model : '' }
     if (raw.engine === 'api') provider = 'claude'
   }
-  const data: any = { ...DEFAULT_SETTINGS, ...raw, provider, providers }
+  const data: any = { ...defaults, ...raw, provider, providers }
   for (const k of ['engine', 'model', 'apiKey', 'apiBaseUrl', 'openaiKey', 'openaiBaseUrl', 'openaiModel', 'openaiSource']) delete data[k]
   return { data, changed: true }
 }
 
 class SettingsStore {
-  private data: Settings = { ...DEFAULT_SETTINGS }
+  private data: Settings = { ...defaults }
   private file = ''
   private listeners = new Set<Listener>()
 
@@ -50,7 +51,7 @@ class SettingsStore {
         } catch {
           /* 忽略 */
         }
-        this.data = { ...DEFAULT_SETTINGS }
+        this.data = { ...defaults }
       }
       // 明文保存的 Key（旧版或手工写入）改为加密
       for (const [id, c] of Object.entries(this.data.providers)) {

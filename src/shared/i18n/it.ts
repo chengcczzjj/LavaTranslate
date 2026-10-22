@@ -261,7 +261,7 @@ const it: Messages = {
   'gen.hotkey': 'Scorciatoia',
   'gen.hotkeyDesc': 'Premila ovunque per selezionare un’area; due volte (es. Alt+Q Q) per scrivere un testo',
   'gen.uiLang': 'Lingua',
-  'gen.launch': 'Avvia con Windows',
+  'gen.launch': 'Avvia con {system}',
   'gen.launchDesc': 'Resta nell’area di notifica dopo l’accesso',
   'hotkey.needMod': 'Includi almeno un tasto modificatore (Ctrl / Alt / Maiusc)',
   'hotkey.failed': 'Impossibile impostare la scorciatoia',

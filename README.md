@@ -60,6 +60,10 @@ Press the hotkey **twice** (<kbd>Alt</kbd>+<kbd>Q</kbd> <kbd>Q</kbd>) to skip th
 
 > The interface is currently in Simplified Chinese. You can translate between any languages the model supports.
 
+## macOS (development preview)
+
+Source adaptations for **Apple Silicon Macs** are available. Development and static checks can run on Windows; macOS runtime testing and packaging still need a Mac. This preview has not yet been validated on Mac hardware. See the [Mac setup and debugging guide](docs/MACOS.md) (Chinese).
+
 ## Android
 
 Download **`LavaTranslate-Android-x.y.z.apk`** from [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest) (Android 10 or later, arm64). Open it and follow the on-screen steps to turn LavaTranslate on under Accessibility and add an API key.

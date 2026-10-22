@@ -21,6 +21,7 @@ import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { LANGUAGES, type ErrorCode, type Phase } from '@shared/types'
 import { Tip } from '../components/Tip'
 import { useI18n } from '../lib/i18n'
+import { shortcutLabel } from '../lib/desktop'
 
 export interface ToolbarProps {
   phase: Phase
@@ -166,12 +167,12 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
 
       <div className="tb-sep" />
 
-      <Tip label={t('tb.copy')} keys="Ctrl C">
+      <Tip label={t('tb.copy')} keys={shortcutLabel('Ctrl C')}>
         <button className="tb-btn" disabled={!p.progress.done} onClick={p.onCopy}>
           <Copy size={16} />
         </button>
       </Tip>
-      <Tip label={t('tb.copyImage')} keys="Ctrl Shift C">
+      <Tip label={t('tb.copyImage')} keys={shortcutLabel('Ctrl Shift C')}>
         <button className="tb-btn" disabled={!p.progress.done} onClick={p.onCopyImage}>
           <ImageDown size={17} />
         </button>
@@ -181,7 +182,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
           <Pin size={16} />
         </button>
       </Tip>
-      <Tip label={t('tb.save')} keys="Ctrl S">
+      <Tip label={t('tb.save')} keys={shortcutLabel('Ctrl S')}>
         <button className="tb-btn" disabled={!p.progress.done} onClick={p.onSave}>
           <Download size={16} />
         </button>
@@ -197,7 +198,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
 
       <div className="tb-sep" />
 
-      <Tip label={busy ? t('tb.busy') : t('tb.retranslate')} keys="Ctrl R">
+      <Tip label={busy ? t('tb.busy') : t('tb.retranslate')} keys={shortcutLabel('Ctrl R')}>
         <button className="tb-btn" disabled={busy} onClick={p.onRetry}>
           <RotateCw size={15} className={busy ? 'spin-slow' : ''} />
         </button>

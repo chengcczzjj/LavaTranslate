@@ -3,7 +3,10 @@ import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import type { UpdateState } from '../shared/types'
 import type { MsgKey } from '../shared/i18n'
-import { t } from './i18n'
+import { t, uiLang } from './i18n'
+
+// macOS 适配预览包尚未发布 latest-mac.yml；建立签名发布通道后再开启自动更新。
+const macPreview = process.platform === 'darwin'
 
 const CHECK_EVERY = 4 * 3600 * 1000
 
@@ -21,6 +24,10 @@ function set(s: UpdateState) {
 const MSG_KEYS = new Set<string>(['upd.devBuild', 'upd.noRelease', 'upd.offline', 'upd.noNew'])
 
 export function updateState(): UpdateState {
+  if (macPreview && state.state === 'disabled' && app.isPackaged) return {
+    ...state,
+    message: uiLang().startsWith('zh') ? 'Mac 调试预览版：请手动安装新版本' : 'Mac preview: install new versions manually'
+  }
   if ('message' in state && state.message && MSG_KEYS.has(state.message)) return { ...state, message: t(state.message as MsgKey) }
   return state
 }
@@ -29,7 +36,7 @@ export function initUpdater(opts: { enabled: () => boolean; onChange: (s: Update
   enabled = opts.enabled
   listener = opts.onChange
   const version = app.getVersion()
-  if (!app.isPackaged) {
+  if (!app.isPackaged || macPreview) {
     set({ state: 'disabled', version, message: 'upd.devBuild' })
     return
   }
@@ -61,7 +68,7 @@ function schedule() {
 
 /** 设置里切换"自动更新"后调用 */
 export function setAutoUpdate(on: boolean) {
-  if (!app.isPackaged) return
+  if (!app.isPackaged || macPreview) return
   if (on) schedule()
   else if (timer) {
     clearInterval(timer)
@@ -70,7 +77,7 @@ export function setAutoUpdate(on: boolean) {
 }
 
 export async function check(): Promise<UpdateState> {
-  if (!app.isPackaged) return state
+  if (!app.isPackaged || macPreview) return updateState()
   if (state.state === 'downloading' || state.state === 'ready') return state
   try {
     await autoUpdater.checkForUpdates()

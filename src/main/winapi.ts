@@ -14,6 +14,7 @@ interface User32 {
 let api: User32 | null | undefined
 
 function win32(): User32 | null {
+  if (process.platform !== 'win32') return null
   if (api !== undefined) return api
   try {
     const u = load('user32.dll')

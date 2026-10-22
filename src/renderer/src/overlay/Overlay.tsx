@@ -17,6 +17,7 @@ import { sampleColors } from '../lib/colors'
 import { langBase, ReplyComposer } from './ReplyComposer'
 import { Toolbar } from './Toolbar'
 import { currentI18n, useI18n } from '../lib/i18n'
+import { isMac, primaryModifier } from '../lib/desktop'
 
 /** quick：连按两次快捷键，不框选，直接输入一句话翻译 */
 type Stage = 'hidden' | 'idle' | 'drawing' | 'selected' | 'quick'
@@ -638,10 +639,11 @@ export function Overlay() {
       if (stage === 'hidden') return
       const el = e.target as HTMLElement
       if (el.tagName === 'INPUT') return
-      const k = e.key.toLowerCase()
+      // Option+C 在 Mac 上会产生 ç；组合键按物理字母键识别。
+      const k = isMac && e.altKey && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : e.key.toLowerCase()
       // 回复框只会把「空白时的空格/Enter/Tab」和 Ctrl 组合键冒泡上来
       const inReply = el.tagName === 'TEXTAREA'
-      if (inReply && e.ctrlKey && k === 'c') {
+      if (inReply && primaryModifier(e) && k === 'c') {
         const ta = el as HTMLTextAreaElement
         if (ta.selectionStart !== ta.selectionEnd) return
       }
@@ -653,19 +655,19 @@ export function Overlay() {
       } else if (e.key === 'Tab') {
         e.preventDefault()
         changeMode(mode === 'overlay' ? 'side' : 'overlay')
-      } else if (e.ctrlKey && e.shiftKey && k === 'c') {
+      } else if (primaryModifier(e) && e.shiftKey && k === 'c') {
         e.preventDefault()
         void copyImage()
-      } else if (e.ctrlKey && k === 'c') {
+      } else if (primaryModifier(e) && k === 'c') {
         e.preventDefault()
         copyAll()
-      } else if (e.ctrlKey && k === 's') {
+      } else if (primaryModifier(e) && k === 's') {
         e.preventDefault()
         void saveImage()
-      } else if (e.key === 'F3' || (e.ctrlKey && k === 't')) {
+      } else if (e.key === 'F3' || (primaryModifier(e) && k === 't')) {
         e.preventDefault()
         pin(e.altKey)
-      } else if ((e.ctrlKey && k === 'r') || e.key === 'F5') {
+      } else if ((primaryModifier(e) && k === 'r') || e.key === 'F5') {
         e.preventDefault()
         retry()
       } else if (e.key === 'Enter') {

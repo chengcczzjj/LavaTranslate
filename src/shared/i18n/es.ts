@@ -261,7 +261,7 @@ const es: Messages = {
   'gen.hotkey': 'Atajo',
   'gen.hotkeyDesc': 'Púlsalo en cualquier sitio para seleccionar una zona; dos veces (p. ej. Alt+Q Q) para escribir texto',
   'gen.uiLang': 'Idioma',
-  'gen.launch': 'Iniciar con Windows',
+  'gen.launch': 'Iniciar con {system}',
   'gen.launchDesc': 'Se queda en la bandeja al iniciar sesión',
   'hotkey.needMod': 'Incluye al menos un modificador (Ctrl / Alt / Mayús)',
   'hotkey.failed': 'No se pudo asignar el atajo',

@@ -261,7 +261,7 @@ const pt: Messages = {
   'gen.hotkey': 'Atalho',
   'gen.hotkeyDesc': 'Pressione em qualquer lugar para selecionar uma área; duas vezes (ex.: Alt+Q Q) para digitar texto',
   'gen.uiLang': 'Idioma',
-  'gen.launch': 'Iniciar com o Windows',
+  'gen.launch': 'Iniciar com o {system}',
   'gen.launchDesc': 'Fica na bandeja depois que você entra',
   'hotkey.needMod': 'Inclua pelo menos um modificador (Ctrl / Alt / Shift)',
   'hotkey.failed': 'Não foi possível definir o atalho',

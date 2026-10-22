@@ -1,4 +1,4 @@
-// API Key 落盘加密：Windows 上由 DPAPI 绑定当前用户（Electron safeStorage）；界面只拿到打码后的形式
+// API Key 落盘加密：Electron safeStorage（Windows DPAPI / macOS Keychain）；界面只拿到打码后的形式
 import { safeStorage } from 'electron'
 
 const ENC = 'enc:'

@@ -1,7 +1,8 @@
-// 屏幕截图（node-screenshots，DXGI/GDI，单屏 ~30ms）与窗口区域枚举
+// 屏幕截图（node-screenshots：Windows DXGI/GDI、macOS CoreGraphics）与窗口区域枚举
 import { screen, type Display } from 'electron'
 import { Monitor, Window } from 'node-screenshots'
 import type { Rect } from '../shared/types'
+import { windowOnCapture } from './capture-geometry'
 
 export interface DisplayCapture {
   display: Display
@@ -21,19 +22,26 @@ interface MonitorInfo {
   h: number
 }
 
-/** 把 node-screenshots 的物理坐标显示器与 Electron 的 DIP 显示器一一对应 */
+/** 将截图显示器与 Electron 显示器对应：Windows 物理像素，macOS 点坐标 / CGDisplayID。 */
 function matchMonitors(displays: Display[]): Map<number, MonitorInfo> {
   const monitors: MonitorInfo[] = Monitor.all().map((m) => ({ m, x: m.x(), y: m.y(), w: m.width(), h: m.height() }))
   const result = new Map<number, MonitorInfo>()
   const used = new Set<MonitorInfo>()
   for (const d of displays) {
-    const pw = Math.round(d.bounds.width * d.scaleFactor)
-    const ph = Math.round(d.bounds.height * d.scaleFactor)
-    const phys = screen.dipToScreenRect(null, d.bounds)
+    const mac = process.platform === 'darwin'
+    const pw = Math.round(d.bounds.width * (mac ? 1 : d.scaleFactor))
+    const ph = Math.round(d.bounds.height * (mac ? 1 : d.scaleFactor))
+    // dipToScreenRect 只在 Windows 提供；Mac 上两边都使用 CoreGraphics 点坐标。
+    const phys = process.platform === 'win32' ? screen.dipToScreenRect(null, d.bounds) : d.bounds
     let best: MonitorInfo | null = null
     let bestScore = Infinity
     for (const mi of monitors) {
       if (used.has(mi)) continue
+      // macOS 的 Electron display.id 与 CGDirectDisplayID 相同，优先按 ID 匹配。
+      if (mac && mi.m.id() === d.id) {
+        best = mi
+        break
+      }
       const sizeDiff = Math.abs(mi.w - pw) + Math.abs(mi.h - ph)
       const posDiff = Math.abs(mi.x - phys.x) + Math.abs(mi.y - phys.y)
       const score = sizeDiff * 10 + posDiff
@@ -50,7 +58,7 @@ function matchMonitors(displays: Display[]): Map<number, MonitorInfo> {
   return result
 }
 
-/** exclude：不参与窗口吸附的窗口句柄（按住 Alt 穿透时，透明的遮罩窗口还在最上面） */
+/** exclude：不参与窗口吸附的 Windows 句柄（按住空格穿透时，透明遮罩仍在最上面）。 */
 export async function captureAll(exclude: Set<number> = new Set()): Promise<DisplayCapture[]> {
   const displays = screen.getAllDisplays()
   const map = matchMonitors(displays)
@@ -59,6 +67,8 @@ export async function captureAll(exclude: Set<number> = new Set()): Promise<Disp
   try {
     wins = Window.all()
       .filter((w) => !w.isMinimized() && w.width() > 40 && w.height() > 24 && !exclude.has(w.id()))
+      // Mac 的 nativeWindowHandle 是 NSView 指针，不能当作 CGWindowID。
+      .filter((w) => process.platform !== 'darwin' || w.pid() !== process.pid)
       .sort((a, b) => b.z() - a.z())
       .map((w) => ({ x: w.x(), y: w.y(), w: w.width(), h: w.height() }))
   } catch {
@@ -69,18 +79,17 @@ export async function captureAll(exclude: Set<number> = new Set()): Promise<Disp
     const mi = map.get(display.id)
     if (!mi) return null
     const img = await mi.m.captureImage()
-    const rgba = await img.toRaw()
+    const rgba = await img.toRaw(true)
     const windows: Rect[] = []
     for (const w of wins) {
-      const x0 = Math.max(w.x, mi.x) - mi.x
-      const y0 = Math.max(w.y, mi.y) - mi.y
-      const x1 = Math.min(w.x + w.w, mi.x + mi.w) - mi.x
-      const y1 = Math.min(w.y + w.h, mi.y + mi.h) - mi.y
-      if (x1 - x0 > 40 && y1 - y0 > 24) windows.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
+      const rect = windowOnCapture(w, mi, img)
+      if (rect) windows.push(rect)
     }
     return { display, width: img.width, height: img.height, scale: img.width / display.bounds.width, rgba, windows }
   })
-  return (await Promise.all(jobs)).filter((c): c is DisplayCapture => !!c)
+  const captures = (await Promise.all(jobs)).filter((c): c is DisplayCapture => !!c)
+  if (!captures.length) throw new Error('No displays available for screen capture')
+  return captures
 }
 
 /** 从 RGBA 整屏截图中裁出一块 */

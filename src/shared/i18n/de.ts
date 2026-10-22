@@ -261,7 +261,7 @@ const de: Messages = {
   'gen.hotkey': 'Tastenkürzel',
   'gen.hotkeyDesc': 'Überall drücken, um einen Bereich zu wählen; zweimal (z. B. Alt+Q Q), um Text einzugeben',
   'gen.uiLang': 'Sprache',
-  'gen.launch': 'Mit Windows starten',
+  'gen.launch': 'Mit {system} starten',
   'gen.launchDesc': 'Läuft nach der Anmeldung im Infobereich',
   'hotkey.needMod': 'Mindestens eine Zusatztaste (Strg / Alt / Umschalt)',
   'hotkey.failed': 'Tastenkürzel konnte nicht gesetzt werden',

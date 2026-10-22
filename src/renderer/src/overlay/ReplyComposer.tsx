@@ -4,6 +4,7 @@ import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { LANGUAGES, type Settings } from '@shared/types'
 import type { MsgKey } from '@shared/i18n'
 import { useI18n } from '../lib/i18n'
+import { primaryKey } from '../lib/desktop'
 import './reply.css'
 
 // 回复助手：看懂对方的消息后，直接用自己的语言写回复，译成对方的语言，一键复制去发送
@@ -489,7 +490,7 @@ export const ReplyComposer = forwardRef<HTMLDivElement, ReplyProps>(function Rep
             <>
               <kbd>Enter</kbd> {i.t('rp.copyClose')}
               <i />
-              <kbd>Ctrl</kbd>
+              <kbd>{primaryKey}</kbd>
               <kbd>Enter</kbd> {i.t('rp.copyOnly')}
             </>
           ) : (

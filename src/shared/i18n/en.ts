@@ -261,7 +261,7 @@ const en: Messages = {
   'gen.hotkey': 'Hotkey',
   'gen.hotkeyDesc': 'Press it anywhere to select an area; press twice (e.g. Alt+Q Q) to type text instead',
   'gen.uiLang': 'Language',
-  'gen.launch': 'Start with Windows',
+  'gen.launch': 'Start with {system}',
   'gen.launchDesc': 'Runs in the tray after you sign in',
   'hotkey.needMod': 'Include at least one modifier (Ctrl / Alt / Shift)',
   'hotkey.failed': "Couldn't set the hotkey",

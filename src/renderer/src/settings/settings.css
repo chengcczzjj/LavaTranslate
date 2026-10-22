@@ -63,6 +63,9 @@ body {
   width: 18px;
   height: 18px;
 }
+.mac .titlebar {
+  padding-left: 86px;
+}
 
 .body {
   flex: 1;

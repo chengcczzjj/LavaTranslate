@@ -51,6 +51,7 @@ import { settings } from './settings'
 import { errorText, t, uiLang } from './i18n'
 import { langBase, providerName, UI_LANGS } from '../shared/i18n'
 import { forceForeground, hwndOf, keyDown, VK_SPACE } from './winapi'
+import { configureMacOverlay, ensureKeyMonitoring, ensureScreenCapture, isMac, macSpaceDown } from './macos'
 import { OpenAIEngine, TranslateError, type Engine } from '../core/translator'
 import { cancelSignIn, listPlanModels, refresh as refreshChatGPT, SignInExpired, signIn as signInChatGPT } from './chatgpt'
 import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runI18nShots, runPassTest, runReview, runSignInTest } from './devtest'
@@ -95,9 +96,9 @@ const logError = (kind: string, e: unknown) => {
 process.on('uncaughtException', (e) => logError('uncaughtException', e))
 process.on('unhandledRejection', (e) => logError('unhandledRejection', e))
 // 开发 / 测试运行用另一个 ID：同一个 ID 会和已安装的版本归成一组，任务栏就可能显示 electron.exe 的图标
-app.setAppUserModelId(app.isPackaged ? 'com.lavatranslate.app' : 'com.lavatranslate.app.dev')
+if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'com.lavatranslate.app' : 'com.lavatranslate.app.dev')
 // 隐藏的遮罩窗口也要及时绘制新截图
-app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
 let tray: Tray | null = null
 let settingsWin: BrowserWindow | null = null
@@ -210,6 +211,8 @@ interface Overlay {
 const overlays = new Map<number, Overlay>()
 let captures = new Map<number, DisplayCapture>()
 let overlayActive = false
+/** 每次开始 / 取消都换代，防止权限框或截图返回后重新打开已经取消的界面。 */
+let captureGeneration = 0
 let releaseTimer: NodeJS.Timeout | null = null
 
 function createOverlay(display: Display): Overlay {
@@ -221,6 +224,7 @@ function createOverlay(display: Display): Overlay {
     height,
     show: false,
     frame: false,
+    ...(isMac ? { type: 'panel' as const } : {}),
     transparent: false,
     backgroundColor: '#000000',
     resizable: false,
@@ -238,6 +242,11 @@ function createOverlay(display: Display): Overlay {
     webPreferences: { preload, sandbox: false, backgroundThrottling: false, spellcheck: false, offscreen: AUTOTEST }
   })
   win.setAlwaysOnTop(true, 'screen-saver')
+  configureMacOverlay(win)
+  if (isMac) win.webContents.on('before-input-event', (_event, input) => {
+    // 这些组合键交给截图界面处理；其余仍由 macOS 的标准应用菜单处理。
+    win.webContents.setIgnoreMenuShortcuts(input.meta && ['c', 's', 'r', 't'].includes(input.key.toLowerCase()))
+  })
   win.setMenu(null)
   win.on('close', (e) => {
     if (!quitting) {
@@ -314,7 +323,9 @@ async function startCapture() {
     hideOverlays()
     return
   }
+  const generation = ++captureGeneration
   if (hiding) await hiding
+  if (generation !== captureGeneration) return
   overlayActive = true
   if (releaseTimer) clearTimeout(releaseTimer)
   // 预热失败不能挡住截图：翻译时还会再报一次，届时在工具条上提示
@@ -324,13 +335,23 @@ async function startCapture() {
     logError('warm', e)
   }
   try {
+    const allowed = await ensureScreenCapture()
+    if (generation !== captureGeneration || !overlayActive) return
+    if (!allowed) {
+      overlayActive = false
+      quickPending = false
+      return
+    }
     syncOverlays()
     const caps = await captureAll()
+    if (generation !== captureGeneration || !overlayActive) return
     if (process.env.LENS_SHOWTEST) console.log('[show] captured', Date.now() - tHotkey, 'ms')
     presentCaptures(caps)
   } catch (e) {
+    if (generation !== captureGeneration || !overlayActive) return
     // 出错一定要复位，否则之后每次按快捷键都只会在"关闭"分支里空转
     overlayActive = false
+    quickPending = false
     logError('capture', e)
     notify(t('notify.captureFailed'), e instanceof Error ? e.message : String(e))
   }
@@ -388,7 +409,8 @@ ipcMain.on('overlay:frame-ready', (e) => {
   if (screen.getDisplayNearestPoint(cursor).id === o.displayId) {
     if (refocus) {
       refocus = false
-      forceForeground(hwndOf(o.win.getNativeWindowHandle()))
+      if (process.platform === 'win32') forceForeground(hwndOf(o.win.getNativeWindowHandle()))
+      else if (isMac) app.focus({ steal: true })
     }
     o.win.focus()
     o.win.webContents.focus()
@@ -426,6 +448,8 @@ function fadeOut(win: BrowserWindow, ms: number) {
 }
 
 function hideOverlays(immediate = false) {
+  captureGeneration++
+  quickPending = false
   if (!overlayActive) return hiding ?? Promise.resolve()
   overlayActive = false
   framesShown = false
@@ -465,9 +489,17 @@ let passthrough: { faded: Promise<unknown>; timer: NodeJS.Timeout | null; grabbe
 /** 穿透期间用户可能点进了别的软件，回来时要把焦点抢回来 */
 let refocus = false
 
-ipcMain.on('overlay:passthrough', () => {
+const spaceDown = () => isMac ? macSpaceDown() : keyDown(VK_SPACE)
+
+ipcMain.on('overlay:passthrough', async () => {
+  if (isMac && overlayActive && macSpaceDown() === null) {
+    // 系统权限提示不能被 screen-saver 级别的截图窗口遮挡。
+    await hideOverlays(true)
+    await ensureKeyMonitoring()
+    return
+  }
   // 只认此刻还按着的空格；读不到按键状态（没有 koffi）就不支持
-  if (!overlayActive || !framesShown || passthrough || hiding || keyDown(VK_SPACE) !== true) return
+  if (!overlayActive || !framesShown || passthrough || hiding || spaceDown() !== true) return
   const shown = [...overlays.values()].filter((o) => o.win.isVisible())
   for (const o of shown) o.win.setIgnoreMouseEvents(true)
   let grabbed = false
@@ -480,7 +512,7 @@ ipcMain.on('overlay:passthrough', () => {
   passthrough = p
   const poll = () => {
     if (passthrough !== p) return
-    if (keyDown(VK_SPACE)) p.timer = setTimeout(poll, 16)
+    if (spaceDown()) p.timer = setTimeout(poll, 16)
     else {
       releasePassKey(p)
       void endPassthrough(p)
@@ -500,7 +532,8 @@ async function endPassthrough(p: NonNullable<typeof passthrough>) {
   await p.faded
   if (passthrough !== p) return
   try {
-    const caps = await captureAll(new Set([...overlays.values()].map((o) => hwndOf(o.win.getNativeWindowHandle()))))
+    const excluded = process.platform === 'win32' ? [...overlays.values()].map((o) => hwndOf(o.win.getNativeWindowHandle())) : []
+    const caps = await captureAll(new Set(excluded))
     if (passthrough !== p) return
     passthrough = null
     refocus = true
@@ -793,6 +826,10 @@ ipcMain.on('pin:create', (e, payload: PinPayload) => {
     webPreferences: { preload, sandbox: false, spellcheck: false }
   })
   win.setAlwaysOnTop(true, 'floating')
+  configureMacOverlay(win)
+  if (isMac) win.webContents.on('before-input-event', (_event, input) => {
+    win.webContents.setIgnoreMenuShortcuts(input.meta && input.key.toLowerCase() === 'c')
+  })
   // 窗口销毁后不能再访问 webContents，先记下 id
   const id = win.webContents.id
   const pin: PinWin = { win, payload, displayId: display.id, slot: slot.slot, home: { x: slot.x, y: slot.y }, fly: null, top: false }
@@ -881,9 +918,10 @@ function openSettings() {
     minHeight: 540,
     show: false,
     title: 'LavaTranslate',
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#00000000', symbolColor: nativeTheme.shouldUseDarkColors ? '#e8e8ee' : '#3a3a44', height: 48 },
-    backgroundMaterial: 'mica',
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    ...(isMac
+      ? { trafficLightPosition: { x: 14, y: 16 }, vibrancy: 'under-window' as const, visualEffectState: 'active' as const }
+      : { titleBarOverlay: { color: '#00000000', symbolColor: nativeTheme.shouldUseDarkColors ? '#e8e8ee' : '#3a3a44', height: 48 }, backgroundMaterial: 'mica' as const }),
     backgroundColor: '#00000000',
     icon: appIcon,
     webPreferences: { preload, sandbox: false, spellcheck: false }
@@ -895,7 +933,7 @@ function openSettings() {
 }
 
 nativeTheme.on('updated', () => {
-  settingsWin?.setTitleBarOverlay({ color: '#00000000', symbolColor: nativeTheme.shouldUseDarkColors ? '#e8e8ee' : '#3a3a44', height: 48 })
+  if (!isMac) settingsWin?.setTitleBarOverlay({ color: '#00000000', symbolColor: nativeTheme.shouldUseDarkColors ? '#e8e8ee' : '#3a3a44', height: 48 })
 })
 
 ipcMain.handle('settings:get', () => settings.public())
@@ -906,6 +944,7 @@ function broadcastUiLang() {
   const lang = uiLang()
   if (lang === sentLang) return
   sentLang = lang
+  updateMacMenu()
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('ui:lang', lang)
   // 更新状态里的提示语也换成新语言
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('update:state', updateState())
@@ -1113,6 +1152,25 @@ function systemTarget() {
 }
 
 app.on('second-instance', () => openSettings())
+app.on('activate', () => {
+  if (app.isReady() && !overlayActive) openSettings()
+})
+
+function updateMacMenu() {
+  if (!isMac) return
+  // macOS 的标准 Edit 菜单为设置页、回复输入框提供 Command+C/V/A/Z。
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'LavaTranslate', submenu: [
+      { role: 'about' },
+      { label: t('tray.settings'), accelerator: 'Command+,', click: openSettings },
+      { type: 'separator' },
+      { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
+      { type: 'separator' }, { role: 'quit' }
+    ] },
+    { role: 'editMenu' },
+    { role: 'windowMenu' }
+  ]))
+}
 
 /**
  * 旧名称「Lens 截图翻译」的配置搬到新目录。
@@ -1141,6 +1199,8 @@ app.whenReady().then(async () => {
   let s = settings.load()
   if (!s.installId) s = settings.update({ installId: `urn:uuid:${randomUUID()}` })
   sentLang = uiLang()
+  updateMacMenu()
+  if (isMac) app.dock?.setIcon(nativeImage.createFromPath(appIcon))
   buildEngine(s)
   void ocr.init()
   syncOverlays()
@@ -1148,11 +1208,13 @@ app.whenReady().then(async () => {
   screen.on('display-removed', syncOverlays)
   screen.on('display-metrics-changed', syncOverlays)
 
-  tray = new Tray(nativeImage.createFromPath(join(resources, 'tray.png')))
+  const trayImage = nativeImage.createFromPath(join(resources, 'tray.png'))
+  tray = new Tray(isMac ? trayImage.resize({ width: 18, height: 18 }) : trayImage)
   // 单击截图、双击打开设置：单击要等过双击间隔才动作，否则双击会先触发一次截图
   let clickTimer: NodeJS.Timeout | null = null
   let lastDouble = 0
   tray.on('click', () => {
+    if (isMac) return // macOS 左键直接打开菜单，由菜单项启动截图。
     if (Date.now() - lastDouble < 600) return
     if (clickTimer) clearTimeout(clickTimer)
     clickTimer = setTimeout(() => {
@@ -1161,6 +1223,7 @@ app.whenReady().then(async () => {
     }, 280)
   })
   tray.on('double-click', () => {
+    if (isMac) return
     lastDouble = Date.now()
     if (clickTimer) clearTimeout(clickTimer)
     clickTimer = null
