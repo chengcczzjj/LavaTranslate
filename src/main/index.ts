@@ -48,10 +48,12 @@ import { PaddleOcr } from './ocr'
 import { refreshPrices, sortByPrice } from './pricing'
 import { check as checkUpdate, initUpdater, installNow, setAutoUpdate, updateState } from './updater'
 import { settings } from './settings'
+import { credentialRecovery, secretLocked, unlockSecret } from './secrets'
 import { errorText, t, uiLang } from './i18n'
 import { langBase, providerName, UI_LANGS } from '../shared/i18n'
 import { forceForeground, hwndOf, keyDown, VK_SPACE } from './winapi'
-import { configureMacOverlay, ensureKeyMonitoring, ensureScreenCapture, isMac, macSpaceDown } from './macos'
+import { configureMacOverlay, ensureKeyMonitoring, ensureScreenCapture, isMac, macSpaceDown, macSettingsStatus, openMacSettings } from './macos'
+import { macAcceleratorLabel } from '../shared/i18n/mac'
 import { OpenAIEngine, TranslateError, type Engine } from '../core/translator'
 import { cancelSignIn, listPlanModels, refresh as refreshChatGPT, SignInExpired, signIn as signInChatGPT } from './chatgpt'
 import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runI18nShots, runPassTest, runReview, runSignInTest } from './devtest'
@@ -108,6 +110,15 @@ let engine: Engine | null = null
 
 // ------------------------------------------------------------------ 页面加载
 function loadPage(win: BrowserWindow, page: 'overlay' | 'settings' | 'pin') {
+  if (isMac) {
+    win.webContents.on('did-fail-load', (_event, code, description) => logError(`${page} load`, `${code}: ${description}`))
+    win.webContents.on('preload-error', (_event, _path, error) => logError(`${page} preload`, error))
+    win.webContents.on('render-process-gone', (_event, details) => logError(`${page} renderer`, details.reason))
+    if (process.env.LENS_DIAGNOSTIC) {
+      win.webContents.on('did-finish-load', () => console.log('[page loaded]', page))
+      win.webContents.on('console-message', (event) => console.log('[renderer]', page, event.message))
+    }
+  }
   if (isDev && process.env.ELECTRON_RENDERER_URL) win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/${page}.html`)
   else win.loadFile(join(__dirname, `../renderer/${page}.html`))
 }
@@ -153,7 +164,7 @@ async function refreshChatGPTToken(force: boolean): Promise<string | null> {
   const stillCurrent = () => chatgptSession(settings.get())?.refreshToken === sess.refreshToken
   try {
     const next = await refreshChatGPT(sess)
-    if (stillCurrent()) settings.update({ providers: { chatgpt: { key: JSON.stringify(next) } } })
+    if (stillCurrent()) await settings.updateAsync({ providers: { chatgpt: { key: JSON.stringify(next) } } })
     return null
   } catch (e) {
     logError('chatgpt refresh', e)
@@ -178,6 +189,11 @@ async function chatgptAuthProblem(err: unknown): Promise<string | null> {
 function engineStatus(): EngineStatus {
   const s = settings.get()
   const info = providerInfo(s.provider)
+  if (secretLocked(s.providers[info.id]?.key ?? '')) {
+    return { provider: info.id, ok: false, locked: true, detail: uiLang().startsWith('zh')
+      ? '已保存的 Key 尚未解锁；你可以先使用设置界面。'
+      : 'Your saved key is locked. Settings remain available.' }
+  }
   const r = resolveProvider(s)
   if (!r)
     return {
@@ -949,19 +965,48 @@ function broadcastUiLang() {
   // 更新状态里的提示语也换成新语言
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('update:state', updateState())
 }
-ipcMain.handle('settings:set', (_e, patch: SettingsPatch) => {
-  settings.update(patch)
+ipcMain.handle('settings:set', async (_e, patch: SettingsPatch) => {
+  await settings.updateAsync(patch)
   return settings.public()
 })
-ipcMain.handle('engine:status', () => engineStatus())
+ipcMain.handle('engine:status', () => ({ ...engineStatus(), ...(isMac ? { credentialRecovery: credentialRecovery() } : {}) }))
+ipcMain.handle('mac:settings-status', () => macSettingsStatus())
+ipcMain.handle('mac:open-settings', (_event, pane: string) => openMacSettings(pane))
+ipcMain.handle('credentials:unlock', async () => {
+  if (!isMac) return { ok: true }
+  try {
+    const stored = settings.providerConfig().key
+    await unlockSecret(stored)
+    buildEngine(settings.get())
+    updateTray()
+    settingsWin?.webContents.send('settings:changed', settings.public())
+    return { ok: !engineStatus().locked }
+  } catch {
+    return { ok: false, recovery: credentialRecovery() }
+  }
+})
+let credentialRestartScheduled = false
+ipcMain.handle('credentials:restart', (event) => {
+  if (!isMac || !credentialRecovery() || event.sender !== settingsWin?.webContents) return false
+  if (!credentialRestartScheduled) {
+    credentialRestartScheduled = true
+    // Return the IPC response before exiting. A fresh process resets Electron's
+    // cached denial; do not automatically prompt, change settings, or loop.
+    setTimeout(() => {
+      app.relaunch({ args: [...process.argv.slice(1).filter((arg) => arg !== '--retry-keychain'), '--retry-keychain'] })
+      app.exit(0)
+    }, 150)
+  }
+  return true
+})
 /** 本机已有的 OpenAI 兼容凭据（Codex 配置、CC Switch），可一键导入 */
 ipcMain.handle('openai:sources', (): OpenAISource[] =>
   findOpenAISources().map((f) => ({ id: f.id, label: f.label, baseURL: f.baseURL, hasKey: !!f.apiKey, model: f.model }))
 )
-ipcMain.handle('openai:import', (_e, id: string) => {
+ipcMain.handle('openai:import', async (_e, id: string) => {
   const src = findOpenAISources().find((f) => f.id === id)
   if (!src) return settings.public()
-  settings.update({ provider: 'custom', providers: { custom: { baseUrl: src.baseURL, key: src.apiKey, model: '' } } })
+  await settings.updateAsync({ provider: 'custom', providers: { custom: { baseUrl: src.baseURL, key: src.apiKey, model: '' } } })
   return settings.public()
 })
 /** 打开服务商的网页（获取 Key、文档）；只允许 https */
@@ -999,7 +1044,7 @@ ipcMain.handle('chatgpt:signin', async (): Promise<{ ok: boolean; message?: stri
     const s = settings.get()
     const sess = await signInChatGPT(s.installId, chatgptSession(s))
     if (settingsWin && !settingsWin.isDestroyed()) settingsWin.focus()
-    settings.update({ provider: 'chatgpt', providers: { chatgpt: { key: JSON.stringify(sess), label: sess.email ?? '', baseUrl: '', expired: false } } })
+    await settings.updateAsync({ provider: 'chatgpt', providers: { chatgpt: { key: JSON.stringify(sess), label: sess.email ?? '', baseUrl: '', expired: false } } })
     return { ok: true }
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) }
@@ -1094,7 +1139,7 @@ ipcMain.handle('hotkey:suspend', (_e, on: boolean) => {
 
 function updateTray() {
   if (!tray) return
-  tray.setToolTip(`LavaTranslate · ${settings.get().hotkey.replace(/\+/g, ' + ')}`)
+  tray.setToolTip(`LavaTranslate · ${isMac ? macAcceleratorLabel(settings.get().hotkey) : settings.get().hotkey.replace(/\+/g, ' + ')}`)
   tray.setContextMenu(Menu.buildFromTemplate(trayMenu()))
 }
 
@@ -1129,7 +1174,9 @@ function trayMenu(): Electron.MenuItemConstructorOptions[] {
         ...UI_LANGS.map((l): Electron.MenuItemConstructorOptions => ({ label: l.native, type: 'radio', checked: s.uiLang === l.code, click: pick(l.code) }))
       ]
     },
-    upd,
+    isMac && u.state === 'disabled'
+      ? { label: uiLang().startsWith('zh') ? '查看版本发布…' : 'View releases…', click: () => { void shell.openExternal('https://github.com/chengcczzjj/LavaTranslate/releases') } }
+      : upd,
     { type: 'separator' },
     { label: t('tray.quit'), click: () => app.quit() }
   ]
@@ -1406,15 +1453,17 @@ app.whenReady().then(async () => {
     return
   }
 
-  if (!s.firstRunDone) {
+  if (isMac && process.argv.includes('--retry-keychain')) {
+    openSettings()
+  } else if (!s.firstRunDone) {
     // 第一次运行：默认译成系统语言
     settings.update({ firstRunDone: true, targetLang: systemTarget() })
     openSettings()
   } else if (!ok) {
-    notify(t('notify.hotkeyFailedTitle'), t('notify.hotkeyFailedBody', { key: s.hotkey }))
+    notify(t('notify.hotkeyFailedTitle'), t('notify.hotkeyFailedBody', { key: isMac ? macAcceleratorLabel(s.hotkey) : s.hotkey }))
     openSettings()
   } else {
-    notify(t('notify.runningTitle'), t('notify.runningBody', { key: s.hotkey.replace(/\+/g, ' + ') }))
+    notify(t('notify.runningTitle'), t('notify.runningBody', { key: isMac ? macAcceleratorLabel(s.hotkey) : s.hotkey.replace(/\+/g, ' + ') }))
   }
 })
 

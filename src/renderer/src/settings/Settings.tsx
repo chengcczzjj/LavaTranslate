@@ -40,6 +40,7 @@ import {
   type UpdateState
 } from '@shared/types'
 import { UI_LANGS, type MsgKey } from '@shared/i18n'
+import { macAcceleratorLabel } from '@shared/i18n/mac'
 import { useI18n, type I18n } from '../lib/i18n'
 import { isMac, shortcutLabel } from '../lib/desktop'
 
@@ -62,13 +63,23 @@ export function Settings() {
   const [ocr, setOcr] = useState('')
   const [version, setVersion] = useState('')
   const [upd, setUpd] = useState<UpdateState | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [unlocking, setUnlocking] = useState(false)
+  const [unlockMessage, setUnlockMessage] = useState('')
+  const [restarting, setRestarting] = useState(false)
+  const zh = i.lang.startsWith('zh')
+
+  const loadSettings = useCallback(() => {
+    setLoadError('')
+    void window.lens.getSettings().then(setS).catch(() => setLoadError('Unable to load settings'))
+  }, [])
 
   const refreshStatus = useCallback(() => {
     void window.lens.engineStatus().then(setStatus)
   }, [])
 
   useEffect(() => {
-    void window.lens.getSettings().then(setS)
+    loadSettings()
     void window.lens.appInfo().then((i) => setVersion(i.version))
     void window.lens.updateState().then(setUpd)
     const offUpd = window.lens.onUpdate(setUpd)
@@ -84,7 +95,7 @@ export function Settings() {
       offUpd()
       clearInterval(t)
     }
-  }, [refreshStatus])
+  }, [refreshStatus, loadSettings])
 
   // 状态、OCR 说明由主进程按界面语言生成：换语言后重新取
   useEffect(() => {
@@ -96,7 +107,15 @@ export function Settings() {
     setS(await window.lens.setSettings(patch))
   }, [])
 
-  if (!s) return null
+  if (!s) return isMac ? (
+    <div className="app mac">
+      <header className="titlebar"><span>LavaTranslate</span></header>
+      <main className="content">
+        <h2>{loadError ? (zh ? '设置加载失败' : 'Unable to load settings') : (zh ? '正在加载设置…' : 'Loading settings…')}</h2>
+        {loadError && <button className="btn" onClick={loadSettings}>{zh ? '重试' : 'Retry'}</button>}
+      </main>
+    </div>
+  ) : null
   return (
     <div className={`app${isMac ? ' mac' : ''}`}>
       <header className="titlebar">
@@ -115,7 +134,7 @@ export function Settings() {
           <div className="nav-foot">
             <button className="nav-status" onClick={() => setPage('engine')}>
               <span className={`dot ${status?.ok ? 'ok' : 'bad'}`} />
-              {status?.ok ? t('nav.ready') : t('nav.needSetup')}
+              {status?.locked ? (zh ? 'Key 待解锁' : 'Key locked') : status?.ok ? t('nav.ready') : t('nav.needSetup')}
             </button>
             <button className={`nav-ver${upd?.state === 'ready' ? ' hot' : ''}`} onClick={() => setPage('about')}>
               v{version} · {updateShort(upd, i)}
@@ -123,6 +142,44 @@ export function Settings() {
           </div>
         </nav>
         <main className="content">
+          {isMac && (status?.locked || status?.credentialRecovery) && (
+            <div className="mac-credentials" role="status">
+            <div className="status-bar">
+              <KeyRound size={18} />
+              <span className="status-text">{unlockMessage || (status?.credentialRecovery
+                ? (status.credentialRecovery === 'timeout'
+                  ? (zh ? '系统验证等待超时。原配置已保留，请重新打开应用后再解锁。' : 'macOS verification timed out. Reopen the app to retry. Your saved configuration is unchanged.')
+                  : (zh ? '钥匙串访问未完成。原配置已保留，请重新打开应用后再解锁。' : 'Keychain access did not complete. Reopen the app to retry. Your saved configuration is unchanged.'))
+                : (zh ? '已保存的 Key 尚未解锁，原配置已保留。' : 'Your saved key is locked. Your configuration is preserved.'))}</span>
+              {status?.credentialRecovery ? <button className="btn" disabled={restarting} onClick={async () => {
+                setRestarting(true)
+                setUnlockMessage('')
+                try {
+                  if (!await window.lens.restartCredentials()) throw new Error('restart unavailable')
+                } catch {
+                  setRestarting(false)
+                  setUnlockMessage(zh ? '未能重新打开。请按 ⌘Q 退出 LavaTranslate，再从「应用程序」打开。' : 'Could not reopen. Quit LavaTranslate with ⌘Q, then open it from Applications.')
+                }
+              }}>{restarting ? (zh ? '正在重新打开…' : 'Reopening…') : (zh ? '重新打开应用' : 'Reopen app')}</button> : <button className="btn" disabled={unlocking} onClick={async () => {
+                setUnlocking(true)
+                setUnlockMessage('')
+                try {
+                  const result = await window.lens.unlockCredentials()
+                  if (result.recovery) setStatus((s) => s && ({ ...s, credentialRecovery: result.recovery }))
+                  else if (!result.ok) setUnlockMessage(zh ? '当前服务的 Key 仍待解锁，请重试。' : 'The current service key is still locked. Try again.')
+                } catch {
+                  setUnlockMessage(zh ? '未能完成解锁，请重试；如果系统没有响应，请退出并重新打开应用。' : 'Could not complete unlocking. Try again, or quit and reopen the app if macOS does not respond.')
+                } finally { setUnlocking(false) }
+                refreshStatus()
+              }}>{unlocking ? (zh ? '等待系统验证…' : 'Waiting for macOS…') : (zh ? '解锁 Key' : 'Unlock key')}</button>}
+            </div>
+            <div className="note">{status?.credentialRecovery
+              ? (zh ? '重新打开后再点「解锁 Key」。尚未保存的输入不会保留。' : 'After reopening, click “Unlock key” again. Unsaved input will not be kept.')
+              : (zh ? '请在 macOS 验证窗口输入登录钥匙串密码，通常是 Mac 登录密码。' : 'Enter your login keychain password in the macOS dialog, usually your Mac login password.')}
+              {' '}<button className="link" onClick={() => window.lens.openExternal(`https://support.apple.com/${zh ? 'zh-cn' : 'en-us'}/guide/keychain-access/kyca2429/mac`)}>{zh ? '忘记钥匙串密码？' : 'Forgot your keychain password?'}</button>
+            </div>
+            </div>
+          )}
           <AnimatePresence mode="wait">
             <motion.div
               key={page}
@@ -179,7 +236,7 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
           {s.hotkey.split('+').map((k, n) => (
             <span key={n} className="keycap-wrap">
               {n > 0 && <span className="plus">+</span>}
-              <span className="keycap">{k}</span>
+              <span className="keycap">{isMac ? macAcceleratorLabel(k) : k}</span>
             </span>
           ))}
         </div>
@@ -219,7 +276,7 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
         </div>
       </div>
 
-      {status && !status.ok && (
+      {status && !status.ok && !status.locked && (
         <motion.div className="callout" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
           <div>
             <b>{t('home.oneMore')}</b>
@@ -235,7 +292,7 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
       <div className="shortcuts">
         {SHORTCUTS.map(([k, d]) => (
           <div key={d} className="sc">
-            <kbd>{isMac && k === 'sc.tray' ? 'Cmd ,' : isMac && k === 'F3' ? 'Cmd T' : shortcutLabel(k.includes('.') ? t(k as MsgKey) : k)}</kbd>
+            <kbd>{isMac && k === 'F3' ? '⌘ T' : shortcutLabel(k.includes('.') ? t(k as MsgKey) : k)}</kbd>
             <span>{t(d)}</span>
           </div>
         ))}
@@ -521,7 +578,12 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
 
   const save = async (id: ProviderId, by?: MsgKey) => {
     const baseUrl = id === 'custom' ? base.trim() : ''
-    await update({ provider: id, providers: { [id]: { key: key.trim(), baseUrl } } })
+    try { await update({ provider: id, providers: { [id]: { key: key.trim(), baseUrl } } }) }
+    catch (error) {
+      if (!isMac) throw error
+      setResult({ kind: 'err', text: i.lang.startsWith('zh') ? '未能保存 Key，原配置未修改。若页面上方提示钥匙串访问失败，请先重新打开应用，再输入 Key 保存。' : 'Could not save the key. Your saved configuration is unchanged. If the Keychain notice appears above, reopen the app before entering and saving the key again.' })
+      return
+    }
     setKey('')
     const name = i.provider(id)
     setResult({ kind: 'ok', text: by ? t('key.savedBy', { name, by: t(by) }) : t('key.savedAs', { name }) })
@@ -541,6 +603,9 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
       const r = await window.lens.detectKey(k)
       if (r.provider) return await save(r.provider, r.by === 'format' ? 'key.byFormat' : 'key.byProbe')
       setResult({ kind: 'ask' })
+    } catch (error) {
+      if (!isMac) throw error
+      setResult({ kind: 'err', text: i.lang.startsWith('zh') ? '未能识别 Key，请检查服务连接后重试。' : 'Could not identify the key. Check the service connection and try again.' })
     } finally {
       setBusy(false)
     }
@@ -548,7 +613,12 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
 
   const importFrom = async (id: string) => {
     setImportOpen(false)
-    await window.lens.openaiImport(id)
+    try { await window.lens.openaiImport(id) }
+    catch (error) {
+      if (!isMac) throw error
+      setResult({ kind: 'err', text: i.lang.startsWith('zh') ? '未能导入，原配置未修改。若页面上方提示钥匙串访问失败，请先重新打开应用，再导入。' : 'Could not import. Your saved configuration is unchanged. If the Keychain notice appears above, reopen the app before importing again.' })
+      return
+    }
     setResult({ kind: 'ok', text: t('key.imported') })
   }
 
@@ -614,6 +684,7 @@ function KeyCard({ s, update }: { s: S; update: Upd }) {
                   <Check size={13} strokeWidth={3} /> {result.text}
                 </span>
               )}
+              {result.kind === 'err' && <span className="note err" role="alert">{result.text}</span>}
               {result.kind === 'ask' && (
                 <div className="detect-ask">
                   <span>{t('key.ask')}</span>
@@ -912,8 +983,25 @@ function hostOf(url: string) {
 }
 
 // ------------------------------------------------------------------ 通用
-function GeneralPage({ s, update }: { s: S; update: (p: SettingsPatch) => void }) {
-  const { t } = useI18n()
+function GeneralPage({ s, update }: { s: S; update: Upd }) {
+  const { t, lang } = useI18n()
+  const zh = lang.startsWith('zh')
+  const [mac, setMac] = useState<Awaited<ReturnType<Window['lens']['macSettingsStatus']>>>(null)
+  const [systemError, setSystemError] = useState('')
+  const refreshMac = useCallback(() => {
+    if (isMac) void window.lens.macSettingsStatus().then(setMac).catch(() => setSystemError(zh ? '无法读取系统状态，请在系统设置中确认。' : 'Check the current status in System Settings.'))
+  }, [zh])
+  useEffect(() => {
+    refreshMac()
+    window.addEventListener('focus', refreshMac)
+    return () => window.removeEventListener('focus', refreshMac)
+  }, [refreshMac, s.launchAtLogin])
+  const openSystem = async (pane: 'screen' | 'input' | 'login' | 'keyboard') => {
+    setSystemError('')
+    try { await window.lens.openMacSettings(pane) }
+    catch { setSystemError(zh ? '未能打开系统设置，请从苹果菜单手动打开。' : 'Open System Settings from the Apple menu.') }
+  }
+  const permission = (allowed?: boolean) => allowed === undefined ? (zh ? '正在读取…' : 'Checking…') : allowed ? (zh ? '已允许' : 'Allowed') : (zh ? '未生效' : 'Not active')
   const known = UI_LANGS.some((l) => l.code === s.uiLang)
   return (
     <>
@@ -921,6 +1009,9 @@ function GeneralPage({ s, update }: { s: S; update: (p: SettingsPatch) => void }
       <Card title={t('gen.hotkey')} desc={t('gen.hotkeyDesc')} icon={<Keyboard size={18} />}>
         <HotkeyInput value={s.hotkey} />
       </Card>
+      {isMac && <Card title={zh ? '系统快捷键' : 'macOS keyboard shortcuts'} desc={zh ? '如果组合键与系统功能冲突，可在「系统设置 → 键盘 → 键盘快捷键」中查看。' : 'Check conflicts in System Settings → Keyboard → Keyboard Shortcuts.'}>
+        <button className="btn" onClick={() => void openSystem('keyboard')}><ExternalLink size={14} />{zh ? '打开键盘设置' : 'Keyboard settings'}</button>
+      </Card>}
       <Card title={t('gen.uiLang')} desc={t('gen.uiLang') === 'Language' ? undefined : 'Language'} icon={<Globe size={18} />}>
         <Select
           value={known ? s.uiLang : 'auto'}
@@ -929,8 +1020,22 @@ function GeneralPage({ s, update }: { s: S; update: (p: SettingsPatch) => void }
         />
       </Card>
       <Card title={t('gen.launch', { system: isMac ? 'macOS' : 'Windows' })} desc={t('gen.launchDesc', { system: isMac ? 'macOS' : 'Windows' })} icon={<Power size={18} />}>
-        <Toggle on={s.launchAtLogin} onChange={(v) => update({ launchAtLogin: v })} />
+        <div className="row-gap">
+          {isMac && <button className="link" onClick={() => void openSystem('login')}>{zh ? '管理登录项' : 'Manage login items'}</button>}
+          <Toggle on={isMac ? mac?.launchAtLogin ?? s.launchAtLogin : s.launchAtLogin} onChange={(v) => update({ launchAtLogin: v })} />
+        </div>
       </Card>
+      {isMac && <>
+        <h3 className="h3">{zh ? '隐私与安全' : 'Privacy & Security'}</h3>
+        <Card title={zh ? '录屏与系统录音' : 'Screen & System Audio Recording'} desc={zh ? '用于截取要翻译的屏幕区域，不采集音频。打开「隐私与安全 → 录屏与系统录音」，允许 LavaTranslate。' : 'Required to capture your selected area. No audio is recorded. Allow LavaTranslate in Privacy & Security → Screen & System Audio Recording.'}>
+          <div className="row-gap"><span className="muted">{permission(mac?.screen)}</span><button className="btn" onClick={() => void openSystem('screen')}>{zh ? '打开设置' : 'Open settings'}</button></div>
+        </Card>
+        <Card title={zh ? '输入监控' : 'Input Monitoring'} desc={zh ? '用于按住空格操作下层应用，只读取空格状态。普通截图不需要此权限。' : 'Enables holding Space to interact with the app underneath. Only the Space key state is read. Optional for normal capture.'}>
+          <div className="row-gap"><span className="muted">{permission(mac?.input)}</span><button className="btn" onClick={() => void openSystem('input')}>{zh ? '打开设置' : 'Open settings'}</button></div>
+        </Card>
+        <div className="note">{zh ? '状态以当前应用检测结果为准。若系统开关已打开但权限未生效，请按系统提示重新授权并用 ⌘ Q 退出后再打开。关闭设置窗口后，应用仍会在菜单栏运行。' : 'Status reflects access detected by this app. If a system switch is on but access is inactive, follow macOS prompts to authorize it again, then quit with ⌘ Q and reopen. Closing this window keeps the app running in the menu bar.'}</div>
+        {systemError && <div className="note err">{systemError}</div>}
+      </>}
     </>
   )
 }
@@ -984,7 +1089,7 @@ function HotkeyInput({ value }: { value: string }) {
         {keys.length ? (
           keys.map((k, n) => (
             <motion.span key={k + n} className="keycap sm" initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-              {shortcutLabel(k)}
+              {isMac ? macAcceleratorLabel(k) : shortcutLabel(k)}
             </motion.span>
           ))
         ) : (
@@ -1068,6 +1173,10 @@ function About({ s, update, version, ocr }: { s: S; update: (p: SettingsPatch) =
         {u?.state === 'ready' ? (
           <button className="btn primary" onClick={() => window.lens.updateInstall()}>
             {t('about.restart')}
+          </button>
+        ) : isMac && u?.state === 'disabled' ? (
+          <button className="btn" onClick={() => window.lens.openExternal('https://github.com/chengcczzjj/LavaTranslate/releases')}>
+            <ExternalLink size={14} />{i.lang.startsWith('zh') ? '查看发布页' : 'View releases'}
           </button>
         ) : (
           <button className="btn" disabled={busy || u?.state === 'disabled' || u?.state === 'downloading'} onClick={() => void check()}>

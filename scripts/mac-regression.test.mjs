@@ -2,7 +2,8 @@
 // 这些测试验证平台分支和异步流程，不声称验证 macOS 原生 API 的实际行为。
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -39,13 +40,13 @@ function loadTs(file, mocks = {}, globals = {}) {
 }
 
 function permissionHarness({ status = 'denied', allowRequest = false, canListen = false, platform = 'darwin', broken = false } = {}) {
-  const calls = { loads: 0, capture: 0, listen: 0, dialogs: 0, keys: [] }
+  const calls = { loads: 0, capture: 0, listen: 0, dialogs: 0, keys: [], opened: [] }
   const module = loadTs('src/main/macos.ts', {
     electron: {
-      app: { isPackaged: true },
+      app: { isPackaged: true, getLoginItemSettings: () => ({ openAtLogin: false }) },
       systemPreferences: { getMediaAccessStatus: () => status },
       dialog: { showMessageBox: async () => { calls.dialogs++; return { response: 1 } } },
-      shell: { openExternal: async () => {} }
+      shell: { openExternal: async (url) => { calls.opened.push(url) } }
     },
     koffi: { load: () => {
       calls.loads++
@@ -158,7 +159,7 @@ function captureHarness(permission, capture) {
     '../shared/types': {}, './capture': { captureAll: capture }, './credentials': {}, '../core/detect': {}, '../core/lang': {},
     '../core/platform': { setPlatform: noop }, './ocr': { PaddleOcr: class {} }, './pricing': {}, './updater': {},
     './settings': { settings: { get: () => ({ hotkey: 'Command+Shift+2' }) } },
-    './i18n': { t: (key) => key }, '../shared/i18n': {}, './winapi': {},
+    './i18n': { t: (key) => key }, '../shared/i18n': {}, '../shared/i18n/mac': {}, './winapi': {}, './secrets': { secretLocked: () => false },
     './macos': { isMac: true, configureMacOverlay: noop, ensureScreenCapture: permission },
     '../core/translator': {}, './chatgpt': {}, './devtest': {}
   })
@@ -254,4 +255,186 @@ test('normalized Windows and Mac package rules exclude development data and old 
       assert.equal(includes(path), false, `${platform}: unexpected ${path}`)
     }
   }
+})
+
+test('Mac settings links use a fixed allowlist and status checks do not request permissions', async () => {
+  const { module, calls } = permissionHarness({ status: 'granted', canListen: true })
+  assert.deepEqual(plain(module.macSettingsStatus()), { screen: true, input: true, launchAtLogin: false })
+  for (const pane of ['screen', 'input', 'login', 'keyboard', '__proto__', 'https://example.com']) await module.openMacSettings(pane)
+  assert.deepEqual(calls.opened, [
+    'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+    'x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent',
+    'x-apple.systempreferences:com.apple.LoginItems-Settings.extension',
+    'x-apple.systempreferences:com.apple.Keyboard-Settings.extension'
+  ])
+  assert.equal(calls.capture + calls.listen + calls.dialogs, 0)
+})
+
+test('Mac settings render locked keys without prompting, then unlock asynchronously on request', async () => {
+  const gate = deferred()
+  let calls = 0
+  const secrets = loadTs('src/main/secrets.ts', { electron: { safeStorage: {
+    decryptString: () => assert.fail('synchronous Keychain access'),
+    decryptStringAsync: () => { calls++; return gate.promise }
+  } } })
+  const stored = 'enc:ZmFrZQ=='
+  assert.equal(secrets.maskSecret(stored), '••••')
+  assert.equal(secrets.decryptSecret(stored), '')
+  assert.equal(calls, 0)
+  const a = secrets.unlockSecret(stored), b = secrets.unlockSecret(stored)
+  assert.equal(secrets.secretLocked(stored), true)
+  assert.equal(calls, 1)
+  gate.resolve({ result: 'fixture-key', shouldReEncrypt: false })
+  await Promise.all([a, b])
+  assert.equal(secrets.decryptSecret(stored), 'fixture-key')
+  assert.equal(secrets.secretLocked(stored), false)
+})
+
+test('cancelled Mac Keychain operations preserve the encrypted configuration', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'lava-locked-'))
+  const config = { provider: 'deepseek', hotkey: 'Alt+Space', providers: { deepseek: { key: 'enc:ZmFrZQ==', baseUrl: '', model: 'fixture' } } }
+  const filename = resolve(dir, 'settings.json')
+  writeFileSync(filename, JSON.stringify(config))
+  const secrets = loadTs('src/main/secrets.ts', { electron: { safeStorage: {
+    decryptString: () => assert.fail('synchronous Keychain access'),
+    decryptStringAsync: async () => { throw new Error('cancelled') },
+    encryptStringAsync: async () => { throw new Error('cancelled') }
+  } } })
+  try {
+    const { settings } = loadTs('src/main/settings.ts', {
+      electron: { app: { getPath: () => dir } },
+      '../shared/types': { DEFAULT_SETTINGS: config }, './secrets': secrets
+    })
+    settings.load()
+    assert.equal(settings.public().providers.deepseek.key, '••••')
+    await assert.rejects(secrets.unlockSecret(config.providers.deepseek.key), /cancelled/)
+    assert.equal(secrets.secretLocked(config.providers.deepseek.key), true)
+    assert.equal(secrets.credentialRecovery(), 'failed')
+    await assert.rejects(settings.updateAsync({ providers: { deepseek: { key: 'new-fixture-key' } } }), /RESTART_REQUIRED/)
+    assert.deepEqual(JSON.parse(readFileSync(filename, 'utf8')), config)
+    settings.update({ providers: { deepseek: { key: '••••', model: 'new-model' } } })
+    assert.equal(settings.get().providers.deepseek.key, config.providers.deepseek.key)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('a denied Mac encryptor is not reused; a fresh process can unlock the same saved key', async () => {
+  const stored = 'enc:ZmFrZQ=='
+  let requests = 0
+  const denied = loadTs('src/main/secrets.ts', { electron: { safeStorage: {
+    decryptStringAsync: async () => { requests++; throw new Error('user cancelled') }
+  } } })
+  await assert.rejects(denied.unlockSecret(stored), /cancelled/)
+  await assert.rejects(denied.unlockSecret(stored), /RESTART_REQUIRED/)
+  assert.equal(requests, 1)
+  assert.equal(denied.credentialRecovery(), 'failed')
+  const fresh = loadTs('src/main/secrets.ts', { electron: { safeStorage: {
+    decryptStringAsync: async () => { requests++; return { result: 'fixture-key' } }
+  } } })
+  assert.equal(fresh.credentialRecovery(), undefined)
+  await fresh.unlockSecret(stored)
+  assert.equal(fresh.secretLocked(stored), false)
+  assert.equal(requests, 2)
+})
+
+test('Mac unlock times out, releases all callers, and ignores a late decrypted result', async () => {
+  const gate = deferred()
+  let expire, cleared = false
+  const secrets = loadTs('src/main/secrets.ts', { electron: { safeStorage: {
+    decryptStringAsync: () => gate.promise
+  } } }, {
+    setTimeout: (fn, ms) => { assert.equal(ms, 60_000); expire = fn; return 7 },
+    clearTimeout: (id) => { assert.equal(id, 7); cleared = true }
+  })
+  const stored = 'enc:ZmFrZQ=='
+  const a = secrets.unlockSecret(stored), b = secrets.unlockSecret(stored)
+  const checks = [assert.rejects(a, /TIMEOUT/), assert.rejects(b, /TIMEOUT/)]
+  expire()
+  await Promise.all(checks)
+  assert.equal(cleared, true)
+  assert.equal(secrets.credentialRecovery(), 'timeout')
+  gate.resolve({ result: 'fixture-key' })
+  await flush()
+  assert.equal(secrets.secretLocked(stored), true)
+  assert.equal(secrets.decryptSecret(stored), '')
+})
+
+test('Mac save timeout never writes a late encrypted result or plaintext to settings', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'lava-save-timeout-'))
+  const config = { provider: 'deepseek', hotkey: 'Alt+Space', providers: { deepseek: { key: 'enc:ZmFrZQ==', baseUrl: '', model: 'fixture' } } }
+  const filename = resolve(dir, 'settings.json')
+  writeFileSync(filename, JSON.stringify(config))
+  const gate = deferred()
+  let expire
+  const secrets = loadTs('src/main/secrets.ts', { electron: { safeStorage: {
+    encryptStringAsync: () => gate.promise
+  } } }, { setTimeout: (fn) => { expire = fn; return 1 } })
+  try {
+    const { settings } = loadTs('src/main/settings.ts', {
+      electron: { app: { getPath: () => dir } },
+      '../shared/types': { DEFAULT_SETTINGS: config }, './secrets': secrets
+    })
+    settings.load()
+    const check = assert.rejects(settings.updateAsync({ providers: { deepseek: { key: 'new-fixture-key' } } }), /TIMEOUT/)
+    expire()
+    await check
+    gate.resolve(Buffer.from('late-result'))
+    await flush()
+    assert.deepEqual(JSON.parse(readFileSync(filename, 'utf8')), config)
+    assert.equal(settings.get().providers.deepseek.key, config.providers.deepseek.key)
+    assert.equal(secrets.credentialRecovery(), 'timeout')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('Windows credential storage retains its existing synchronous behavior', async () => {
+  const secrets = loadTs('src/main/secrets.ts', { electron: { safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (value) => Buffer.from(value),
+    decryptString: (value) => value.toString(),
+    decryptStringAsync: () => assert.fail('Mac-only unlock must not run on Windows')
+  } } }, { process: { platform: 'win32' } })
+  const stored = secrets.encryptSecret('fixture-key')
+  assert.equal(secrets.decryptSecret(stored), 'fixture-key')
+  assert.equal(secrets.secretLocked(stored), false)
+  await secrets.unlockSecret(stored)
+  assert.equal(await secrets.encryptSecretAsync('fixture-key'), stored)
+})
+
+test('Keychain recovery only restarts from settings after failure, once, with the settings window requested', async () => {
+  const ipc = new Map(), events = new Map(), scheduled = [], actions = []
+  let failure, sender
+  class Window extends EventEmitter {
+    constructor() { super(); sender = this.webContents = { on: noop } }
+    setMenu() {}
+    loadFile() {}
+  }
+  loadTs('src/main/index.ts', {
+    electron: {
+      app: {
+        isPackaged: true, requestSingleInstanceLock: () => true,
+        whenReady: () => new Promise(noop), on: (name, fn) => events.set(name, fn),
+        relaunch: (options) => actions.push(['relaunch', plain(options)]), exit: (code) => actions.push(['exit', code])
+      },
+      ipcMain: { handle: (name, fn) => ipc.set(name, fn), on: noop },
+      nativeTheme: { on: noop }, BrowserWindow: Window
+    },
+    '../shared/types': {}, './capture': {}, './credentials': {}, '../core/detect': {}, '../core/lang': {},
+    '../core/platform': { setPlatform: noop }, './ocr': { PaddleOcr: class {} }, './pricing': {}, './updater': {},
+    './settings': {}, './i18n': {}, '../shared/i18n': {}, '../shared/i18n/mac': {}, './winapi': {},
+    './secrets': { credentialRecovery: () => failure }, './macos': { isMac: true },
+    '../core/translator': {}, './chatgpt': {}, './devtest': {}
+  }, {
+    process: { platform: 'darwin', resourcesPath: '/fixture', env: {}, on: noop, argv: ['/fixture/app', '--retry-keychain'] },
+    setTimeout: (fn) => { scheduled.push(fn); return 1 }
+  })
+  events.get('second-instance')()
+  const restart = ipc.get('credentials:restart')
+  assert.equal(restart({ sender }), false)
+  failure = 'failed'
+  assert.equal(restart({ sender: {} }), false)
+  assert.equal(restart({ sender }), true)
+  assert.equal(restart({ sender }), true)
+  assert.equal(scheduled.length, 1)
+  assert.equal(actions.length, 0, 'the IPC response returns before the app exits')
+  scheduled[0]()
+  assert.deepEqual(actions, [['relaunch', { args: ['--retry-keychain'] }], ['exit', 0]])
 })

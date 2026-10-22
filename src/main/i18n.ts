@@ -3,14 +3,15 @@ import { app } from 'electron'
 import { resolveUiLang, translator, type MsgKey, type UiLang, type Vars } from '../shared/i18n'
 import { TranslateError } from '../core/translator'
 import { settings } from './settings'
+import { macTranslator } from '../shared/i18n/mac'
 
-/** 当前界面语言（设置为「跟随系统」时取 Windows 的显示语言） */
+/** 当前界面语言（设置为「跟随系统」时取系统显示语言） */
 export function uiLang(): UiLang {
   return resolveUiLang(settings.get().uiLang, app.getPreferredSystemLanguages())
 }
 
 export function t(key: MsgKey, vars?: Vars) {
-  return translator(uiLang())(key, vars)
+  return (process.platform === 'darwin' ? macTranslator(uiLang()) : translator(uiLang()))(key, vars)
 }
 
 /** 错误显示给用户：翻译引擎的错误带词条时按界面语言显示 */

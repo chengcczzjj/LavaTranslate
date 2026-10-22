@@ -2,12 +2,12 @@ import { app } from 'electron'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, providerForUrl, type ProviderConfig, type ProviderId, type Settings, type SettingsPatch } from '../shared/types'
-import { encryptSecret, isMasked, maskSecret } from './secrets'
+import { encryptSecret, encryptSecretAsync, isMasked, maskSecret } from './secrets'
 
 type Listener = (next: Settings, prev: Settings) => void
 
 const EMPTY: ProviderConfig = { key: '', baseUrl: '', model: '' }
-const defaults: Settings = { ...DEFAULT_SETTINGS, hotkey: process.platform === 'darwin' ? 'Command+Shift+2' : DEFAULT_SETTINGS.hotkey }
+const defaults: Settings = { ...DEFAULT_SETTINGS, hotkey: process.platform === 'darwin' ? 'Alt+Space' : DEFAULT_SETTINGS.hotkey }
 
 /**
  * 旧版设置（engine + apiKey / openaiKey…）转成按服务商保存的结构。
@@ -53,9 +53,14 @@ class SettingsStore {
         }
         this.data = { ...defaults }
       }
+      // 只迁移 Mac 预览版的旧默认键，保留用户自己录制的快捷键。
+      if (process.platform === 'darwin' && this.data.hotkey === 'Command+Shift+2') {
+        this.data.hotkey = defaults.hotkey
+        changed = true
+      }
       // 明文保存的 Key（旧版或手工写入）改为加密
       for (const [id, c] of Object.entries(this.data.providers)) {
-        if (c?.key && c.key !== encryptSecret(c.key)) {
+        if (process.platform !== 'darwin' && c?.key && c.key !== encryptSecret(c.key)) {
           this.data.providers[id as ProviderId] = { ...c, key: encryptSecret(c.key) }
           changed = true
         }
@@ -96,6 +101,17 @@ class SettingsStore {
   }
 
   /** providers 按服务商逐项合并；界面回传的打码 Key 表示未修改 */
+  async updateAsync(patch: SettingsPatch): Promise<Settings> {
+    if (process.platform !== 'darwin' || !patch.providers) return this.update(patch)
+    const providers = { ...patch.providers }
+    for (const [id, config] of Object.entries(providers)) {
+      if (config?.key !== undefined && !isMasked(config.key)) {
+        providers[id as ProviderId] = { ...config, key: await encryptSecretAsync(config.key.trim()) }
+      }
+    }
+    return this.update({ ...patch, providers })
+  }
+
   update(patch: SettingsPatch): Settings {
     const prev = this.data
     const { providers: pp, ...rest } = patch

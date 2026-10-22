@@ -173,6 +173,8 @@ export interface EngineStatus {
   provider: ProviderId
   ok: boolean
   detail: string
+  locked?: boolean
+  credentialRecovery?: 'failed' | 'timeout'
 }
 
 /** 截图帧：主进程 → 遮罩窗口 */

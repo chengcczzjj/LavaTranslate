@@ -71,6 +71,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.mac-credentials { margin-bottom: 16px; }
+.mac-credentials .status-text { white-space: normal; overflow-wrap: anywhere; }
+.mac-credentials .btn { flex-shrink: 0; }
 
 /* ---------------------------------------------------------------- 连接配置 */
 .card.conn {

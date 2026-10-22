@@ -21,7 +21,7 @@ import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { LANGUAGES, type ErrorCode, type Phase } from '@shared/types'
 import { Tip } from '../components/Tip'
 import { useI18n } from '../lib/i18n'
-import { shortcutLabel } from '../lib/desktop'
+import { isMac, shortcutLabel } from '../lib/desktop'
 
 export interface ToolbarProps {
   phase: Phase
@@ -153,7 +153,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
         </Tip>
       </div>
 
-      <Tip label={t('tb.peek')} keys="Alt">
+      <Tip label={t('tb.peek')} keys={shortcutLabel('Alt')}>
         <button
           className={`tb-btn${p.peek ? ' on' : ''}`}
           disabled={p.mode === 'side'}
@@ -177,7 +177,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
           <ImageDown size={17} />
         </button>
       </Tip>
-      <Tip label={p.paused || p.peek ? t('tb.pinOriginal') : t('tb.pin')} keys="F3">
+      <Tip label={p.paused || p.peek ? t('tb.pinOriginal') : t('tb.pin')} keys={isMac ? '⌘ T' : 'F3'}>
         <button className="tb-btn" disabled={!p.progress.done && !p.paused && !p.peek} onClick={p.onPin}>
           <Pin size={16} />
         </button>

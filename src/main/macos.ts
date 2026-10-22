@@ -5,6 +5,27 @@ import { uiLang } from './i18n'
 
 export const isMac = process.platform === 'darwin'
 
+const SETTINGS_PANES = {
+  screen: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+  input: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent',
+  login: 'x-apple.systempreferences:com.apple.LoginItems-Settings.extension',
+  keyboard: 'x-apple.systempreferences:com.apple.Keyboard-Settings.extension'
+} as const
+
+export async function openMacSettings(pane: string): Promise<void> {
+  if (!isMac || !Object.hasOwn(SETTINGS_PANES, pane)) return
+  await shell.openExternal(SETTINGS_PANES[pane as keyof typeof SETTINGS_PANES])
+}
+
+export function macSettingsStatus() {
+  if (!isMac) return null
+  return {
+    screen: systemPreferences.getMediaAccessStatus('screen') === 'granted',
+    input: api()?.canListen() ?? false,
+    launchAtLogin: app.getLoginItemSettings().openAtLogin
+  }
+}
+
 interface Quartz {
   requestCapture: () => boolean
   canListen: () => boolean
@@ -39,20 +60,20 @@ function explainPermission(kind: 'ScreenCapture' | 'ListenEvent') {
   permissionDialog = (async () => {
     const zh = chinese()
     const screen = kind === 'ScreenCapture'
-    const permission = screen ? (zh ? '屏幕录制' : 'Screen Recording') : (zh ? '输入监控' : 'Input Monitoring')
+    const permission = screen ? (zh ? '录屏与系统录音' : 'Screen & System Audio Recording') : (zh ? '输入监控' : 'Input Monitoring')
     const { response } = await dialog.showMessageBox({
       type: 'info',
       title: 'LavaTranslate',
       message: zh ? `请允许${permission}` : `Allow ${permission}`,
       detail: zh
-        ? `${screen ? '截屏翻译需要读取屏幕画面。' : '按住空格操作其他应用、松开后恢复翻译，需要读取全局空格状态；不记录输入内容。'}在「系统设置 → 隐私与安全性 → ${permission}」中允许 ${app.isPackaged ? 'LavaTranslate' : 'Electron（开发模式）'}，然后完全退出并重新打开应用。`
+        ? `${screen ? '截屏翻译需要读取屏幕画面。' : '按住空格操作其他应用、松开后恢复翻译，需要读取全局空格状态；不记录输入内容。'}在「系统设置 → 隐私与安全 → ${permission}」中允许 ${app.isPackaged ? 'LavaTranslate' : 'Electron（开发模式）'}，然后完全退出并重新打开应用。`
         : `${screen ? 'Screenshot translation needs access to your screen.' : 'Holding Space to interact with another app requires reading the global Space key state. Typed text is not recorded.'} Allow ${app.isPackaged ? 'LavaTranslate' : 'Electron (development mode)'} in System Settings → Privacy & Security → ${permission}, then quit and reopen the app.`,
       buttons: zh ? ['打开系统设置', '稍后'] : ['Open System Settings', 'Later'],
       defaultId: 0,
       cancelId: 1,
       noLink: true
     })
-    if (response === 0) await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?Privacy_${kind}`)
+    if (response === 0) await openMacSettings(screen ? 'screen' : 'input')
   })().finally(() => { permissionDialog = null })
   return permissionDialog
 }

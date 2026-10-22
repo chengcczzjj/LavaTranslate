@@ -1,6 +1,8 @@
 // 渲染进程的界面文字：语言由主进程决定（设置里的 uiLang，'auto' 跟随系统），切换后各窗口即时更新
 import { Fragment, useSyncExternalStore, type ReactNode } from 'react'
 import { langName, providerName, providerText, translator, type MsgKey, type Vars } from '@shared/i18n'
+import { macTranslator } from '@shared/i18n/mac'
+import { isMac } from './desktop'
 
 // 安卓版的手机网页也用到回复框等组件，那里没有 window.lens：界面固定简体中文
 const lens = (window as Partial<Window>).lens
@@ -43,7 +45,7 @@ const cache = new Map<string, I18n>()
 export function i18nFor(l: string): I18n {
   let v = cache.get(l)
   if (v) return v
-  const t = translator(l)
+  const t = lens && isMac ? macTranslator(l) : translator(l)
   v = {
     lang: l,
     t,

@@ -62,7 +62,7 @@ Press the hotkey **twice** (<kbd>Alt</kbd>+<kbd>Q</kbd> <kbd>Q</kbd>) to skip th
 
 ## macOS (development preview)
 
-Source adaptations for **Apple Silicon Macs** are available. Development and static checks can run on Windows; macOS runtime testing and packaging still need a Mac. This preview has not yet been validated on Mac hardware. See the [Mac setup and debugging guide](docs/MACOS.md) (Chinese).
+The **Apple Silicon Mac** preview builds and runs on macOS. Local OCR and the settings window have been checked on Mac; full translation and multi-display acceptance remain in progress. The default capture shortcut is **Option + Space**. See the [Mac setup and debugging guide](docs/MACOS.md) (Chinese).
 
 ## Android
 
