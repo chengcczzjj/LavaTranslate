@@ -216,7 +216,8 @@ test('Command shortcuts apply only on Mac; Ctrl stays supported on both platform
 })
 
 test('each platform packages its own OCR runtime and screenshot native dependency', async () => {
-  const config = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).build
+  const { doMergeConfigs } = require('app-builder-lib/out/util/config/config.js')
+  const config = doMergeConfigs([JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).build])
   const { getNodeModuleFileMatcher } = require('app-builder-lib/out/fileMatcher.js')
   const { validateConfiguration } = require('app-builder-lib/out/util/config/config.js')
   const { DebugLogger } = require('builder-util')
@@ -233,4 +234,24 @@ test('each platform packages its own OCR runtime and screenshot native dependenc
   assert.equal(file(win, macOrt), false)
   assert.equal(file(mac, 'node-screenshots-darwin-arm64/node-screenshots.darwin-arm64.node'), true)
   assert.equal(file(mac, '@koromix/koffi-darwin-arm64/koffi.node'), true)
+})
+
+test('normalized Windows and Mac package rules exclude development data and old installers', () => {
+  const { doMergeConfigs } = require('app-builder-lib/out/util/config/config.js')
+  const { getMainFileMatchers } = require('app-builder-lib/out/fileMatcher.js')
+  const { DebugLogger } = require('builder-util')
+  for (const platform of ['win', 'mac']) {
+    const config = doMergeConfigs([JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).build])
+    const output = resolve(root, 'dist/windows-layout-test')
+    const info = { config, projectDir: root, buildResourcesDir: 'build', debugLogger: new DebugLogger(false), isPrepackedAppAsar: false }
+    const matchers = getMainFileMatchers(root, output, (s) => s, config[platform], { info }, output, false)
+    const filters = matchers.map((m) => m.createFilter())
+    const includes = (path) => filters.some((filter) => filter(resolve(root, path), { isDirectory: () => false }))
+    for (const path of ['package.json', 'out/main/index.js', 'out/preload/index.js', 'out/renderer/overlay.html', 'out/renderer/assets/desktop.js']) {
+      assert.equal(includes(path), true, `${platform}: missing ${path}`)
+    }
+    for (const path of ['.scratch/debug.log', '.scratch/settings.json', 'android/keystore.properties', 'dist/old-installer.exe', 'src/main/index.ts', 'scripts/check-layout.mjs', 'out/mobile/overlay.html']) {
+      assert.equal(includes(path), false, `${platform}: unexpected ${path}`)
+    }
+  }
 })

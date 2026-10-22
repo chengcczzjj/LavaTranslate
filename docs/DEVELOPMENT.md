@@ -102,6 +102,10 @@
 
 ## 开发
 
+打包配置中的 `win.files` / `mac.files` 必须保留正向条目 `package.json`。electron-builder 会将根级 `files` 规范化为独立 FileSet；
+平台级如果只有排除项，会额外建立一个默认包含 `**/*` 的匹配器，把 `.scratch`、源码和旧安装包也带入应用。
+`npm run check:platform` 使用规范化后的实际匹配器检查这条边界；打包后仍应核对 `app.asar` 的文件范围。
+
 ```bash
 npm install
 npm run models   # 下载 OCR 模型（需要 python + onnx 才能打 ArgMax 补丁，否则用原始模型）
