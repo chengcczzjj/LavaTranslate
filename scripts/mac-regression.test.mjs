@@ -161,7 +161,7 @@ function captureHarness(permission, capture) {
     './settings': { settings: { get: () => ({ hotkey: 'Command+Shift+2' }) } },
     './i18n': { t: (key) => key }, '../shared/i18n': {}, '../shared/hotkeys': {}, './win-space': { WinSpaceHotkey: class {} }, './winapi': {}, './secrets': { secretLocked: () => false },
     './macos': { isMac: true, configureMacOverlay: noop, ensureScreenCapture: permission },
-    '../core/translator': {}, './chatgpt': {}, './devtest': {}
+    '../core/translator': {}, './chatgpt': {}, './devtest': {}, './diagnostics': { logError: noop }
   })
   return { ipc, frames, cap }
 }

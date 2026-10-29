@@ -5,7 +5,8 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    build: { minify: 'esbuild', rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts'), 'win-space-worker': resolve(__dirname, 'src/main/win-space-worker.ts') } } }
+    // 保留独立 app 入口，bootstrap 先安装错误处理，再 require 原生依赖。
+    build: { minify: 'esbuild', rollupOptions: { input: { index: resolve(__dirname, 'src/main/bootstrap.ts'), app: resolve(__dirname, 'src/main/index.ts'), 'win-space-worker': resolve(__dirname, 'src/main/win-space-worker.ts') } } }
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

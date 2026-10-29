@@ -1,7 +1,7 @@
 {
   "name": "lavatranslate",
   "productName": "LavaTranslate",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "截图翻译：框选屏幕任意区域，译文按原排版就地显示；还能用自己的语言回复外语聊天",
   "main": "./out/main/index.js",
   "author": "chengcczzjj",
@@ -16,6 +16,9 @@
     "pack:mac": "node scripts/build-mac.mjs arm64 --dir",
     "check:mac": "electron scripts/check-mac.cjs",
     "check:platform": "node --test scripts/platform.test.mjs scripts/mac-regression.test.mjs",
+    "check:win-compat": "node --test scripts/windows-compat.test.mjs",
+    "check:win-package": "node scripts/check-win-package.cjs",
+    "runtime:win": "node scripts/windows-runtime.cjs",
     "check:win-hotkey": "electron scripts/check-win-hotkey.cjs",
     "check:layout": "node scripts/check-layout.mjs",
     "export:mac": "node scripts/export-mac.mjs",
@@ -62,6 +65,7 @@
       "!**/node_modules/**/{test,tests,docs,example,examples}/**"
     ],
     "asar": true,
+    "afterPack": "./scripts/windows-runtime.cjs",
     "asarUnpack": [
       "**/node_modules/onnxruntime-node/**",
       "**/node_modules/node-screenshots*/**",

@@ -18,7 +18,7 @@ import {
   type Display,
   type WebContents
 } from 'electron'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
@@ -59,6 +59,7 @@ import { OpenAIEngine, TranslateError, type Engine } from '../core/translator'
 import { cancelSignIn, listPlanModels, refresh as refreshChatGPT, SignInExpired, signIn as signInChatGPT } from './chatgpt'
 import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runI18nShots, runPassTest, runReview, runSignInTest } from './devtest'
 import { EventEmitter } from 'node:events'
+import { logError } from './diagnostics'
 
 // 模型请求走 Chromium 网络栈（系统代理、HTTP/2）
 setPlatform({
@@ -76,8 +77,7 @@ const fixtureEngine = process.env.LENS_REVIEW ? new FixtureEngine() : null
 const mockEngine = fixtureEngine ?? (process.env.LENS_MOCK ? new MockEngine() : null)
 const pipeline = new EventEmitter()
 
-// 自测用独立的数据目录：不读写用户配置，也不和已安装、正在运行的版本抢单实例锁
-if (AUTOTEST || process.env.LENS_ENGINE_TEST || process.env.LENS_DETECT_TEST || process.env.LENS_PASSTEST || process.env.LENS_SIGNIN_TEST) app.setPath('userData', join(app.getPath('temp'), 'lens-autotest'))
+// 自测数据目录由 bootstrap 在导入原生模块前设置。
 // LENS_AUTOTEST_SEED=<settings.json>：自测前放一份指定的设置（检查旧格式迁移等）
 if (AUTOTEST && process.env.LENS_AUTOTEST_SEED) {
   mkdirSync(app.getPath('userData'), { recursive: true })
@@ -85,19 +85,6 @@ if (AUTOTEST && process.env.LENS_AUTOTEST_SEED) {
 }
 if (!app.requestSingleInstanceLock()) app.quit()
 
-// 主进程未捕获的异常默认会弹出模态对话框并阻塞主线程；改为写日志
-const logError = (kind: string, e: unknown) => {
-  const line = `[${new Date().toISOString()}] ${kind}: ${e instanceof Error ? e.stack : String(e)}
-`
-  console.error(line)
-  try {
-    appendFileSync(join(app.getPath('userData'), 'error.log'), line)
-  } catch {
-    /* 忽略 */
-  }
-}
-process.on('uncaughtException', (e) => logError('uncaughtException', e))
-process.on('unhandledRejection', (e) => logError('unhandledRejection', e))
 // 开发 / 测试运行用另一个 ID：同一个 ID 会和已安装的版本归成一组，任务栏就可能显示 electron.exe 的图标
 if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'com.lavatranslate.app' : 'com.lavatranslate.app.dev')
 // 隐藏的遮罩窗口也要及时绘制新截图
@@ -111,10 +98,10 @@ let engine: Engine | null = null
 
 // ------------------------------------------------------------------ 页面加载
 function loadPage(win: BrowserWindow, page: 'overlay' | 'settings' | 'pin') {
+  win.webContents.on('did-fail-load', (_event, code, description) => logError(`${page} load`, `${code}: ${description}`))
+  win.webContents.on('preload-error', (_event, _path, error) => logError(`${page} preload`, error))
+  win.webContents.on('render-process-gone', (_event, details) => logError(`${page} renderer`, details.reason))
   if (isMac) {
-    win.webContents.on('did-fail-load', (_event, code, description) => logError(`${page} load`, `${code}: ${description}`))
-    win.webContents.on('preload-error', (_event, _path, error) => logError(`${page} preload`, error))
-    win.webContents.on('render-process-gone', (_event, details) => logError(`${page} renderer`, details.reason))
     if (process.env.LENS_DIAGNOSTIC) {
       win.webContents.on('did-finish-load', () => console.log('[page loaded]', page))
       win.webContents.on('console-message', (event) => console.log('[renderer]', page, event.message))
@@ -1221,7 +1208,7 @@ function migrateLegacy() {
   }
 }
 
-app.whenReady().then(async () => {
+export const startup = app.whenReady().then(async () => {
   migrateLegacy()
   let s = settings.load()
   if (!s.installId) s = settings.update({ installId: `urn:uuid:${randomUUID()}` })

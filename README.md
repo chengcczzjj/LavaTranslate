@@ -159,7 +159,7 @@ Go to Windows Settings → Apps → LavaTranslate → Uninstall.
 
 ## Build from source
 
-Requirements: Windows 10/11 x64, Node.js 22+, and Python 3 with `onnx` (optional, used to patch the OCR model for speed).
+Requirements: Windows 10/11 x64, Node.js 22+, and Python 3 with `onnx` (optional, used to patch the OCR model for speed). Windows packaging downloads and verifies a pinned Microsoft VC++ x64 runtime and bundles it beside the executable. The first build needs internet access; subsequent builds can use the local cache. See [runtime preparation and diagnostics](docs/DEVELOPMENT.md#windows-运行库与启动诊断).
 
 ```bash
 npm install

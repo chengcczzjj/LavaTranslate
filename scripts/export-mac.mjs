@@ -27,7 +27,7 @@ function add(relative) {
 for (const file of [
   'package.json', 'package-lock.json', 'electron.vite.config.ts', 'vite.mobile.config.ts',
   'tsconfig.json', 'tsconfig.node.json', 'tsconfig.web.json', 'LICENSE', 'README.md', 'README.zh-CN.md', '.gitignore',
-  'src', 'scripts', 'docs', 'build/icon-1024.png', 'build/icon.ico',
+  'src', 'scripts', 'docs', 'build/icon-1024.png', 'build/icon.ico', 'build/windows-runtime.json',
   'resources/icon.png', 'resources/icon.ico', 'resources/tray.png', 'resources/tray@1.25x.png',
   'resources/tray@1.5x.png', 'resources/tray@2x.png', 'resources/model-prices.json', 'resources/test.png'
 ]) add(file)

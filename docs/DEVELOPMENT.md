@@ -62,6 +62,18 @@ Windows 的 `Win + Space` 由独立线程上的低级键盘钩子处理（`win-s
   请求必须 `store:false`、`stream:true`，不能带 `max_output_tokens` 等参数（见 preview limitations）。
 - **思考对排版的影响**：同一批真实网页开 / 关思考对比，分块、语言、是否对话一致；关思考后模型常把照抄的原文漏标 keep，现由 `BlockParser` 在译文与原文相同时自动保留原图。
 
+## Windows 运行库与启动诊断
+
+- `electron-builder` 的 `afterPack` 钩子（`scripts/windows-runtime.cjs`）把 VC++ x64 DLL 放到 `LavaTranslate.exe` 及 ONNX Runtime 原生模块目录。Node 加载 `.node` 时使用不同的 DLL 搜索路径，仅放在 EXE 旁不够。NSIS 安装、解包版和应用内更新都包含这些文件；用户不需要另行安装运行库，也不增加管理员权限要求。
+- 微软官方下载地址、版本和 EXE / DLL 的 SHA-256 固定在 `build/windows-runtime.json`。首次 Windows 打包自动下载并提取，既不运行运行库安装程序，也不读取本机 System32 的 DLL。缺失、损坏或架构不匹配会阻止打包。
+- 可提前运行 `npm run runtime:win`。离线机器可设置 `LAVA_VC_REDIST_EXE` 指向同一版本的微软安装包，再运行该命令；校验值必须一致。缓存位于 `build/windows-runtime/`，不提交 Git。升级原生依赖时应同时检查并更新运行库版本、校验值和回归验证；应用自带运行库通过新版应用更新。
+- `bootstrap.ts` 在加载原生模块之前注册日志，并捕获同步导入失败和异步启动失败。失败时弹窗显示原因和日志路径，再以非零状态退出。日志默认写到 `%APPDATA%\LavaTranslate\error.log`；目录不可写时回退到 `%TEMP%\LavaTranslate-error.log`。Windows 的页面加载、预加载和渲染进程错误也会记录。
+- `npm run check:win-compat` 验证缺 DLL、异步启动失败、日志回退和打包校验；`npm run check:platform` 验证已有跨平台行为。仍需在干净的 Windows 10 x64 机器上做安装、首次启动和截图 OCR 验证；开发机加载成功不能代替该验证。
+- 打包后运行 `npm run check:win-package -- dist/win-unpacked`：用产物自己的 Electron 加载三个原生模块，检查实际加载的 VC++ DLL 路径，并运行检测、识别模型的 CPU 推理。此检查可发现“开发机有运行库所以误以为安装包完整”的情况。
+- 数字签名独立配置；捆绑运行库不能消除 SmartScreen 的未知发布者提示。
+
+微软参考：[本地部署运行库](https://learn.microsoft.com/en-us/cpp/windows/deployment-in-visual-cpp)、[可再发行文件说明](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files)。
+
 ## 自动更新
 
 安装版每 4 小时检查一次 GitHub Releases（`chengcczzjj/LavaTranslate`），在后台按块差量下载，下载完成后托盘与设置里出现「重启并更新」，不点也会在下次退出时安装。
