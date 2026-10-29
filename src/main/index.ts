@@ -53,7 +53,8 @@ import { errorText, t, uiLang } from './i18n'
 import { langBase, providerName, UI_LANGS } from '../shared/i18n'
 import { forceForeground, hwndOf, keyDown, VK_SPACE } from './winapi'
 import { configureMacOverlay, ensureKeyMonitoring, ensureScreenCapture, isMac, macSpaceDown, macSettingsStatus, openMacSettings } from './macos'
-import { macAcceleratorLabel } from '../shared/i18n/mac'
+import { acceleratorLabel } from '../shared/hotkeys'
+import { WinSpaceHotkey } from './win-space'
 import { OpenAIEngine, TranslateError, type Engine } from '../core/translator'
 import { cancelSignIn, listPlanModels, refresh as refreshChatGPT, SignInExpired, signIn as signInChatGPT } from './chatgpt'
 import { fakeModelServer, FixtureEngine, MockEngine, runAutotest, runEngineTest, runI18nShots, runPassTest, runReview, runSignInTest } from './devtest'
@@ -1079,9 +1080,13 @@ ipcMain.handle('engine:test', async () => {
 
 // ------------------------------------------------------------------ 快捷键 / 托盘
 let registeredHotkey = ''
+const winSpace = new WinSpaceHotkey()
+const hotkeyLabel = (value: string) => acceleratorLabel(value, process.platform, uiLang())
 function registerHotkey(hotkey: string): boolean {
   if (registeredHotkey) globalShortcut.unregister(registeredHotkey)
   registeredHotkey = ''
+  winSpace.setMode(0)
+  if (process.platform === 'win32' && hotkey === 'Super+Space') return winSpace.setMode(1)
   try {
     if (globalShortcut.register(hotkey, onHotkey)) {
       registeredHotkey = hotkey
@@ -1106,13 +1111,15 @@ ipcMain.handle('hotkey:set', (_e, hotkey: string) => {
 
 ipcMain.handle('hotkey:suspend', (_e, on: boolean) => {
   // 录制快捷键时暂停全局热键
-  if (on) globalShortcut.unregisterAll()
-  else registerHotkey(settings.get().hotkey)
+  if (on) {
+    globalShortcut.unregisterAll()
+    winSpace.setMode(2)
+  } else registerHotkey(settings.get().hotkey)
 })
 
 function updateTray() {
   if (!tray) return
-  tray.setToolTip(`LavaTranslate · ${isMac ? macAcceleratorLabel(settings.get().hotkey) : settings.get().hotkey.replace(/\+/g, ' + ')}`)
+  tray.setToolTip(`LavaTranslate · ${hotkeyLabel(settings.get().hotkey)}`)
   tray.setContextMenu(Menu.buildFromTemplate(trayMenu()))
 }
 
@@ -1263,6 +1270,10 @@ app.whenReady().then(async () => {
     }
   })
 
+  await winSpace.start((recording) => {
+    if (recording) settingsWin?.webContents.send('hotkey:recorded', 'Super+Space')
+    else onHotkey()
+  })
   const ok = registerHotkey(s.hotkey)
   settings.onChange((next, prev) => {
     if (next.provider !== prev.provider || JSON.stringify(next.providers[next.provider]) !== JSON.stringify(prev.providers[prev.provider])) buildEngine(next)
@@ -1431,10 +1442,10 @@ app.whenReady().then(async () => {
     settings.update({ firstRunDone: true, targetLang: systemTarget() })
     openSettings()
   } else if (!ok) {
-    notify(t('notify.hotkeyFailedTitle'), t('notify.hotkeyFailedBody', { key: isMac ? macAcceleratorLabel(s.hotkey) : s.hotkey }))
+    notify(t('notify.hotkeyFailedTitle'), t('notify.hotkeyFailedBody', { key: hotkeyLabel(s.hotkey) }))
     openSettings()
   } else {
-    notify(t('notify.runningTitle'), t('notify.runningBody', { key: isMac ? macAcceleratorLabel(s.hotkey) : s.hotkey.replace(/\+/g, ' + ') }))
+    notify(t('notify.runningTitle'), t('notify.runningBody', { key: hotkeyLabel(s.hotkey) }))
   }
 })
 
@@ -1446,5 +1457,6 @@ app.on('before-quit', () => {
   quitting = true
   engine?.dispose()
   globalShortcut.unregisterAll()
+  winSpace.stop()
 })
 

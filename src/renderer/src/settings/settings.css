@@ -961,6 +961,9 @@ button.tile:hover {
 .note.err {
   color: #e8603c;
 }
+.hotkey-note {
+  margin-bottom: 16px;
+}
 .model-pick {
   padding: 12px;
   border-radius: 14px;

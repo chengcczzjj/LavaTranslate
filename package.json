@@ -16,6 +16,7 @@
     "pack:mac": "node scripts/build-mac.mjs arm64 --dir",
     "check:mac": "electron scripts/check-mac.cjs",
     "check:platform": "node --test scripts/platform.test.mjs scripts/mac-regression.test.mjs",
+    "check:win-hotkey": "electron scripts/check-win-hotkey.cjs",
     "check:layout": "node scripts/check-layout.mjs",
     "export:mac": "node scripts/export-mac.mjs",
     "models": "node scripts/fetch-models.mjs",

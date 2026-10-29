@@ -48,7 +48,7 @@ You can read the other person's message now — LavaTranslate also helps you ans
 
 ## Type to translate
 
-Press the hotkey **twice** (<kbd>Alt</kbd>+<kbd>Q</kbd> <kbd>Q</kbd>) to skip the screenshot and just type. LavaTranslate waits until you pause (about 2 s, or press <kbd>Enter</kbd>), then translates. It does not follow the screenshot's target language. On **Auto** it translates both ways between your language (the interface language) and the foreign language you last translated into: type your language to get the other one, type anything else to get yours. Or pick a language from the menu and everything you type goes into that language; the choice is remembered. <kbd>Enter</kbd> copies and closes.
+Press the hotkey **twice** (<kbd>Win</kbd>+<kbd>Space</kbd> × 2) to skip the screenshot and just type. LavaTranslate waits until you pause (about 2 s, or press <kbd>Enter</kbd>), then translates. It does not follow the screenshot's target language. On **Auto** it translates both ways between your language (the interface language) and the foreign language you last translated into: type your language to get the other one, type anything else to get yours. Or pick a language from the menu and everything you type goes into that language; the choice is remembered. <kbd>Enter</kbd> copies and closes.
 
 <img src="docs/images/quick.png" width="520" alt="Type to translate">
 
@@ -111,7 +111,7 @@ LavaTranslate asks every model to skip "thinking" (each provider's own switch, f
 
 | Key | Action |
 | --- | --- |
-| <kbd>Alt</kbd>+<kbd>Q</kbd> (configurable) or click the tray icon | Start a capture |
+| <kbd>Win</kbd>+<kbd>Space</kbd> (configurable) or click the tray icon | Start a capture |
 | Press the hotkey twice | Type a sentence to translate |
 | Double-click the tray icon | Open Settings |
 | Drag / click | Select a region / select the window under the cursor |

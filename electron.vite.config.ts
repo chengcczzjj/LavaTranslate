@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    build: { minify: 'esbuild', rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts') } } }
+    build: { minify: 'esbuild', rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts'), 'win-space-worker': resolve(__dirname, 'src/main/win-space-worker.ts') } } }
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

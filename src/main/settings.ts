@@ -54,8 +54,9 @@ class SettingsStore {
         }
         this.data = { ...defaults }
       }
-      // 只迁移 Mac 预览版的旧默认键，保留用户自己录制的快捷键。
-      if (process.platform === 'darwin' && this.data.hotkey === 'Command+Shift+2') {
+      // 迁移各平台的旧默认键，保留其他自定义快捷键。
+      if ((process.platform === 'darwin' && this.data.hotkey === 'Command+Shift+2') ||
+          (process.platform === 'win32' && this.data.hotkey === 'Alt+Q')) {
         this.data.hotkey = defaults.hotkey
         changed = true
       }

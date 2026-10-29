@@ -110,7 +110,7 @@ export type SettingsPatch = Omit<Partial<Settings>, 'providers'> & {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  hotkey: 'Alt+Q',
+  hotkey: 'Super+Space',
   targetLang: 'zh-Hans',
   provider: 'gemini',
   providers: {},

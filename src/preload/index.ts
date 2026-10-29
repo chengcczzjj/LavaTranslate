@@ -94,6 +94,7 @@ const api = {
   onUpdate: (cb: (s: UpdateState) => void) => on('update:state', cb),
   setHotkey: (hotkey: string): Promise<{ ok: boolean; message?: string }> => ipcRenderer.invoke('hotkey:set', hotkey),
   suspendHotkey: (on: boolean) => ipcRenderer.invoke('hotkey:suspend', on),
+  onHotkeyRecorded: (cb: (hotkey: string) => void) => on('hotkey:recorded', cb),
   appInfo: (): Promise<{ version: string }> => ipcRenderer.invoke('app:info'),
   ocrInfo: (): Promise<string> => ipcRenderer.invoke('ocr:info'),
   startCapture: () => ipcRenderer.send('capture:start')

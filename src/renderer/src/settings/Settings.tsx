@@ -40,7 +40,7 @@ import {
   type UpdateState
 } from '@shared/types'
 import { UI_LANGS, type MsgKey } from '@shared/i18n'
-import { macAcceleratorLabel } from '@shared/i18n/mac'
+import { acceleratorLabel } from '@shared/hotkeys'
 import { useI18n, type I18n } from '../lib/i18n'
 import { isMac, shortcutLabel } from '../lib/desktop'
 
@@ -204,7 +204,7 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
           {s.hotkey.split('+').map((k, n) => (
             <span key={n} className="keycap-wrap">
               {n > 0 && <span className="plus">+</span>}
-              <span className="keycap">{isMac ? macAcceleratorLabel(k) : k}</span>
+              <span className="keycap">{acceleratorLabel(k, isMac ? 'darwin' : 'win32', i.lang)}</span>
             </span>
           ))}
         </div>
@@ -974,9 +974,10 @@ function GeneralPage({ s, update }: { s: S; update: Upd }) {
   return (
     <>
       <h2>{t('gen.title')}</h2>
-      <Card title={t('gen.hotkey')} desc={t('gen.hotkeyDesc')} icon={<Keyboard size={18} />}>
+      <Card title={t('gen.hotkey')} desc={t('gen.hotkeyDesc', { key: acceleratorLabel(s.hotkey, isMac ? 'darwin' : 'win32', lang) })} icon={<Keyboard size={18} />}>
         <HotkeyInput value={s.hotkey} />
       </Card>
+      {!isMac && s.hotkey === 'Super+Space' && <div className="note hotkey-note">{t('gen.winSpace')}</div>}
       {isMac && <Card title={zh ? '系统快捷键' : 'macOS keyboard shortcuts'} desc={zh ? '如果组合键与系统功能冲突，可在「系统设置 → 键盘 → 键盘快捷键」中查看。' : 'Check conflicts in System Settings → Keyboard → Keyboard Shortcuts.'}>
         <button className="btn" onClick={() => void openSystem('keyboard')}><ExternalLink size={14} />{zh ? '打开键盘设置' : 'Keyboard settings'}</button>
       </Card>}
@@ -1009,7 +1010,7 @@ function GeneralPage({ s, update }: { s: S; update: Upd }) {
 }
 
 function HotkeyInput({ value }: { value: string }) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [rec, setRec] = useState(false)
   const [draft, setDraft] = useState<string[]>([])
   const [err, setErr] = useState('')
@@ -1017,8 +1018,18 @@ function HotkeyInput({ value }: { value: string }) {
   useEffect(() => {
     if (!rec) return
     void window.lens.suspendHotkey(true)
+    const save = async (acc: string) => {
+      const r = await window.lens.setHotkey(acc)
+      setErr(r.ok ? '' : (r.message ?? 'hotkey.failed'))
+      if (r.ok) setRec(false)
+    }
+    const offRecorded = window.lens.onHotkeyRecorded((acc) => {
+      setDraft(acc.split('+'))
+      void save(acc)
+    })
     const down = async (e: KeyboardEvent) => {
       e.preventDefault()
+      if (e.repeat) return
       if (e.key === 'Escape') {
         setRec(false)
         return
@@ -1032,13 +1043,15 @@ function HotkeyInput({ value }: { value: string }) {
         return
       }
       const acc = [...mods, key].join('+')
-      const r = await window.lens.setHotkey(acc)
-      setErr(r.ok ? '' : (r.message ?? 'hotkey.failed'))
-      if (r.ok) setRec(false)
+      await save(acc)
     }
+    const blur = () => setRec(false)
     window.addEventListener('keydown', down)
+    window.addEventListener('blur', blur)
     return () => {
       window.removeEventListener('keydown', down)
+      window.removeEventListener('blur', blur)
+      offRecorded()
       void window.lens.suspendHotkey(false)
     }
   }, [rec])
@@ -1057,7 +1070,7 @@ function HotkeyInput({ value }: { value: string }) {
         {keys.length ? (
           keys.map((k, n) => (
             <motion.span key={k + n} className="keycap sm" initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-              {isMac ? macAcceleratorLabel(k) : shortcutLabel(k)}
+              {acceleratorLabel(k, isMac ? 'darwin' : 'win32', lang)}
             </motion.span>
           ))
         ) : (

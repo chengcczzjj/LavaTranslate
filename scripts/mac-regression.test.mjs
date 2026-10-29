@@ -159,7 +159,7 @@ function captureHarness(permission, capture) {
     '../shared/types': {}, './capture': { captureAll: capture }, './credentials': {}, '../core/detect': {}, '../core/lang': {},
     '../core/platform': { setPlatform: noop }, './ocr': { PaddleOcr: class {} }, './pricing': {}, './updater': {},
     './settings': { settings: { get: () => ({ hotkey: 'Command+Shift+2' }) } },
-    './i18n': { t: (key) => key }, '../shared/i18n': {}, '../shared/i18n/mac': {}, './winapi': {}, './secrets': { secretLocked: () => false },
+    './i18n': { t: (key) => key }, '../shared/i18n': {}, '../shared/hotkeys': {}, './win-space': { WinSpaceHotkey: class {} }, './winapi': {}, './secrets': { secretLocked: () => false },
     './macos': { isMac: true, configureMacOverlay: noop, ensureScreenCapture: permission },
     '../core/translator': {}, './chatgpt': {}, './devtest': {}
   })
@@ -299,14 +299,15 @@ test('Mac settings save and reload local keys with owner-only permissions, prese
   try {
     const settings = load()
     settings.load()
-    assert.equal(statSync(filename).mode & 0o777, 0o600)
+    // Windows chmod cannot represent POSIX owner-only permissions; still exercise save/reload here.
+    if (process.platform !== 'win32') assert.equal(statSync(filename).mode & 0o777, 0o600)
     settings.update({ providers: { deepseek: { key: '••••', model: 'new-model' } } })
     assert.equal(settings.get().providers.deepseek.key, config.providers.deepseek.key)
     // Even a pre-existing temporary file with broad permissions must be tightened.
     writeFileSync(filename + '.tmp', '', { mode: 0o644 })
     chmodSync(filename + '.tmp', 0o644)
     settings.update({ providers: { deepseek: { key: 'new-fixture-key' } } })
-    assert.equal(statSync(filename).mode & 0o777, 0o600)
+    if (process.platform !== 'win32') assert.equal(statSync(filename).mode & 0o777, 0o600)
     const reopened = load()
     reopened.load()
     assert.equal(reopened.get().providers.deepseek.key, 'new-fixture-key')
@@ -330,4 +331,100 @@ test('Windows credential storage retains its existing encryption behavior', () =
   assert.match(stored, /^enc:/)
   assert.equal(secrets.decryptSecret(stored), 'fixture-key')
   assert.equal(secrets.secretLocked(stored), false)
+})
+
+test('hotkey migration changes only the old default on its own platform and persists it', () => {
+  const types = loadTs('src/shared/types.ts', { './providers': {} })
+  for (const [platform, previous, expected] of [
+    ['win32', null, 'Super+Space'], ['win32', 'Alt+Q', 'Super+Space'],
+    ['win32', 'Ctrl+Shift+Z', 'Ctrl+Shift+Z'], ['win32', 'Command+Shift+2', 'Command+Shift+2'],
+    ['darwin', null, 'Alt+Space'], ['darwin', 'Command+Shift+2', 'Alt+Space'],
+    ['darwin', 'Alt+Q', 'Alt+Q'], ['darwin', 'Ctrl+Shift+Z', 'Ctrl+Shift+Z']
+  ]) {
+    let saved = previous === null ? null : JSON.stringify({ ...types.DEFAULT_SETTINGS, hotkey: previous, targetLang: 'ja' })
+    let writes = 0
+    const load = () => loadTs('src/main/settings.ts', {
+      electron: { app: { getPath: () => '/fixture' } }, '../shared/types': types,
+      './secrets': { encryptSecret: (s) => s },
+      'node:fs': {
+        mkdirSync: noop, chmodSync: noop, existsSync: () => saved !== null,
+        readFileSync: () => saved, renameSync: noop,
+        writeFileSync: (_path, content) => { saved = content; writes++ }
+      }
+    }, { process: { platform } }).settings
+    assert.equal(load().load().hotkey, expected)
+    assert.equal(writes, previous !== null && previous !== expected ? 1 : 0)
+    if (previous !== null) {
+      const reopened = load().load()
+      assert.equal(reopened.hotkey, expected)
+      assert.equal(reopened.targetLang, 'ja')
+    }
+  }
+})
+
+test('saved shortcut labels localize Windows keys and preserve Mac Control versus Command', () => {
+  const mac = loadTs('src/shared/i18n/mac.ts', { './index': {} })
+  const { acceleratorLabel } = loadTs('src/shared/hotkeys.ts', { './i18n/mac': mac })
+  assert.equal(acceleratorLabel('Super+Space', 'win32', 'zh-Hans'), 'Win + 空格')
+  assert.equal(acceleratorLabel('Super+Space', 'win32', 'en'), 'Win + Space')
+  assert.equal(acceleratorLabel('Super+Space', 'win32', 'zh-Hant'), 'Win + 空白鍵')
+  assert.equal(acceleratorLabel('Ctrl+Shift+Z', 'win32', 'zh-Hans'), 'Ctrl + Shift + Z')
+  assert.equal(acceleratorLabel('Alt+Space', 'darwin', 'zh-Hans'), '⌥ Option + Space')
+  assert.equal(acceleratorLabel('Ctrl+Command+K', 'darwin', 'en'), '⌃ Control + ⌘ Command + K')
+})
+
+test('Win+Space hook passes unrelated keys, consumes repeat/release, records, and unhooks', () => {
+  let callback
+  const state = new Int32Array(new SharedArrayBuffer(12))
+  const held = new Set()
+  const sent = [], masked = []
+  let unhooked = 0, released = 0
+  const press = (key, up = false, code = 0) => callback(code, up ? 0x101 : 0x100, key)
+  const native = {
+    SetWindowsHookExW: () => 1,
+    UnhookWindowsHookEx: () => { unhooked++ },
+    CallNextHookEx: () => 42,
+    PeekMessageW: noop,
+    GetAsyncKeyState: (key) => held.has(key) ? 0x8000 : 0,
+    keybd_event: (key, _scan, flags) => masked.push([key, flags]),
+    GetCurrentThreadId: () => 123,
+    GetModuleHandleW: () => 1,
+    GetMessageW: () => {
+      assert.equal(press(0x20), 42) // Disabled.
+      state[0] = 1
+      assert.equal(press(0x20), 42) // Plain Space.
+      held.add(0x5b)
+      assert.equal(press(0x41), 42) // Win+A belongs to Windows.
+      assert.equal(press(0x20, false, -1), 42)
+      for (const modifier of [0x10, 0x11, 0x12]) {
+        held.add(modifier)
+        assert.equal(press(0x20), 42)
+        held.delete(modifier)
+      }
+      assert.equal(press(0x20), 1)
+      assert.equal(press(0x20), 1)
+      assert.deepEqual(sent, ['ready', 'press'])
+      held.clear() // Win released before Space.
+      state[0] = 0 // Switching the configured shortcut must still consume its paired release.
+      assert.equal(press(0x20, true), 1)
+      assert.equal(press(0x20), 42)
+      state[0] = 2
+      held.add(0x5c) // Right Win works too.
+      assert.equal(press(0x20), 1)
+      assert.equal(press(0x20, true), 1)
+      assert.deepEqual(sent, ['ready', 'press', 'record'])
+      return 0
+    }
+  }
+  loadTs('src/main/win-space-worker.ts', {
+    'node:worker_threads': { workerData: state.buffer, parentPort: { postMessage: (s) => sent.push(s), close: noop } },
+    koffi: {
+      load: () => ({ func: (signature) => native[signature.match(/__stdcall (\w+)\(/)[1]] }),
+      proto: noop, pointer: noop, decode: (value) => value,
+      register: (fn) => { callback = fn; return fn }, unregister: () => { released++ }
+    }
+  })
+  assert.equal(unhooked, 1)
+  assert.equal(released, 1)
+  assert.deepEqual(masked, [[0x11, 0], [0x11, 2], [0x11, 0], [0x11, 2]])
 })

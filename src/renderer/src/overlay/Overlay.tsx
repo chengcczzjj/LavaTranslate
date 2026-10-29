@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
+  DEFAULT_SETTINGS,
   LANGUAGES,
   type BlockColors,
   type CaptureFrame,
@@ -18,6 +19,7 @@ import { langBase, ReplyComposer } from './ReplyComposer'
 import { Toolbar } from './Toolbar'
 import { currentI18n, useI18n } from '../lib/i18n'
 import { isMac, primaryModifier } from '../lib/desktop'
+import { acceleratorLabel } from '@shared/hotkeys'
 
 /** quick：连按两次快捷键，不框选，直接输入一句话翻译 */
 type Stage = 'hidden' | 'idle' | 'drawing' | 'selected' | 'quick'
@@ -79,7 +81,7 @@ export function Overlay() {
   const [tipKey, setTipKey] = useState<string | null>(null)
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null)
   const [capturing, setCapturing] = useState(false)
-  const [hotkey, setHotkey] = useState('Alt+Q')
+  const [hotkey, setHotkey] = useState(isMac ? 'Alt+Space' : DEFAULT_SETTINGS.hotkey)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const [tbSize, setTbSize] = useState({ w: 520, h: 46 })
 
@@ -1113,7 +1115,7 @@ export function Overlay() {
             <span className="hint-dot" />
             <span>{i.rich('ov.hintPass', { k: <kbd>Space</kbd> })}</span>
             <span className="hint-dot hint-quick" />
-            <span className="hint-quick">{i.rich('ov.hintQuick', { k: <kbd>{hotkey.replace(/\+/g, ' + ')}</kbd> })}</span>
+            <span className="hint-quick">{i.rich('ov.hintQuick', { k: <kbd>{acceleratorLabel(hotkey, isMac ? 'darwin' : 'win32', i.lang)}</kbd> })}</span>
             <span className="hint-dot" />
             <span>{i.rich('ov.hintExit', { k: <kbd>Esc</kbd> })}</span>
           </motion.div>
@@ -1137,7 +1139,7 @@ export function Overlay() {
           </motion.div>
         )}
       </AnimatePresence>
-      <span className="sr-only">{hotkey}</span>
+      <span className="sr-only">{acceleratorLabel(hotkey, isMac ? 'darwin' : 'win32', i.lang)}</span>
     </div>
   )
 }

@@ -3,7 +3,7 @@ import { translator, type Messages, type T } from './index'
 // 只由 Mac 桌面入口使用，其他平台继续使用原词条。
 const zh: Partial<Messages> = {
   'key.desc': 'API Key 以明文保存在此 Mac 的应用配置中，仅当前 macOS 用户可读，无需钥匙串验证。请勿分享配置文件。',
-  'gen.hotkeyDesc': '按一次开始框选，连续按两次进入输入翻译。默认快捷键为 ⌥ Option + Space。',
+  'gen.hotkeyDesc': '按 {key} 开始框选，连续按两次进入输入翻译。',
   'gen.launch': '登录时打开',
   'gen.launchDesc': '登录 Mac 后在菜单栏运行；可在「系统设置 → 通用 → 登录项」中管理。',
   'hotkey.needMod': '至少包含一个修饰键（⌘ Command / ⌥ Option / ⌃ Control / ⇧ Shift）',
@@ -17,7 +17,7 @@ const zh: Partial<Messages> = {
 const zhHant: Partial<Messages> = {
   ...zh,
   'key.desc': 'API Key 以明文儲存在此 Mac 的 App 設定中，僅目前 macOS 使用者可讀，無需鑰匙圈驗證。請勿分享設定檔。',
-  'gen.hotkeyDesc': '按一次開始框選，連續按兩次進入輸入翻譯。預設快速鍵為 ⌥ Option + Space。',
+  'gen.hotkeyDesc': '按 {key} 開始框選，連續按兩次進入輸入翻譯。',
   'gen.launch': '登入時打開',
   'gen.launchDesc': '登入 Mac 後在選單列執行；可在「系統設定 → 一般 → 登入項目與延伸功能」中管理。',
   'hotkey.needMod': '至少包含一個變更鍵（⌘ Command / ⌥ Option / ⌃ Control / ⇧ Shift）',
@@ -30,7 +30,7 @@ const zhHant: Partial<Messages> = {
 }
 const en: Partial<Messages> = {
   'key.desc': 'Your API key is stored in plaintext in this Mac’s app settings, readable only by your macOS user. No Keychain verification is required. Do not share the settings file.',
-  'gen.hotkeyDesc': 'Press once to select an area, or twice to translate typed text. Default: ⌥ Option + Space.',
+  'gen.hotkeyDesc': 'Press {key} to select an area, or twice to translate typed text.',
   'gen.launch': 'Open at login',
   'gen.launchDesc': 'Run in the menu bar when you log in. Manage in System Settings → General → Login Items.',
   'hotkey.needMod': 'Include a modifier: ⌘ Command / ⌥ Option / ⌃ Control / ⇧ Shift',
@@ -49,7 +49,8 @@ export function macTranslator(lang: string): T {
   const base = translator(lang)
   const overrides = lang === 'zh-Hans' ? zh : lang === 'zh-Hant' ? zhHant : lang === 'en' ? en : { 'key.desc': en['key.desc'], 'about.privacyDesc': en['about.privacyDesc'] }
   const t: T = (key, vars) => {
-    let text = (overrides[key] ?? (key === 'sc.tray' ? '⌘ ,' : base(key))).replace(/\bAlt\b/g, 'Option').replace(/\bCtrl\b/g, 'Command').replace(/Windows/g, 'macOS').replace(/Option\+Q Q/g, '⌥ Space × 2')
+    let text = (overrides[key] ?? (key === 'sc.tray' ? '⌘ ,' : base(key))).replace(/\bAlt\b/g, 'Option').replace(/\bCtrl\b/g, 'Command').replace(/Windows/g, 'macOS')
+    if (key === 'hotkey.needMod') text = text.replace(/ \/ Win(?=[)）])/g, '')
     if (vars) for (const [name, value] of Object.entries(vars)) text = text.split(`{${name}}`).join(String(value))
     return text
   }
