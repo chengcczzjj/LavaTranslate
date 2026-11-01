@@ -11,15 +11,48 @@
 
 <p align="center">
   <a href="https://github.com/chengcczzjj/LavaTranslate/releases/latest"><img src="https://img.shields.io/github/v/release/chengcczzjj/LavaTranslate?color=e23e9a&label=download" alt="Latest release"></a>
-  <img src="https://img.shields.io/badge/platform-Windows%2010%20%2F%2011%20x64-5c46ff" alt="Windows 10/11">
   <a href="https://github.com/chengcczzjj/LavaTranslate/releases"><img src="https://img.shields.io/github/downloads/chengcczzjj/LavaTranslate/total?color=ff8c34" alt="Downloads"></a>
 </p>
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
+<p align="center">Windows x64 · Android arm64 · macOS preview for Apple Silicon</p>
+
 ---
 
 ![Original page (left) and LavaTranslate's in-place translation (right)](docs/images/compare-wiki.png)
+
+## Download and install
+
+| Platform | Download | First translation |
+| --- | --- | --- |
+| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.3](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.3/LavaTranslate-Setup-1.4.3.exe) | Install, then double-click the tray icon to configure your translation service. Press **Win + Space** and drag over the text. |
+| Android 10+ · arm64 | [Android APK, v1.4.1](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.1/LavaTranslate-Android-1.4.1.apk) | Open the app and add an API key. On Android 11+, enable LavaTranslate under Accessibility. Tap the app icon, then **Translate**. On Android 10, use screen sharing. |
+| macOS · Apple Silicon (M-series) | [Build the preview from source](#macos-development-preview) | Open **Settings** from the menu bar and configure a service. Press **Option + Space**, grant Screen Recording permission, then drag over the text. |
+
+The Windows installer is unsigned. If SmartScreen shows **Unknown publisher**, use **More info → Run anyway** after checking that the file came from the release linked above.
+
+### Recent changes
+
+- **Windows 1.4.3** uses **Win + Space** once for a screenshot and twice for typed translation. While LavaTranslate is running, this takes over the Windows input-language shortcut. To keep using it for language switching, choose another capture shortcut in **Settings → General**. Upgrades migrate the old **Alt + Q** default and preserve other custom shortcuts. [Release notes](docs/releases/v1.4.3.md)
+- **Windows 1.4.2** keeps long translations from covering neighboring captions, columns and icons. If the translation still cannot fit, hover over the ellipsis to read the whole block, or use the side-by-side view or copy action for the full text. [Release notes](docs/releases/v1.4.2.md)
+- **Windows and Android 1.4.1** added a target-language picker to replies and typed translation. On Windows, new pins land in the top-left corner and can show either the original or the translation. [Release notes](docs/releases/v1.4.1.md)
+
+## macOS (development preview)
+
+The preview app has been built and opened on an Apple Silicon Mac. Local OCR (CPU) and the settings window have been checked. The full capture-to-translation flow and alignment across multiple displays still need testing on Mac hardware. GitHub Releases has no Mac installer yet.
+
+To try it, clone this repository on an Apple Silicon Mac, open its directory and use native arm64 Node.js 22.18 or later:
+
+```bash
+npm ci
+npm run models
+npm run dev
+```
+
+On first capture, allow **Screen & System Audio Recording** under **System Settings → Privacy & Security** for Electron in development or LavaTranslate in a packaged build. Quit and reopen the app if prompted. **Input Monitoring** is only needed to hold Space and interact with the app beneath the translation.
+
+To build a local app, run `npm run pack:mac`. To build a DMG and ZIP, run `npm run dist:mac`. Preview builds are ad-hoc signed, have no Apple notarization and are updated manually. [Mac setup and troubleshooting guide (Chinese)](docs/MACOS.md)
 
 ## Why LavaTranslate
 
@@ -28,7 +61,7 @@ Most screenshot translators show a list of sentences in a separate window, so yo
 - **Same position, size, color, weight and alignment.** Each line keeps its font size (measured from the actual stroke height), text color (robust to ClearType fringes), bold or regular weight, and left/center/right alignment. Paragraphs that wrap around images keep their shape.
 - **Icons stay visible.** Arrows, stars, list numbers and other icons that OCR mistakes for letters are not painted over.
 - **The model looks at the screenshot itself.** OCR runs locally; a vision model then fixes recognition errors, merges wrapped lines into paragraphs, and leaves code, commands, URLs, @handles and brand names untranslated.
-- **Fast.** The capture overlay appears in about 0.2 s, local OCR takes 0.1–0.3 s on the GPU, and translations stream in block by block. A small model finishes a typical screenshot in 2–5 s.
+- **Translations appear block by block.** Windows tries DirectML for local OCR and falls back to the CPU. The Mac preview uses CPU OCR.
 
 ![Before and after on GitHub](docs/images/compare-github.png)
 
@@ -42,31 +75,19 @@ You can read the other person's message now — LavaTranslate also helps you ans
 - Type in your own language. It starts translating after a short pause. **Auto** translates into the language detected on screen; open the language menu to pick any other language instead (your choice holds until you take a new screenshot).
 - Pick a tone: **Match the conversation**, **Formal** or **Casual**. The model reads the conversation on screen to get the wording and form of address right.
 - A **back-translation** below the result shows you what you are actually sending.
-- <kbd>Enter</kbd> copies and closes so you can paste straight into the chat. <kbd>Ctrl</kbd>+<kbd>Enter</kbd> copies only, <kbd>Shift</kbd>+<kbd>Enter</kbd> adds a new line, and <kbd>↑</kbd>/<kbd>↓</kbd> go through your previous replies.
+- <kbd>Enter</kbd> copies and closes so you can paste straight into the chat. **Ctrl + Enter** (Mac: **Command + Enter**) copies and keeps the reply box open. **Shift + Enter** adds a new line, and **↑ / ↓** recall previous replies.
 
 <br clear="right">
 
 ## Type to translate
 
-Press the hotkey **twice** (<kbd>Win</kbd>+<kbd>Space</kbd> × 2) to skip the screenshot and just type. LavaTranslate waits until you pause (about 2 s, or press <kbd>Enter</kbd>), then translates. It does not follow the screenshot's target language. On **Auto** it translates both ways between your language (the interface language) and the foreign language you last translated into: type your language to get the other one, type anything else to get yours. Or pick a language from the menu and everything you type goes into that language; the choice is remembered. <kbd>Enter</kbd> copies and closes.
+Press your capture shortcut **twice** to translate typed text. The defaults are **Win + Space** on Windows and **Option + Space** on Mac. Translation starts after a pause of about two seconds, or immediately when you press <kbd>Enter</kbd>. **Auto** translates between your interface language and the foreign language you last used. Choose a language from the menu to translate everything you type into that language. LavaTranslate remembers your choice. When the translation is ready, <kbd>Enter</kbd> copies it and closes the window.
 
 <img src="docs/images/quick.png" width="520" alt="Type to translate">
 
-## Download and install
-
-1. Download **`LavaTranslate-Setup-x.y.z.exe`** from [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest). It runs on Windows 10/11 x64.
-2. Run the installer. If Windows SmartScreen warns about an unknown publisher, click **More info → Run anyway**.
-3. LavaTranslate runs in the system tray. Updates are downloaded automatically in the background (see [Updates](#updates)).
-
-> The interface is currently in Simplified Chinese. You can translate between any languages the model supports.
-
-## macOS (development preview)
-
-The **Apple Silicon Mac** preview builds and runs on macOS. Local OCR and the settings window have been checked on Mac; full translation and multi-display acceptance remain in progress. The default capture shortcut is **Option + Space**. See the [Mac setup and debugging guide](docs/MACOS.md) (Chinese).
-
 ## Android
 
-Download **`LavaTranslate-Android-x.y.z.apk`** from [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest) (Android 10 or later, arm64). Open it and follow the on-screen steps to turn LavaTranslate on under Accessibility and add an API key.
+Install the APK linked under [Download and install](#download-and-install), then follow the setup prompts for your Android version.
 
 - **Turn it on once.** (Android 11+, recommended.) After you enable LavaTranslate under Accessibility, it needs no overlay permission, no screen-sharing prompt each time and no persistent notification, and it's ready again after a reboot.
 - **The app icon opens a floating panel.** Tap the LavaTranslate icon and a frosted-glass bar drops down from the top of the screen (Translate / Reply / Settings, close on the right); drag it up or down. The Quick Settings tiles "翻译屏幕 (Translate screen)" and "快捷回复 (Quick reply)" work too.
@@ -80,7 +101,7 @@ Download **`LavaTranslate-Android-x.y.z.apk`** from [Releases](https://github.co
 
 ## Setup: sign in with ChatGPT, or bring any API key
 
-LavaTranslate does not ship with a key. Open **Settings** (double-click the tray icon) → **翻译服务 (Translation service)**:
+On Windows, double-click the tray icon. On Mac, choose **Settings** from the menu bar icon. Open **Translation service** to connect your account or add your own key. The desktop interface follows your system language by default and offers 12 languages under **Settings → General**.
 
 - **ChatGPT Plus / Pro** — click **用 ChatGPT 登录 (Sign in with ChatGPT)**. Translations use your plan's usage instead of an API key. This is OpenAI's official "use your ChatGPT plan" sign-in for open-source apps.
 - **Any API key** — paste it and click **识别并保存 (Detect & save)**. LavaTranslate recognizes the provider from the key's format (`AIza…` Gemini, `sk-ant-…` Claude, `sk-or-…` OpenRouter, `sk-proj-…` OpenAI, Zhipu and Doubao formats), or by trying it against DeepSeek, OpenAI, Qwen and Kimi. If it still can't tell, it asks you to pick. For relays and local servers, also fill in the endpoint URL.
@@ -109,39 +130,40 @@ LavaTranslate asks every model to skip "thinking" (each provider's own switch, f
 
 ## Shortcuts
 
-| Key | Action |
-| --- | --- |
-| <kbd>Win</kbd>+<kbd>Space</kbd> (configurable) or click the tray icon | Start a capture |
-| Press the hotkey twice | Type a sentence to translate |
-| Double-click the tray icon | Open Settings |
-| Drag / click | Select a region / select the window under the cursor |
-| Drag the selection or its handles | Move / resize — it translates again when you let go |
-| Hold <kbd>Space</kbd> | The overlay steps aside so you can click and scroll the apps underneath (scroll a chat, press "Next"); let go to capture again. An existing selection stays and is re-translated if its content changed |
-| Hold <kbd>Alt</kbd> | Show the original and pause the translation (whatever is still coming in appears when you let go) |
-| <kbd>Tab</kbd> | Switch between *in place* and *side by side* |
-| Click a translated block | Copy that block |
-| <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Alt</kbd>+<kbd>C</kbd> | Copy all translations / all original text |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>S</kbd> | Copy / save the translated screenshot |
-| <kbd>F3</kbd> | Pin the result on the desktop: it lands in the top-left corner of the screen, each new pin a little lower and to the right. It shows on top of your windows but can be covered by them, unless you turn on **Always on top** in its toolbar (drag to move, scroll to zoom, double-click to close) |
-| <kbd>Alt</kbd>+<kbd>F3</kbd> | Pin the original, untranslated (also when you click the pin button while holding <kbd>Alt</kbd>) |
-| <kbd>R</kbd> | Open the reply assistant |
-| Double-click the selection | Copy what you see (translated or original) as an image and close, like a screenshot tool |
-| <kbd>Alt</kbd>+double-click the selection | Copy the original image and close |
-| <kbd>Enter</kbd> | Copy all translations and close |
-| Right-click or <kbd>Esc</kbd> | Exit |
+| Desktop action | Windows | macOS preview |
+| --- | --- | --- |
+| Start a capture | **Win + Space** or click the tray icon | **Option + Space** or choose **Translate screenshot** from the menu bar icon |
+| Translate typed text | Press the capture shortcut twice | Press the capture shortcut twice |
+| Open Settings | Double-click the tray icon | Menu bar icon → **Settings**, or **⌘ ,** while the app is active |
+| Show the original while held | Alt | Option |
+| Copy all translations / all original text | Ctrl + C / Alt + C | ⌘ C / Option + C |
+| Copy / save the translated image | Ctrl + Shift + C / Ctrl + S | ⌘ Shift C / ⌘ S |
+| Pin the translation / original | F3 / Alt + F3 | ⌘ T / Option + ⌘ T |
+| Translate the selection again | Ctrl + R | ⌘ R |
+
+On either desktop, drag to select a region, or click to select a window. Drag the selection or its handles to move or resize it. Hold **Space** to interact with the app underneath, then release to capture the same area again.
+
+- **Tab** switches between in-place and side-by-side views. **R** opens the reply assistant.
+- Click a block to copy its translation. **Enter** copies all translations and closes. Double-click the selection to copy it as an image and close. Hold **Alt** (Mac: **Option**) while double-clicking to copy the original image.
+- Drag a pin to move it, scroll to zoom and double-click to close. Choose **Always on top** in the pin toolbar to keep it above other windows.
+- Right-click or press **Esc** to exit the capture.
 
 ## Privacy
 
-- Text recognition (OCR) runs **locally** on your PC.
-- Only the region you select (image + recognized text), plus any reply you type, is sent to **the service you configured**. Nothing goes to us. LavaTranslate keeps no history.
-- Your API keys and ChatGPT sign-in tokens are encrypted with Windows DPAPI and stay on your PC. The settings page only ever shows its last 4 characters.
+- OCR runs on your device. Desktop translation sends the selected region (image and recognized text) to the service you configure. Android screen translation uses the current screen. Reply and type-to-translate requests also send the text you enter. Recent replies are stored locally so you can recall them with the arrow keys.
+- **Windows** uses Electron’s `safeStorage` (DPAPI) for API keys and ChatGPT sign-in tokens when system encryption is available. **Android** encrypts API keys with a key held in Android Keystore.
+- **macOS preview** stores credentials in plaintext in the app’s local `settings.json`. File mode `0600` limits access to your macOS account, including apps running as you. The settings window masks keys. If upgrading from a preview that used Keychain, re-enter your key once. Keep the settings file private.
 
 ## Updates
 
-- LavaTranslate checks this repository's Releases **20 seconds after it starts and then every 4 hours**. You can also check any time: tray menu → **检查更新 (Check for updates)**, or Settings → **关于 (About)** → **检查更新**.
+**Windows installer**
+
+- LavaTranslate checks this repository's Releases **20 seconds after it starts and then every 4 hours**. To check manually, open **Check for updates** from the tray menu or **Settings → About**.
 - A new version downloads in the background. Only the parts of the installer that changed are downloaded.
 - When it's ready you get a notification, and **重启并更新到 vX (Restart & update)** appears in the tray menu and on the About page. If you don't restart, it installs the next time you quit.
 - The version and update status are also shown at the bottom of the Settings sidebar; click them to open the About page. Turn automatic updates off in Settings → 关于.
+
+**Android** checks its own update manifest and offers to install new APKs in the app. **Mac preview** users update their source checkout and rebuild locally.
 
 ## FAQ
 
@@ -154,7 +176,7 @@ Choose a smaller model (marked 快 / fast). Reasoning-heavy models spend seconds
 **Which languages are supported?**
 The local OCR reads Chinese, Japanese, English and other Latin-script languages, Cyrillic and more. A vision model reads anything the OCR can't (for example Korean) straight from the screenshot. You can translate into any language you pick on the toolbar.
 
-**How do I uninstall?**
+**How do I uninstall on Windows?**
 Go to Windows Settings → Apps → LavaTranslate → Uninstall.
 
 ## Build from source
@@ -168,9 +190,9 @@ npm run dev      # run in development mode
 npm run dist     # build the NSIS installer into dist/
 ```
 
-Architecture, the layout engine and the test harnesses are described in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) (Chinese).
+These commands build the Windows installer. For Apple Silicon, use the [Mac preview instructions](#macos-development-preview). Android build requirements, the layout engine and test commands are in the [development guide (Chinese)](docs/DEVELOPMENT.md).
 
-Built with Electron, React, Motion, [PaddleOCR PP-OCRv6](https://github.com/PaddlePaddle/PaddleOCR) models run by ONNX Runtime (DirectML), and the OpenAI / Anthropic SDKs.
+The desktop app uses Electron, React and Motion. ONNX Runtime runs the local [PaddleOCR PP-OCRv6](https://github.com/PaddlePaddle/PaddleOCR) models.
 
 ## License
 
