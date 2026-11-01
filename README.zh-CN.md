@@ -26,7 +26,7 @@
 
 | 平台 | 下载入口 | 第一次翻译 |
 | --- | --- | --- |
-| Windows 10/11 · x64 | [Windows 安装程序（.exe），v1.4.3](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.3/LavaTranslate-Setup-1.4.3.exe) | 安装后双击托盘图标，配置翻译服务。按 **Win + 空格**，拖动框选文字。 |
+| Windows 10/11 · x64 | [Windows 安装程序（.exe），v1.4.4](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.4/LavaTranslate-Setup-1.4.4.exe) | 安装后双击托盘图标，配置翻译服务。按 **Win + 空格**，拖动框选文字。 |
 | 安卓 10 及以上 · arm64 | [安卓安装包（APK），v1.4.1](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.1/LavaTranslate-Android-1.4.1.apk) | 打开应用，填写 API Key。安卓 11 及以上可在「无障碍」中启用 LavaTranslate，再点应用图标 →「翻译」。安卓 10 使用「截屏授权」。 |
 | macOS · Apple Silicon（M 系列） | [从源码运行预览版](#mac-版调试预览) | 从菜单栏图标打开「设置」，配置翻译服务。按 **Option + 空格**，按提示授予录屏权限后即可框选。 |
 
@@ -34,6 +34,7 @@ Windows 安装程序尚未签名。如果 SmartScreen 显示「未知发布者�
 
 ### 近期版本改动
 
+- **Windows 1.4.4** 安装包内置了主程序和 OCR 引擎所需的微软 VC++ x64 运行库，修复了部分电脑因运行库缺失或过旧而无法启动的问题。如果初始化仍然失败，弹窗会显示具体错误和日志位置。[版本说明](docs/releases/v1.4.4.md)
 - **Windows 1.4.3** 将默认截图键改为 **Win + 空格**，按一次框选，连按两次翻译输入的文字。软件运行期间，这组键会用于翻译。习惯用它切换输入语言的话，可以在「设置 → 通用」中更换截图键。升级时旧默认键 **Alt + Q** 会自动迁移，其他自定义快捷键会保留。[版本说明](docs/releases/v1.4.3.md)
 - **Windows 1.4.2** 修复了长译文盖住标题旁小字、相邻分栏或图标的问题。空间不足时显示省略号，鼠标悬停即可看全文，切换并排对照或复制也能拿到完整译文。[版本说明](docs/releases/v1.4.2.md)
 - **Windows 和安卓 1.4.1** 支持为回复和输入翻译单独选择目标语言。Windows 上钉住的截图会排在屏幕左上角，可以钉译图，也可以钉原图。[版本说明](docs/releases/v1.4.1.md)
