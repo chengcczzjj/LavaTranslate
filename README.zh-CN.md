@@ -11,15 +11,48 @@
 
 <p align="center">
   <a href="https://github.com/chengcczzjj/LavaTranslate/releases/latest"><img src="https://img.shields.io/github/v/release/chengcczzjj/LavaTranslate?color=e23e9a&label=%E4%B8%8B%E8%BD%BD" alt="最新版本"></a>
-  <img src="https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%2010%20%2F%2011%20x64-5c46ff" alt="Windows 10/11">
   <a href="https://github.com/chengcczzjj/LavaTranslate/releases"><img src="https://img.shields.io/github/downloads/chengcczzjj/LavaTranslate/total?color=ff8c34&label=%E4%B8%8B%E8%BD%BD%E9%87%8F" alt="下载量"></a>
 </p>
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
+<p align="center">Windows x64 · 安卓 arm64 · macOS 预览版（Apple Silicon）</p>
+
 ---
 
 ![左：原网页；右：LavaTranslate 原位翻译](docs/images/compare-wiki.png)
+
+## 下载安装
+
+| 平台 | 下载入口 | 第一次翻译 |
+| --- | --- | --- |
+| Windows 10/11 · x64 | [Windows 安装程序（.exe），v1.4.3](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.3/LavaTranslate-Setup-1.4.3.exe) | 安装后双击托盘图标，配置翻译服务。按 **Win + 空格**，拖动框选文字。 |
+| 安卓 10 及以上 · arm64 | [安卓安装包（APK），v1.4.1](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.1/LavaTranslate-Android-1.4.1.apk) | 打开应用，填写 API Key。安卓 11 及以上可在「无障碍」中启用 LavaTranslate，再点应用图标 →「翻译」。安卓 10 使用「截屏授权」。 |
+| macOS · Apple Silicon（M 系列） | [从源码运行预览版](#mac-版调试预览) | 从菜单栏图标打开「设置」，配置翻译服务。按 **Option + 空格**，按提示授予录屏权限后即可框选。 |
+
+Windows 安装程序尚未签名。如果 SmartScreen 显示「未知发布者」，确认文件来自上方发布链接后，可点「更多信息 → 仍要运行」。
+
+### 近期版本改动
+
+- **Windows 1.4.3** 将默认截图键改为 **Win + 空格**，按一次框选，连按两次翻译输入的文字。软件运行期间，这组键会用于翻译。习惯用它切换输入语言的话，可以在「设置 → 通用」中更换截图键。升级时旧默认键 **Alt + Q** 会自动迁移，其他自定义快捷键会保留。[版本说明](docs/releases/v1.4.3.md)
+- **Windows 1.4.2** 修复了长译文盖住标题旁小字、相邻分栏或图标的问题。空间不足时显示省略号，鼠标悬停即可看全文，切换并排对照或复制也能拿到完整译文。[版本说明](docs/releases/v1.4.2.md)
+- **Windows 和安卓 1.4.1** 支持为回复和输入翻译单独选择目标语言。Windows 上钉住的截图会排在屏幕左上角，可以钉译图，也可以钉原图。[版本说明](docs/releases/v1.4.1.md)
+
+## Mac 版（调试预览）
+
+预览版已在 Apple Silicon Mac 上构建并打开，已检查设置窗口和本地 CPU 文字识别。从框选到显示译文的完整流程，以及多显示器下的选区对齐，仍待真机验证。GitHub Releases 目前没有 Mac 安装包。
+
+要试用，请在 M 系列 Mac 上克隆本仓库，进入项目目录，使用原生 arm64 版 Node.js 22.18 或更高版本运行：
+
+```bash
+npm ci
+npm run models
+npm run dev
+```
+
+首次截图时，在「系统设置 → 隐私与安全 → 录屏与系统录音」（旧版系统称「屏幕录制」）中允许 Electron（开发模式）或 LavaTranslate（打包版）。若系统提示，完全退出后重新打开。只有「按住空格操作下层应用」需要额外授予「输入监控」权限。
+
+在 Mac 上运行 `npm run pack:mac` 可生成本地 `.app`，运行 `npm run dist:mac` 可生成 DMG 和 ZIP。预览包采用本地临时签名，未经 Apple 公证，后续版本需手动更新。[Mac 构建与排查指南](docs/MACOS.md)
 
 ## 有什么不一样
 
@@ -28,7 +61,7 @@
 - **位置、字号、颜色、粗细、对齐都和原文一致**：字号按笔画的实际高度推算，文字颜色能抵消 ClearType 的彩色边，粗体常规分得清，左对齐、居中、右对齐都保持，绕图排列的段落也保持原来的形状；
 - **图标不会被盖掉**：被 OCR 误认成字符的箭头、星星、列表序号都保留可见；
 - **模型会看截图**：文字识别在本地完成，再由支持看图的模型纠正识别错误、把折行的句子合成段落，代码、命令、网址、@用户名、品牌名保持原样不翻；
-- **快**：按下快捷键约 0.2 秒出现截图界面，本地 OCR 用 GPU 0.1–0.3 秒，译文逐段流式出现，小模型翻完一张截图通常 2–5 秒。
+- **译文逐段出现**。Windows 本地文字识别优先使用 DirectML，可回退到 CPU。Mac 预览版使用 CPU 识别。
 
 ![GitHub 页面翻译前后](docs/images/compare-github.png)
 
@@ -42,29 +75,19 @@
 - 用自己的语言输入，停顿片刻就开始翻译。「自动」时译成截图里识别出的对方语言；也可以在语言菜单里手动选任意语言（这张截图里一直有效，换一张截图回到自动）；
 - 语气可选「跟随语境 / 正式 / 随意」，模型会参照屏幕上的对话决定措辞和称呼；
 - 译文下方附**回译**：再翻回你的语言，不懂对方的语言也能确认意思没变；
-- <kbd>Enter</kbd> 复制并关闭，回到聊天软件直接粘贴发送；<kbd>Ctrl</kbd>+<kbd>Enter</kbd> 只复制，<kbd>Shift</kbd>+<kbd>Enter</kbd> 换行，<kbd>↑</kbd> / <kbd>↓</kbd> 翻看发过的回复。
+- <kbd>Enter</kbd> 复制并关闭，回到聊天软件就能粘贴。**Ctrl + Enter**（Mac 上用 **Command + Enter**）复制并保留回复框。**Shift + Enter** 换行，**↑ / ↓** 翻看之前的回复。
 
 <br clear="right">
 
 ## 输入文字翻译
 
-**连按两次快捷键**（<kbd>Win</kbd>+<kbd>Space</kbd> × 2）不截图，直接输入一句话。等你停下来（约 2 秒，或按 <kbd>Enter</kbd>）再翻译，不会边打边翻。输入翻译不跟着截图翻译的目标语言走：「自动」时在你自己的语言（界面语言）和上次译成的外语之间互译，输入中文译成外语，输入其他语言译成中文；也可以在菜单里手动选一种语言，输入什么都译成它，下次打开还记得。<kbd>Enter</kbd> 复制并关闭。
+**连按两次截图快捷键**就能直接输入文字翻译。默认是 Windows 上的 **Win + 空格** 和 Mac 上的 **Option + 空格**。停顿约两秒后开始翻译，也可以按 <kbd>Enter</kbd> 立即翻译。「自动」会在界面语言和上次使用的外语之间互译。想固定目标语言，可以从菜单里选，之后输入的文字都会译成它，下次打开还记得。译好后按 <kbd>Enter</kbd> 即可复制并关闭。
 
 <img src="docs/images/quick.png" width="520" alt="输入文字翻译">
 
-## 下载安装
-
-1. 在 [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest) 下载 **`LavaTranslate-Setup-x.y.z.exe`**（Windows 10/11 x64）；
-2. 运行安装程序。如果 Windows SmartScreen 提示「未知发布者」，点 **更多信息 → 仍要运行**；
-3. 装好后 LavaTranslate 常驻在系统托盘，之后的新版本会在后台自动下载（见[自动更新](#自动更新)）。
-
-## Mac 版（调试预览）
-
-已添加面向 **Apple Silicon（M 系列芯片）** 的 macOS 源码适配。可在 Windows 修改与构建代码，再带到 Mac 运行、调试和打包；当前尚未完成 Mac 真机验证。迁移、授权和打包步骤见 [Mac 调试指南](docs/MACOS.md)。
-
 ## 安卓版
 
-在 [Releases](https://github.com/chengcczzjj/LavaTranslate/releases/latest) 下载 **`LavaTranslate-Android-x.y.z.apk`**（Android 10 及以上，arm64），装好后打开，按页面上的提示在系统「无障碍」里打开 LavaTranslate、填 API Key。
+从[下载安装](#下载安装)一节获取 APK，打开应用后按对应安卓版本的提示设置。
 
 - **开一次，一直可用**（Android 11 起，推荐）：在系统「无障碍」里打开一次 LavaTranslate，之后不需要悬浮窗权限、不用每次授权截屏、没有常驻通知，开机自动就绪；
 - **点图标就是悬浮面板**：点桌面上的 LavaTranslate 图标，屏幕顶部滑下一条毛玻璃横条（翻译 / 回复 / 设置，右边关闭），可上下拖动；下拉快捷开关「翻译屏幕」「快捷回复」也能打开；
@@ -78,7 +101,7 @@
 
 ## 配置：用 ChatGPT 登录，或填任意一家的 API Key
 
-软件不内置任何 Key。双击托盘图标打开 **设置** → **翻译服务**：
+Windows 上双击托盘图标，Mac 上点菜单栏图标并选择「设置」。打开「翻译服务」，登录自己的账号或填写自己的 Key。桌面界面默认跟随系统语言，也可以在「设置 → 通用」中从 12 种界面语言里选择。
 
 - **ChatGPT Plus / Pro 会员**：点「**用 ChatGPT 登录**」，翻译消耗会员额度，不需要 API Key。这是 OpenAI 为开源软件提供的官方「使用 ChatGPT 会员额度」登录方式；
 - **任意一家的 API Key**：粘贴进来点「**识别并保存**」。软件先按 Key 的格式识别（`AIza…` 是 Gemini、`sk-ant-…` 是 Claude、`sk-or-…` 是 OpenRouter、`sk-proj-…` 是 OpenAI，智谱、豆包也有固定格式），格式相同的几家（DeepSeek、OpenAI、通义、Kimi）会实际连一下来确认，还识别不出来就让你选。中转站、本地模型再填一下接口地址。
@@ -107,39 +130,40 @@
 
 ## 快捷键
 
-| 按键 | 作用 |
-| --- | --- |
-| <kbd>Win</kbd>+<kbd>Space</kbd>（可改）或单击托盘图标 | 开始截图翻译 |
-| 连按两次快捷键 | 输入一句话翻译 |
-| 双击托盘图标 | 打开设置 |
-| 拖动 / 单击 | 框选区域 / 选中鼠标下的窗口 |
-| 拖动选区、拖动手柄 | 移动、调整选区，松开后自动重新翻译 |
-| 按住 <kbd>Space</kbd> | 遮罩暂时让开，可以直接点击、滚动下面的软件（翻聊天记录、点「下一页」）；松开后重新截图，已有的选区会保留，画面变了自动重译同一块 |
-| 按住 <kbd>Alt</kbd> | 查看原文并暂停翻译（还没译完的，松开后接着显示） |
-| <kbd>Tab</kbd> | 切换「原位覆盖 / 并排对照」 |
-| 单击某段译文 | 复制这一段 |
-| <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Alt</kbd>+<kbd>C</kbd> | 复制全部译文 / 全部原文 |
-| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>S</kbd> | 复制 / 保存翻译后的截图 |
-| <kbd>F3</kbd> | 钉在桌面：飞到这块屏幕的左上角，每钉一张往右下错开一点；显示在最上面，点别的窗口后可以被盖住，需要一直在最上层时点钉图工具条上的图钉（可拖动、滚轮缩放、双击关闭） |
-| <kbd>Alt</kbd>+<kbd>F3</kbd> | 钉不翻译的原图（按住 <kbd>Alt</kbd> 点工具条上的钉图按钮也一样） |
-| <kbd>R</kbd> | 打开回复助手 |
-| 双击选区 | 像截图一样把看到的画面（译文或原图）复制成图片并关闭 |
-| <kbd>Alt</kbd>+双击选区 | 复制原图并关闭 |
-| <kbd>Enter</kbd> | 复制全部译文并关闭 |
-| 右键或 <kbd>Esc</kbd> | 退出截图 |
+| 桌面操作 | Windows | macOS 预览版 |
+| --- | --- | --- |
+| 开始截图 | **Win + 空格**，或单击托盘图标 | **Option + 空格**，或点菜单栏图标 →「截图翻译」 |
+| 输入文字翻译 | 连按两次截图快捷键 | 连按两次截图快捷键 |
+| 打开设置 | 双击托盘图标 | 菜单栏图标 →「设置」，或在应用内按 **⌘ ,** |
+| 按住查看原文 | Alt | Option |
+| 复制全部译文 / 原文 | Ctrl + C / Alt + C | ⌘ C / Option + C |
+| 复制译图 / 保存译图 | Ctrl + Shift + C / Ctrl + S | ⌘ Shift C / ⌘ S |
+| 钉译图 / 钉原图 | F3 / Alt + F3 | ⌘ T / Option + ⌘ T |
+| 重新翻译选区 | Ctrl + R | ⌘ R |
+
+两个桌面平台都可以拖动框选，也可以单击选中鼠标下的窗口。拖动选区或边缘手柄可以移动、缩放选区。按住**空格**可操作下方应用，松开后重新截取同一区域。
+
+- **Tab** 切换原位覆盖和并排对照，**R** 打开回复助手。
+- 单击一段译文可复制该段，**Enter** 复制全部译文并关闭。双击选区可复制当前图片并关闭，同时按住 **Alt**（Mac 上用 **Option**）可复制原图。
+- 钉图可拖动、滚轮缩放，双击关闭。需要一直显示在其他窗口上方时，点钉图工具条上的「置顶」。
+- 右键或按 **Esc** 退出截图。
 
 ## 隐私
 
-- 文字识别（OCR）**在本机完成**；
-- 只有你框选的区域（图片和识别出的文字）以及你写的回复，会发给**你自己配置的服务**，不经过我们的服务器，也不保存任何记录；
-- API Key 和 ChatGPT 登录令牌都用 Windows DPAPI 加密保存在本机，设置页只显示末 4 位。
+- 文字识别在设备本地完成。桌面版把选区图片和识别出的文字发送给你配置的翻译服务，安卓版整屏翻译使用当前屏幕。回复和输入翻译也会发送你输入的文字。最近用过的回复保存在本机，方便用方向键调出。
+- **Windows** 在系统加密可用时，通过 Electron 的 `safeStorage`（DPAPI）加密 API Key 和 ChatGPT 登录令牌。**安卓**使用 Android Keystore 中的密钥加密 API Key。
+- **Mac 预览版**将凭据以明文保存在本机的 `settings.json` 中。文件权限为 `0600`，同一 macOS 账号下运行的程序仍可读取，设置界面会对 Key 打码。若从使用钥匙串的旧预览版升级，请重新填写一次 Key。请勿分享这个配置文件。
 
 ## 自动更新
 
-- 软件**启动 20 秒后检查一次，之后每 4 小时检查一次**本仓库的 Releases；也可以随时手动检查：托盘菜单 →「**检查更新**」，或 设置 →「**关于**」→「**检查更新**」；
+**Windows 安装版**
+
+- 软件在**启动 20 秒后检查一次，之后每 4 小时检查一次**本仓库的 Releases。也可从托盘菜单或「设置 → 关于」中选择「检查更新」。
 - 发现新版本会在后台下载，只下载安装包里有变化的部分；
 - 下载完成后弹出通知，托盘菜单和「关于」页出现「**重启并更新到 vX**」，点一下立即更新；不点的话，下次退出软件时自动安装；
 - 设置窗口左下角显示当前版本和更新状态，点它直接跳到「关于」页；在「关于」页可以关闭自动更新。
+
+**安卓版**通过独立的更新索引检查新 APK，可在应用内安装。**Mac 预览版**需要更新本地源码，再重新构建。
 
 ## 常见问题
 
@@ -152,7 +176,7 @@ ChatGPT Plus / Pro 可以：设置 → 翻译服务 →「**用 ChatGPT 登录**
 **支持哪些语言？**
 本地 OCR 能识别中文、日文、英文等拉丁字母语言、俄文等；OCR 认不出的文字（比如韩文）由能看图的模型直接从截图里读出来。译成什么语言，在工具条上随时切换。
 
-**怎么卸载？**
+**Windows 版怎么卸载？**
 Windows 设置 → 应用 → LavaTranslate → 卸载。
 
 ## 从源码构建
@@ -166,9 +190,9 @@ npm run dev      # 开发模式运行
 npm run dist     # 打包 NSIS 安装程序到 dist/
 ```
 
-架构、排版引擎和自动测试的说明见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+以上命令用于 Windows 安装包。Apple Silicon 用户请按 [Mac 预览版步骤](#mac-版调试预览)构建。安卓编译环境、排版引擎和测试命令见[开发文档](docs/DEVELOPMENT.md)。
 
-技术栈：Electron、React、Motion，[PaddleOCR PP-OCRv6](https://github.com/PaddlePaddle/PaddleOCR) 模型由 ONNX Runtime（DirectML）运行，OpenAI / Anthropic SDK。
+桌面版使用 Electron、React 和 Motion，通过 ONNX Runtime 运行本地的 [PaddleOCR PP-OCRv6](https://github.com/PaddlePaddle/PaddleOCR) 模型。
 
 ## 许可证
 

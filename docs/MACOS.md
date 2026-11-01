@@ -1,6 +1,6 @@
 # macOS 适配与调试（Apple Silicon）
 
-状态：2026-10-22，已在 Apple Silicon Mac 上构建并打开 `.app`，完成本地 OCR 与设置界面的检查；多显示器和完整翻译流程仍需真机验收。本轮目标是苹果芯片 Mac（arm64）。保留同一套 Windows、安卓和 Mac 源码，版本号仍为 1.4.2。
+Apple Silicon（M 系列，arm64）版本目前以源码预览形式提供。2026-10-22 已在 Mac 真机上构建并打开 `.app`，检查了本地 CPU OCR 和设置界面。完整翻译流程、多显示器和混合缩放仍待真机验收。GitHub Releases 暂未提供 Mac 安装包。
 
 ## 三个平台的关系
 
@@ -37,9 +37,11 @@ Windows 项目目录运行：
 npm run export:mac
 ```
 
-生成 `dist/LavaTranslate-Mac-Source-1.4.2.zip`。它是源码包，包含当前已下载的 OCR 模型，不是安装程序；不含 Windows 的 node_modules、构建结果、安卓签名、本机配置和 Git 历史。导出包不包含安卓原生工程，完整的三端仓库仍保留在 Windows 项目目录中。
+导出的源码包位于 `dist/LavaTranslate-Mac-Source-<版本号>.zip`，版本号取自当前源码的 `package.json`。包内带上本地已有的 OCR 模型，排除了 Windows 的依赖、构建产物、本机配置、Git 历史和安卓原生工程。
 
-把 ZIP 复制到 Mac 并解压。在项目根目录（包含 package.json 的目录）打开终端：
+## 在 Mac 上运行
+
+直接克隆仓库，或把导出的 ZIP 复制到 Mac 并解压。在包含 `package.json` 的目录打开终端：
 
 ```bash
 # 安装 Node.js 22.18 或更高版本的 Apple Silicon/arm64 版本后，先确认架构
@@ -81,7 +83,7 @@ open dist/mac-arm64/LavaTranslate.app
 npm run dist:mac
 ```
 
-安装包名称：`LavaTranslate-Mac-1.4.2-arm64.dmg` / `.zip`，位于 `dist/`。先退出开发模式，再启动打包版，避免单实例锁或快捷键冲突。将应用放进 Applications 后再授予权限，后续尽量保持安装路径不变。
+本地打包会在 `dist/` 生成 `LavaTranslate-Mac-<版本号>-arm64.dmg` 和同名 `.zip`。先退出开发模式，再启动打包版，避免单实例锁或快捷键冲突。将应用放进 Applications 后再授予权限，后续尽量保持安装路径不变。
 
 这个入口使用 ad-hoc 本地签名、不公证、不上传发布，不需要 Apple Developer 证书。它适合本人调试，不能当作已完成 Apple 公证的正式发行版。公开分发前需使用 Developer ID 签名、公证并完成真机验收。[electron-builder macOS 打包说明](https://www.electron.build/v26/docs/mac/)
 
@@ -112,4 +114,4 @@ Mac 预览版暂时关闭应用内自动更新，设置页会显示需手动安�
 
 本轮复查修复了首次录屏权限报告为 denied 时未发起系统申请，以及取消截图后旧的异步结果重新弹出窗口的问题；同时修正 Mac 设置页的系统名称与快捷键提示。
 
-Windows 上已通过类型检查、17 项平台回归测试、桌面构建及安卓共用网页构建；原生系统边界在回归测试中使用模拟对象，这些检查不能替代上述 Mac 真机验收。
+在 Windows 上运行 `npm run check:platform` 可以复查权限、显示器坐标、快捷键和凭据保存等行为。测试用模拟对象覆盖系统接口，实际录屏、窗口交互和多屏显示仍需按上方清单在 Mac 上验收。
