@@ -52,7 +52,7 @@ import { settings } from './settings'
 import { secretLocked } from './secrets'
 import { errorText, t, uiLang } from './i18n'
 import { langBase, providerName, UI_LANGS } from '../shared/i18n'
-import { forceForeground, hwndOf, keyDown, VK_SPACE } from './winapi'
+import { focusWindowAt, forceForeground, hwndOf, keyDown, VK_SPACE } from './winapi'
 import { configureMacOverlay, ensureKeyMonitoring, ensureScreenCapture, isMac, macSpaceDown, macSettingsStatus, openMacSettings } from './macos'
 import { acceleratorLabel } from '../shared/hotkeys'
 import { WinSpaceHotkey } from './win-space'
@@ -341,12 +341,6 @@ async function startCapture() {
     if (guard.grabbed) setTimeout(() => releasePassKey(guard), 3000).unref()
   }
   if (releaseTimer) clearTimeout(releaseTimer)
-  // 预热失败不能挡住截图：翻译时还会再报一次，届时在工具条上提示
-  try {
-    if (settings.get().autoTranslate) engine?.warm()
-  } catch (e) {
-    logError('warm', e)
-  }
   try {
     const allowed = await ensureScreenCapture()
     if (generation !== captureGeneration || !overlayActive) return
@@ -434,9 +428,9 @@ ipcMain.on('overlay:frame-ready', (e) => {
     o.win.showInactive()
   }
   // The first plain Space can go down before the overlay takes keyboard focus.
-  const spaceHeld = activeDisplay && process.platform === 'win32' && keyDown(VK_SPACE) &&
-    ![0x10, 0x11, 0x12, 0x5b, 0x5c].some((vk) => keyDown(vk))
-  o.win.webContents.send('overlay:shown', !!spaceHeld)
+  const spaceHeld = activeDisplay && process.platform === 'win32' && plainSpaceHeld()
+  o.win.webContents.send('overlay:shown')
+  if (spaceHeld) requestScrollAtCursor()
 })
 
 ipcMain.on('overlay:visible', (e) => {
@@ -474,6 +468,8 @@ function hideOverlays(immediate = false) {
   if (!overlayActive) return hiding ?? Promise.resolve()
   overlayActive = false
   framesShown = false
+  editingOverlays.clear()
+  if (process.platform === 'win32') winSpace.setCaptureSpace(false)
   releasePassKey(startupSpace)
   if (passthrough?.timer) clearTimeout(passthrough.timer)
   if (passthrough) releasePassKey(passthrough)
@@ -504,15 +500,32 @@ ipcMain.on('overlay:close', () => hideOverlays())
 
 // ------------------------------------------------------------------ 按住空格：遮罩暂时让开
 // 只显示选区边框、鼠标穿透。松开空格时，先隐藏边框再重新截图。
-// 窗口不隐藏：键盘焦点留在遮罩上。按着期间把空格注册成全局热键，
-// 点进别的软件后空格的自动重复不会变成一串空格打进去。
+// Windows 上键盘钩子跨焦点监听空格，滚动期间把焦点还给鼠标下方的应用。
 const PASS_KEY = 'Space'
 let startupSpace = { grabbed: false }
 let passthrough: { timer: NodeJS.Timeout | null; grabbed: boolean } | null = null
 /** 穿透期间用户可能点进了别的软件，回来时要把焦点抢回来 */
 let refocus = false
 
-const spaceDown = () => isMac ? macSpaceDown() : keyDown(VK_SPACE)
+const spaceDown = () => isMac ? macSpaceDown() : winSpace.scrollHeld || keyDown(VK_SPACE)
+const plainSpaceHeld = () => spaceDown() === true &&
+  (process.platform !== 'win32' || ![0x10, 0x11, 0x12, 0x5b, 0x5c].some((vk) => keyDown(vk)))
+const editingOverlays = new Set<number>()
+
+ipcMain.on('overlay:space-editing', (e, editing: boolean) => {
+  if (process.platform !== 'win32' || !overlayActive || !overlayOf(e.sender)) return
+  if (editing) editingOverlays.add(e.sender.id)
+  else editingOverlays.delete(e.sender.id)
+  winSpace.setCaptureSpace(framesShown && !editingOverlays.size)
+})
+
+function requestScrollAtCursor() {
+  if (!overlayActive || !framesShown || passthrough || editingOverlays.size) return
+  const cursor = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursor)
+  const o = overlays.get(display.id)
+  if (o?.win.isVisible()) o.win.webContents.send('overlay:space-hold', { x: cursor.x - display.bounds.x, y: cursor.y - display.bounds.y })
+}
 
 ipcMain.on('overlay:passthrough', async (e, rect: Rect) => {
   const owner = overlayOf(e.sender)
@@ -524,14 +537,18 @@ ipcMain.on('overlay:passthrough', async (e, rect: Rect) => {
     return
   }
   // 只认此刻还按着的空格；读不到按键状态（没有 koffi）就不支持
-  if (spaceDown() !== true) return
+  if (!plainSpaceHeld()) return
   const shown = [...overlays.values()].filter((o) => o.win.isVisible())
+  const p = { timer: null as NodeJS.Timeout | null, grabbed: grabPassKey() }
+  passthrough = p
   for (const o of shown) {
     o.win.webContents.send('overlay:passing', o === owner ? rect : null)
     o.win.setIgnoreMouseEvents(true)
   }
-  const p = { timer: null as NodeJS.Timeout | null, grabbed: grabPassKey() }
-  passthrough = p
+  if (process.platform === 'win32') {
+    const pt = screen.dipToScreenPoint(screen.getCursorScreenPoint())
+    focusWindowAt(pt.x, pt.y, shown.map((o) => hwndOf(o.win.getNativeWindowHandle())))
+  }
   const poll = () => {
     if (passthrough !== p) return
     if (spaceDown()) p.timer = setTimeout(poll, 16)
@@ -634,6 +651,7 @@ ipcMain.on('translate:start', async (e, msg: TranslateRequestMsg) => {
     if (!eng) return send({ type: 'error', message: engineStatus().detail, code: 'config' })
     const { image, factor } = encodeForModel(crop, rect.w, rect.h)
     const promptLines = factor === 1 ? lines : lines.map((l) => ({ ...l, box: scaleRect(l.box, factor) }))
+    send({ type: 'translating' })
     const res = await eng.translate(
       { image, lines: promptLines, target, styleHint: s.styleHint },
       send,
@@ -1300,7 +1318,7 @@ export const startup = app.whenReady().then(async () => {
   await winSpace.start((recording) => {
     if (recording) settingsWin?.webContents.send('hotkey:recorded', 'Super+Space')
     else onHotkey()
-  })
+  }, requestScrollAtCursor)
   const ok = registerHotkey(s.hotkey)
   settings.onChange((next, prev) => {
     if (next.provider !== prev.provider || JSON.stringify(next.providers[next.provider]) !== JSON.stringify(prev.providers[prev.provider])) buildEngine(next)
@@ -1325,7 +1343,7 @@ export const startup = app.whenReady().then(async () => {
   }
 
   if (process.env.LENS_PASSTEST) {
-    setTimeout(() => void runPassTest({ start: startCapture, hide: () => hideOverlays(), overlays: () => [...overlays.values()].map((o) => o.win) }), 1500)
+    setTimeout(() => void runPassTest({ hide: () => hideOverlays(), overlays: () => [...overlays.values()].map((o) => o.win), modelCalls: () => (mockEngine as MockEngine).translateCalls }), 1500)
     return
   }
 

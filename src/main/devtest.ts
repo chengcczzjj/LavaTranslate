@@ -99,12 +99,14 @@ const MOCK: Record<string, { ids: string[]; dst: string; role?: string; keep?: b
 }
 
 export class MockEngine implements Engine {
+  translateCalls = 0
   readonly name = '模拟'
   scenario = 'test1'
   warm() {}
   dispose() {}
   reply = mockReply
   async translate(req: TranslateRequest, emit: Emit, signal: AbortSignal): Promise<TranslateResult> {
+    this.translateCalls++
     await sleep(700)
     emit({ type: 'lang', code: 'en', name: '英语', chat: this.scenario === 'chat' })
     const used = new Set<number>()
@@ -758,13 +760,14 @@ export async function runReview(h: Hooks & { engine: FixtureEngine; setTarget: (
 }
 
 /** Windows smoke test for Space pressed before the first frame and again with a selection. */
-export async function runPassTest(h: { start: () => Promise<void>; hide: () => Promise<void>; overlays: () => BrowserWindow[] }) {
+export async function runPassTest(h: { hide: () => Promise<void>; overlays: () => BrowserWindow[]; modelCalls: () => number }) {
   const u = load('user32.dll')
   const key = u.func('void __stdcall keybd_event(uint8_t key, uint8_t scan, uint32_t flags, uintptr_t extra)')
   const mouse = u.func('void __stdcall mouse_event(uint32_t flags, uint32_t x, uint32_t y, int32_t data, uintptr_t extra)')
   const move = u.func('int __stdcall SetCursorPos(int x, int y)')
   const cursor = screen.getCursorScreenPoint()
-  const display = screen.getDisplayNearestPoint(cursor)
+  const display = process.env.LENS_PASS_SECONDARY ? screen.getAllDisplays().find((d) => d.id !== screen.getPrimaryDisplay().id) : screen.getPrimaryDisplay()
+  assert.ok(display, 'requested test display is connected')
   const bounds = display.workArea
   // Window enumeration deliberately excludes the capturing process on Windows.
   const fixture = spawn('powershell', ['-NoProfile', '-STA', '-Command', `
@@ -779,15 +782,15 @@ export async function runPassTest(h: { start: () => Promise<void>; hide: () => P
     $t.ScrollBars = 'Vertical'
     $t.Dock = 'Fill'
     $t.Font = New-Object Drawing.Font('Arial', 18)
-    $t.Lines = @(1..120 | ForEach-Object { "Screen recognition sample $_" })
+    $t.Lines = @(1..120 | ForEach-Object { "本地识别 OCR 文字，第 $_ 行。" })
     $f.Controls.Add($t)
     $t.Add_MouseWheel({ [Console]::WriteLine('wheel') })
-    $f.Add_Shown({ $f.Activate(); $t.Focus() | Out-Null; [Console]::WriteLine($f.Handle.ToInt64()) })
+    $f.Add_Shown({ $f.Activate(); $t.Focus() | Out-Null; [Console]::WriteLine(('{0},{1}' -f $f.Handle.ToInt64(),$t.Handle.ToInt64())) })
     [Windows.Forms.Application]::Run($f)
   `], { windowsHide: true, stdio: ['ignore', 'pipe', 'inherit'] })
   const output = createInterface({ input: fixture.stdout })
-  const ready = new Promise<number>((resolve, reject) => {
-    output.once('line', (line) => resolve(Number(line)))
+  const ready = new Promise<number[]>((resolve, reject) => {
+    output.once('line', (line) => resolve(line.split(',').map(Number)))
     fixture.once('error', reject)
     fixture.once('exit', () => reject(new Error('Test window closed')))
   })
@@ -804,14 +807,23 @@ export async function runPassTest(h: { start: () => Promise<void>; hide: () => P
     const p = screen.dipToScreenPoint(pt)
     move(p.x, p.y)
   }
+  const newCapture = async () => {
+    await h.hide()
+    await sleep(450)
+    key(0x5b, 0, 0, 0)
+    key(0x20, 0, 0, 0)
+    key(0x20, 0, 2, 0)
+    key(0x5b, 0, 2, 0)
+    await waitFor('document.querySelector(".stage-idle.is-shown")')
+  }
   let failed = false
   const original = settings.get()
   const writeText = clipboard.writeText
   let copied = ''
   try {
     clipboard.writeText = async (text) => { copied = text }
-    settings.update({ autoTranslate: false, targetLang: 'en', uiLang: 'en', displayMode: 'overlay' })
-    const hwnd = await ready
+    settings.update({ autoTranslate: true, targetLang: 'zh-Hans', uiLang: 'en', displayMode: 'overlay' })
+    const [hwnd, edit] = await ready
     assert.ok(hwnd)
     const fixtureBounds = screen.dipToScreenRect(null, { x: bounds.x + 20, y: bounds.y + 20, width: 600, height: 460 })
     const place = u.func('int __stdcall SetWindowPos(intptr_t hwnd, intptr_t after, int x, int y, int w, int h, uint32_t flags)')
@@ -822,47 +834,96 @@ export async function runPassTest(h: { start: () => Promise<void>; hide: () => P
     const window = ScreenshotWindow.all().find((w) => w.id() === hwnd)
     assert.ok(window, 'the scroll test window must be visible')
     const expected = screen.screenToDipRect(null, { x: window.x(), y: window.y(), width: window.width(), height: window.height() })
-    const start = h.start()
+    await read('window.passEvents = []; void window.lens.onTranslate(({event}) => window.passEvents.push(event.type))')
+    // Real shortcut with Win released first and Space still held. No overlay click.
+    key(0x5b, 0, 0, 0)
     key(0x20, 0, 0, 0)
-    await start
+    await sleep(75)
+    key(0x5b, 0, 2, 0)
     await waitFor('document.querySelector(".overlay.passing .scroll-outline")')
     const initialRect = await read('document.querySelector(".scroll-outline").getBoundingClientRect().toJSON()')
-    assert.ok(Math.abs(initialRect.width - expected.width) <= 1 && Math.abs(initialRect.height - expected.height) <= 1, 'the hovered test window is the default OCR region')
+    assert.ok(Math.abs(initialRect.width - expected.width) <= 1 && Math.abs(initialRect.height - expected.height) <= 1, 'the hovered test window is the default OCR region: ' + JSON.stringify({ expected, initialRect, cursor: screen.getCursorScreenPoint() }))
+    const foreground = u.func('intptr_t __stdcall GetForegroundWindow()')
+    assert.equal(Number(foreground()), hwnd, 'the underlying window receives focus without a click')
     assert.equal(await read('getComputedStyle(document.querySelector(".bg")).visibility'), 'hidden')
     assert.equal(await read('getComputedStyle(document.querySelector(".scroll-outline")).visibility'), 'visible')
     let wheel = false
     output.on('line', (line) => { if (line === 'wheel') wheel = true })
+    const send = u.func('intptr_t __stdcall SendMessageW(intptr_t hwnd, uint32_t msg, uintptr_t w, intptr_t l)')
+    const firstVisibleLine = () => Number(send(edit, 0x00ce, 0, 0))
+    const beforeScroll = firstVisibleLine()
     mouse(0x0800, 0, 0, -120, 0)
     await sleep(350)
     assert.ok(wheel, 'first hold routes the wheel to the test page')
-    forceForeground(hwnd)
+    assert.ok(firstVisibleLine() > beforeScroll, 'the underlying document actually scrolls')
     key(0x20, 0, 2, 0)
     await waitFor(`document.querySelector('.stage-selected:not(.passing) button[aria-label="Copy recognized text"]:enabled')`)
     assert.equal(globalShortcut.isRegistered('Space'), false)
     assert.equal(overlay.isFocused(), true)
     const selectionRect = () => read('document.querySelector(".sel-frame").getBoundingClientRect().toJSON()')
     assert.deepEqual(await selectionRect(), initialRect, 'release recognizes the same window')
-    await waitFor('document.querySelector(".tb-src")?.textContent === "Text only"')
+    await waitFor('document.querySelector(".tb-src")?.textContent === "Already in target language"')
+    assert.equal(h.modelCalls(), 0, 'Chinese OCR must not call the model')
+    assert.equal(await read('window.passEvents.includes("translating")'), false, 'skipped OCR must not start a translation animation')
     await read(`document.querySelector('button[aria-label="Copy recognized text"]').click()`)
     await waitFor('document.querySelector(".toast")')
-    assert.match(copied, /recognition sample[^\n]*\n.*recognition sample/i, 'the copy action preserves OCR line breaks')
-    await read(`document.querySelector('button[aria-label="Translate"]').click()`)
-    await waitFor('document.querySelector(".tb-src")?.textContent === "Already in target language"')
+    assert.match(copied, /文字[^\n]*\n[^\n]*文字/u, 'the copy action preserves Chinese OCR line breaks')
 
     // Selecting a different target in OCR-only mode must still wait for an explicit translation.
+    settings.update({ autoTranslate: false })
     await read('document.querySelector(".tb-lang").click()')
     await waitFor('document.querySelector(".lp-item")')
-    await read('document.querySelector(".lp-item").click()')
+    await waitFor('document.activeElement?.matches(".lp-search input")')
+    key(0x20, 0, 0, 0)
+    await sleep(220)
+    key(0x20, 0, 2, 0)
+    assert.equal(await read('document.querySelector(".lp-search input").value'), ' ', 'editing an input keeps normal Space')
+    await read('Array.from(document.querySelectorAll(".lp-item")).find(b => b.textContent.includes("English")).click()')
     await waitFor('document.querySelector(".tb-src")?.textContent === "Text only"')
     await read(`document.querySelector('button[aria-label="Translate"]').click()`)
     await waitFor('document.querySelector(".tb-time")')
+    assert.equal(h.modelCalls(), 1, 'explicit translation into English calls the model once')
+    // Release the shortcut completely, then press Space without clicking anywhere.
+    await newCapture()
     key(0x20, 0, 0, 0)
     await waitFor('document.querySelector(".overlay.passing .scroll-outline")')
-    assert.deepEqual(await read('document.querySelector(".scroll-outline").getBoundingClientRect().toJSON()'), initialRect, 'existing selection stays visible')
+    const beforePlainHold = firstVisibleLine()
+    mouse(0x0800, 0, 0, -120, 0)
+    await sleep(350)
+    assert.ok(firstVisibleLine() > beforePlainHold, 'plain Space scrolls after a released shortcut without any click')
     key(0x20, 0, 2, 0)
     await waitFor('document.querySelector(".stage-selected:not(.passing) .sel-frame")')
-    assert.deepEqual(await selectionRect(), initialRect)
-    console.log('[passtest] PASS: first hold, wheel delivery, default window, retained outline, focus, OCR-only, source copy, language skip and manual translation')
+    // Fresh capture with a real drag, then Space without a refocus click.
+    await newCapture()
+    moveTo({ x: expected.x + 15, y: expected.y + 20 })
+    mouse(0x0002, 0, 0, 0, 0)
+    await sleep(45)
+    moveTo({ x: expected.x + expected.width - 30, y: expected.y + 180 })
+    await sleep(45)
+    mouse(0x0004, 0, 0, 0, 0)
+    await waitFor('document.querySelector(".stage-selected .sel-frame")')
+    const drawn = await selectionRect()
+    assert.ok(drawn.height < initialRect.height, 'manual drag selected a subregion')
+    key(0x20, 0, 0, 0)
+    await waitFor('document.querySelector(".overlay.passing .scroll-outline")')
+    assert.deepEqual(await read('document.querySelector(".scroll-outline").getBoundingClientRect().toJSON()'), drawn, 'existing selection stays visible')
+    const beforeDragScroll = firstVisibleLine()
+    mouse(0x0800, 0, 0, -120, 0)
+    await sleep(350)
+    assert.ok(firstVisibleLine() > beforeDragScroll, 'first hold after manual selection scrolls without a refocus click')
+    key(0x20, 0, 2, 0)
+    await waitFor('document.querySelector(".stage-selected:not(.passing) .sel-frame")')
+    assert.deepEqual(await selectionRect(), drawn)
+    forceForeground(hwnd) // Explicitly displace overlay focus, without any mouse click.
+    key(0x20, 0, 0, 0)
+    await waitFor('document.querySelector(".overlay.passing .scroll-outline")')
+    const unfocusedLine = firstVisibleLine()
+    mouse(0x0800, 0, 0, -120, 0)
+    await sleep(350)
+    assert.ok(firstVisibleLine() > unfocusedLine, 'Space still works when the overlay lacks keyboard focus')
+    key(0x20, 0, 2, 0)
+    await waitFor('document.querySelector(".stage-selected:not(.passing) .sel-frame")')
+    console.log('[passtest] PASS: real Win+Space, held shortcut Space, manual drag with unfocused first hold, document scroll offsets, Chinese same-target zero model calls and zero translating events, OCR copy and manual translation')
   } catch (error) {
     failed = true
     console.error('[passtest] FAIL', error)
@@ -870,6 +931,7 @@ export async function runPassTest(h: { start: () => Promise<void>; hide: () => P
     clipboard.writeText = writeText
     settings.update({ autoTranslate: original.autoTranslate, targetLang: original.targetLang, uiLang: original.uiLang, displayMode: original.displayMode })
     key(0x20, 0, 2, 0)
+    key(0x5b, 0, 2, 0)
     await h.hide()
     fixture.kill()
     moveTo(cursor)

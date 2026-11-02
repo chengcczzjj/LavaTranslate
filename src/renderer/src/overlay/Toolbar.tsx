@@ -209,7 +209,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
 
       <Tip label={busy ? t('tb.busy') : t(p.recognized === 'ocr-only' ? 'tb.translate' : 'tb.retranslate')} keys={shortcutLabel('Ctrl R')}>
         <button className="tb-btn" disabled={busy} onClick={p.onRetry} aria-label={t(p.recognized === 'ocr-only' ? 'tb.translate' : 'tb.retranslate')}>
-          {p.recognized === 'ocr-only' ? <Languages size={17} /> : <RotateCw size={15} className={busy ? 'spin-slow' : ''} />}
+          {p.recognized === 'ocr-only' ? <Languages size={17} /> : <RotateCw size={15} className={p.phase === 'translating' ? 'spin-slow' : ''} />}
         </button>
       </Tip>
       <Tip label={t('tb.settingsTip')}>
@@ -225,7 +225,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
 
       {/* 底部进度光带 */}
       <AnimatePresence>
-        {busy && (
+        {p.phase === 'translating' && (
           <motion.div className="tb-progress" initial={{ opacity: 0 }} animate={{ opacity: p.paused ? 0.35 : 1 }} exit={{ opacity: 0, transition: { duration: 0.4 } }}>
             <motion.div className="tb-progress-bar" animate={{ scaleX: pct }} transition={{ type: 'spring', stiffness: 120, damping: 24 }} />
           </motion.div>
@@ -254,7 +254,7 @@ function StatusIcon({ phase, paused }: { phase: Phase; paused: boolean }) {
   return (
     <span className="tb-icon">
       <AnimatePresence mode="wait" initial={false}>
-        {busy && paused ? (
+        {phase === 'ocr' ? <ScanText size={14} aria-hidden="true" /> : busy && paused ? (
           <motion.span key="paused" className="tb-paused" initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }}>
             <Pause size={10} strokeWidth={0} fill="currentColor" />
           </motion.span>

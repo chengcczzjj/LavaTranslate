@@ -31,7 +31,9 @@ const api = {
 
   // 遮罩
   onFrame: (cb: (f: CaptureFrame) => void) => on('overlay:frame', cb),
-  onShown: (cb: (spaceHeld: boolean) => void) => on('overlay:shown', cb),
+  onShown: (cb: () => void) => on('overlay:shown', cb),
+  onSpaceHold: (cb: (point: { x: number; y: number }) => void) => on('overlay:space-hold', cb),
+  setSpaceEditing: (editing: boolean) => ipcRenderer.send('overlay:space-editing', editing),
   onPassing: (cb: (rect: Rect | null) => void) => on('overlay:passing', cb),
   onReset: (cb: () => void) => on('overlay:reset', cb),
   /** 连按两次快捷键：进入输入翻译（show：本屏显示输入框） */

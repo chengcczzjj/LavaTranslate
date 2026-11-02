@@ -5,10 +5,10 @@ import { load } from 'koffi'
 /** Win+Space is reserved by Windows, so Electron's RegisterHotKey cannot claim it. */
 export class WinSpaceHotkey {
   private worker: Worker | null = null
-  private state = new Int32Array(new SharedArrayBuffer(12)) // mode, native thread ID, stop
+  private state = new Int32Array(new SharedArrayBuffer(20)) // mode, native thread ID, stop, capture Space, held for scroll
   private ready = false
 
-  async start(onPress: (recording: boolean) => void): Promise<boolean> {
+  async start(onPress: (recording: boolean) => void, onScroll?: () => void): Promise<boolean> {
     if (process.platform !== 'win32') return false
     try {
       const worker = new Worker(join(__dirname, 'win-space-worker.js'), { workerData: this.state.buffer })
@@ -16,12 +16,14 @@ export class WinSpaceHotkey {
       worker.unref()
       return await new Promise<boolean>((resolve) => {
         const timer = setTimeout(() => { this.stop(); resolve(false) }, 5000)
-        worker.on('message', (message: 'ready' | 'press' | 'record') => {
+        worker.on('message', (message: 'ready' | 'press' | 'record' | 'scroll') => {
           if (message === 'ready') {
             clearTimeout(timer)
             if (Atomics.load(this.state, 2)) return
             this.ready = true
             resolve(true)
+          } else if (this.ready && message === 'scroll') {
+            if (Atomics.load(this.state, 3)) onScroll?.()
           } else if (this.ready) {
             const mode = Atomics.load(this.state, 0)
             if ((message === 'press' && mode === 1) || (message === 'record' && mode === 2)) onPress(message === 'record')
@@ -45,6 +47,15 @@ export class WinSpaceHotkey {
   setMode(mode: 0 | 1 | 2): boolean {
     Atomics.store(this.state, 0, mode)
     return this.ready
+  }
+
+  setCaptureSpace(enabled: boolean): boolean {
+    Atomics.store(this.state, 3, Number(enabled))
+    return this.ready
+  }
+
+  get scrollHeld(): boolean {
+    return this.ready && Atomics.load(this.state, 4) === 1
   }
 
   stop() {

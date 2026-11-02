@@ -299,9 +299,11 @@ export function Overlay() {
           setColors(cs)
         }
         setLines(event.lines)
-        setPhase('translating')
         break
       }
+      case 'translating':
+        setPhase('translating')
+        break
       case 'lang':
         setLang({ code: event.code, name: event.name, chat: event.chat })
         break
@@ -507,7 +509,8 @@ export function Overlay() {
     flash(currentI18n().t('ov.copiedSource'))
   }, [lines])
 
-  const panel = useMemo(() => (sel && mode === 'side' ? sidePanel(sel, vw, vh, tbSize.h) : null), [sel, mode, vw, vh, tbSize.h])
+  const hasTranslation = phase === 'translating' || blocks.length > 0
+  const panel = useMemo(() => (sel && mode === 'side' && hasTranslation ? sidePanel(sel, vw, vh, tbSize.h) : null), [sel, mode, hasTranslation, vw, vh, tbSize.h])
 
   const captureRect = useCallback(() => {
     if (!sel) return null
@@ -700,28 +703,55 @@ export function Overlay() {
     return () => window.removeEventListener('keydown', down)
   }, [stage, mode, blocks, translatedText, copyAll, copyImage, copyOriginal, saveImage, pin, retry, changeMode, toggleReply])
 
+  // Windows captures plain Space at the keyboard hook while selecting. Release it
+  // for editable fields and quick translation so typing keeps its usual behavior.
+  useEffect(() => {
+    if (isMac || stage === 'hidden') return
+    const sync = (el: Element | null) => window.lens.setSpaceEditing(stage === 'quick' || (document.hasFocus() && isTypingSpace(el)))
+    const active = () => sync(document.activeElement)
+    const leave = (e: FocusEvent) => sync(e.relatedTarget as Element | null)
+    active()
+    document.addEventListener('focusin', active)
+    document.addEventListener('focusout', leave)
+    document.addEventListener('input', active)
+    window.addEventListener('focus', active)
+    window.addEventListener('blur', active)
+    return () => {
+      document.removeEventListener('focusin', active)
+      document.removeEventListener('focusout', leave)
+      document.removeEventListener('input', active)
+      window.removeEventListener('focus', active)
+      window.removeEventListener('blur', active)
+    }
+  }, [stage])
+
   // Keep the outline in place while the pointer operates the app beneath it.
   useEffect(() => {
     let timer = 0
+    let nativeHold = false
     const cancel = () => {
       clearTimeout(timer)
       timer = 0
+      nativeHold = false
     }
-    const typing = (el: Element | null) => el instanceof HTMLInputElement || (el instanceof HTMLTextAreaElement && !!el.value)
-    const arm = () => {
-      if (timer) return
+    const arm = (point?: { x: number; y: number }) => {
+      if (timer && (!point || nativeHold)) return
+      cancel()
+      nativeHold = !!point
       timer = window.setTimeout(() => {
         timer = 0
         const { stage, sel, snap, meta } = live.current
-        if (!meta || drag.current || typing(document.activeElement)) return
-        const rect = stage === 'selected' ? sel : stage === 'idle' ? snap ?? { x: 0, y: 0, w: meta.width / meta.scale, h: meta.height / meta.scale } : null
+        if (!meta || drag.current || (document.hasFocus() && isTypingSpace(document.activeElement))) return
+        const hovered = point && meta.windows.find((w) => inside(point.x * meta.scale, point.y * meta.scale, w))
+        const region = point ? (hovered && toCss(hovered, meta.scale)) : snap
+        const rect = stage === 'selected' ? sel : stage === 'idle' ? region ?? { x: 0, y: 0, w: meta.width / meta.scale, h: meta.height / meta.scale } : null
         if (rect) window.lens.passthrough(rect)
       }, HOLD_MS)
     }
     const down = (e: KeyboardEvent) => {
       if (e.key !== ' ') return cancel()
       const { stage } = live.current
-      if ((stage !== 'idle' && stage !== 'selected') || typing(e.target as Element)) return
+      if ((stage !== 'idle' && stage !== 'selected') || isTypingSpace(e.target as Element)) return
       if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
       e.preventDefault()
       arm()
@@ -730,19 +760,18 @@ export function Overlay() {
       if (e.key !== ' ') return
       cancel()
     }
-    const offShown = window.lens.onShown((alreadyHeld) => {
-      if (alreadyHeld) arm()
-    })
+    const offHold = window.lens.onSpaceHold(arm)
+    const blur = () => { if (!nativeHold) cancel() }
     // 捕获阶段：回复框会拦下大部分按键，这里也要看到
     window.addEventListener('keydown', down, true)
     window.addEventListener('keyup', up, true)
-    window.addEventListener('blur', cancel)
+    window.addEventListener('blur', blur)
     return () => {
       cancel()
-      offShown()
+      offHold()
       window.removeEventListener('keydown', down, true)
       window.removeEventListener('keyup', up, true)
-      window.removeEventListener('blur', cancel)
+      window.removeEventListener('blur', blur)
     }
   }, [])
 
@@ -984,10 +1013,9 @@ export function Overlay() {
 
       {/* 选区框 */}
       {sel && (stage === 'drawing' || stage === 'selected') && !capturing && (
-        <div className={`sel-frame${working ? ' working' : ''}${working && altPeek ? ' paused' : ''}${phase === 'done' ? ' done' : ''}`} style={{ left: sel.x, top: sel.y, width: sel.w, height: sel.h }}>
+        <div className={`sel-frame${phase === 'translating' ? ' working' : ''}${working && altPeek ? ' paused' : ''}${phase === 'done' && !recognized ? ' done' : ''}`} style={{ left: sel.x, top: sel.y, width: sel.w, height: sel.h }}>
           <div className="sel-glow" />
           {stage === 'selected' && EDGES.map((ed) => <div key={ed} className={`handle h-${ed}`} data-edge={ed} />)}
-          {phase === 'ocr' && <div className="scanline" />}
         </div>
       )}
 
@@ -1220,6 +1248,10 @@ function SidePanel({
 // ------------------------------------------------------------ 几何工具
 function inside(x: number, y: number, r: Rect) {
   return x >= r.x && y >= r.y && x <= r.x + r.w && y <= r.y + r.h
+}
+
+function isTypingSpace(el: Element | null) {
+  return el instanceof HTMLInputElement || (el instanceof HTMLTextAreaElement && !!el.value)
 }
 
 function norm(x0: number, y0: number, x1: number, y1: number): Rect {

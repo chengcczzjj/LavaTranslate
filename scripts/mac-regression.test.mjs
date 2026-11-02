@@ -375,7 +375,7 @@ test('saved shortcut labels localize Windows keys and preserve Mac Control versu
 
 test('Win+Space hook passes unrelated keys, consumes repeat/release, records, and unhooks', () => {
   let callback
-  const state = new Int32Array(new SharedArrayBuffer(12))
+  const state = new Int32Array(new SharedArrayBuffer(20))
   const held = new Set()
   const sent = [], masked = []
   let unhooked = 0, released = 0
@@ -413,6 +413,20 @@ test('Win+Space hook passes unrelated keys, consumes repeat/release, records, an
       assert.equal(press(0x20), 1)
       assert.equal(press(0x20, true), 1)
       assert.deepEqual(sent, ['ready', 'press', 'record'])
+      state[0] = 1
+      state[3] = 1
+      assert.equal(press(0x20), 1)
+      held.clear()
+      assert.equal(press(0x5c, true), 42)
+      assert.equal(state[4], 1)
+      assert.equal(press(0x20, true), 1)
+      assert.equal(state[4], 0)
+      assert.equal(press(0x20), 1)
+      assert.equal(press(0x20), 1)
+      assert.equal(press(0x20, true), 1)
+      assert.deepEqual(sent.slice(-3), ['press', 'scroll', 'scroll'])
+      state[3] = 0
+      assert.equal(press(0x20), 42)
       return 0
     }
   }
@@ -426,5 +440,5 @@ test('Win+Space hook passes unrelated keys, consumes repeat/release, records, an
   })
   assert.equal(unhooked, 1)
   assert.equal(released, 1)
-  assert.deepEqual(masked, [[0x11, 0], [0x11, 2], [0x11, 0], [0x11, 2]])
+  assert.deepEqual(masked, [[0x11, 0], [0x11, 2], [0x11, 0], [0x11, 2], [0x11, 0], [0x11, 2]])
 })

@@ -142,38 +142,13 @@
 .sel-frame.paused .sel-glow {
   opacity: 0.4;
 }
-.sel-frame.paused .sel-glow,
-.sel-frame.paused .scanline::after {
+.sel-frame.paused .sel-glow {
   animation-play-state: paused;
 }
 
 @keyframes glow-rot {
   to {
     --a: 360deg;
-  }
-}
-
-.scanline {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-}
-
-.scanline::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 38%;
-  top: -38%;
-  background: linear-gradient(180deg, transparent, rgba(255, 90, 31, 0.16) 70%, rgba(255, 176, 140, 0.55) 100%);
-  border-bottom: 1px solid rgba(255, 200, 175, 0.8);
-  animation: scan 0.9s var(--ease) infinite;
-}
-
-@keyframes scan {
-  to {
-    top: 100%;
   }
 }
 

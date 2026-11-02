@@ -37,6 +37,7 @@ export type Phase = 'idle' | 'ocr' | 'translating' | 'done' | 'error'
 
 export type TranslateEvent =
   | { type: 'ocr'; lines: OcrLine[]; ms: number }
+  | { type: 'translating' }
   | { type: 'recognized'; reason: 'ocr-only' | 'same-language' }
   /** chat：模型判断截图是不是可以回复的对话（聊天、私信、评论、邮件） */
   | { type: 'lang'; code: string; name: string; chat?: boolean }

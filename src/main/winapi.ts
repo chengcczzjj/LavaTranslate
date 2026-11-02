@@ -8,6 +8,8 @@ interface User32 {
   GetWindowThreadProcessId: (hwnd: number, pid: null) => number
   AttachThreadInput: (from: number, to: number, attach: number) => number
   SetForegroundWindow: (hwnd: number) => number
+  WindowFromPoint: (point: bigint) => number
+  GetAncestor: (hwnd: number, flags: number) => number
   GetCurrentThreadId: () => number
 }
 
@@ -25,6 +27,8 @@ function win32(): User32 | null {
       GetWindowThreadProcessId: u.func('uint32_t __stdcall GetWindowThreadProcessId(intptr_t hWnd, void *lpdwProcessId)'),
       AttachThreadInput: u.func('int __stdcall AttachThreadInput(uint32_t idAttach, uint32_t idAttachTo, int fAttach)'),
       SetForegroundWindow: u.func('int __stdcall SetForegroundWindow(intptr_t hWnd)'),
+      WindowFromPoint: u.func('intptr_t __stdcall WindowFromPoint(int64_t point)'),
+      GetAncestor: u.func('intptr_t __stdcall GetAncestor(intptr_t hWnd, uint32_t flags)'),
       GetCurrentThreadId: k.func('uint32_t __stdcall GetCurrentThreadId()')
     }
   } catch (e) {
@@ -45,6 +49,16 @@ export function keyDown(vk: number): boolean | null {
 /** BrowserWindow.getNativeWindowHandle() → HWND（窗口句柄只用低 32 位） */
 export function hwndOf(handle: Buffer): number {
   return handle.readUInt32LE(0)
+}
+
+/** Once the overlays are click-through, activate the app beneath the pointer
+ * so wheel delivery works even when Windows routes wheels to the focused app. */
+export function focusWindowAt(x: number, y: number, overlayHandles: number[]) {
+  const u = win32()
+  if (!u) return
+  const hit = u.WindowFromPoint((BigInt(y) << 32n) | BigInt(x >>> 0))
+  const root = hit && Number(u.GetAncestor(hit, 2)) // GA_ROOT
+  if (root && !overlayHandles.includes(root) && root !== Number(u.GetForegroundWindow())) forceForeground(root)
 }
 
 /**

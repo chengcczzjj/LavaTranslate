@@ -16,18 +16,38 @@ const keyEvent = user.func('void __stdcall keybd_event(uint8_t key, uint8_t scan
 const threadId = kernel.func('uint32_t __stdcall GetCurrentThreadId()')
 const moduleHandle = kernel.func('void * __stdcall GetModuleHandleW(void *name)')
 const down = (key: number) => (keyState(key) & 0x8000) !== 0
-let consumed = false
+let consumed: 'shortcut' | 'record' | 'scroll' | null = null
+
+function holdForScroll() {
+  consumed = 'scroll'
+  Atomics.store(state, 4, 1)
+  if (Atomics.load(state, 3)) parentPort!.postMessage('scroll')
+}
 
 const callback = koffi.register((code: number, message: number, data: unknown) => {
-  if (code >= 0 && koffi.decode(data, 'uint32_t') === 0x20) {
-    const up = message === 0x0101 || message === 0x0105
+  if (code < 0) return next(null, code, message, data)
+  const key = koffi.decode(data, 'uint32_t')
+  const up = message === 0x0101 || message === 0x0105
+  // Win+Space is swallowed by this hook, so GetAsyncKeyState(Space) cannot
+  // see it. If Win is released first, the same physical Space becomes a hold.
+  if (up && consumed === 'shortcut' && (key === 0x5b || key === 0x5c) && !down(key === 0x5b ? 0x5c : 0x5b)) holdForScroll()
+  if (key === 0x20) {
     if (consumed) {
-      if (up) consumed = false
+      if (up) {
+        consumed = null
+        Atomics.store(state, 4, 0)
+      }
       return 1 // Suppress auto-repeat and the paired keyup, even if Win was released first.
     }
     const mode = Atomics.load(state, 0)
-    if (!up && mode && (down(0x5b) || down(0x5c)) && !down(0x10) && !down(0x11) && !down(0x12)) {
-      consumed = true
+    if (!up && !down(0x10) && !down(0x11) && !down(0x12)) {
+      const win = down(0x5b) || down(0x5c)
+      if (!win && Atomics.load(state, 3)) {
+        holdForScroll()
+        return 1
+      }
+      if (!win || !mode) return next(null, code, message, data)
+      consumed = mode === 2 ? 'record' : 'shortcut'
       // Mark Win as used so releasing it does not open Start. Ctrl has no action on its own.
       keyEvent(0x11, 0, 0, 0)
       keyEvent(0x11, 0, 2, 0)
