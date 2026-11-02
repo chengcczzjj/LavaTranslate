@@ -129,6 +129,12 @@ const vi: Messages = {
   'sc.exitDo': 'Thoát',
 
   'tr.title': 'Dịch',
+  'tr.autoTranslate': 'Tự động dịch sau khi nhận dạng',
+  'tr.autoTranslateDesc': 'Tắt để chỉ nhận dạng chữ trong ảnh chụp. Khi cần bản dịch, chọn Dịch trên thanh công cụ của vùng chọn.',
+  'tb.copySource': 'Sao chép văn bản đã nhận dạng',
+  'tb.ocrOnly': 'Chỉ nhận dạng',
+  'tb.sameLanguage': 'Đã ở ngôn ngữ đích',
+  'tb.translate': 'Dịch',
   'tr.target': 'Dịch sang',
   'tr.targetDesc': 'Cũng có thể đổi trên thanh công cụ',
   'tr.display': 'Cách hiển thị',

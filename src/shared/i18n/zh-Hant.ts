@@ -129,6 +129,12 @@ const zhHant: Messages = {
   'sc.exitDo': '離開',
 
   'tr.title': '翻譯',
+  'tr.autoTranslate': '辨識後自動翻譯',
+  'tr.autoTranslateDesc': '關閉後只辨識截圖文字。需要譯文時，可以在選取範圍的工具列點選「翻譯」。',
+  'tb.copySource': '複製辨識文字',
+  'tb.ocrOnly': '僅辨識',
+  'tb.sameLanguage': '已是目標語言',
+  'tb.translate': '翻譯',
   'tr.target': '預設目標語言',
   'tr.targetDesc': '截圖時也能在工具列上切換',
   'tr.display': '顯示方式',

@@ -45,6 +45,7 @@ import { detectProvider } from '../core/detect'
 import { langFor } from '../core/lang'
 import { setPlatform } from '../core/platform'
 import { PaddleOcr } from './ocr'
+import { matchesTargetLanguage } from './ocr-language'
 import { refreshPrices, sortByPrice } from './pricing'
 import { check as checkUpdate, initUpdater, installNow, setAutoUpdate, updateState } from './updater'
 import { settings } from './settings'
@@ -74,7 +75,7 @@ const preload = join(__dirname, '../preload/index.js')
 const appIcon = join(resources, process.platform === 'win32' ? 'icon.ico' : 'icon.png')
 const AUTOTEST = !!process.env.LENS_AUTOTEST || !!process.env.LENS_REVIEW
 const fixtureEngine = process.env.LENS_REVIEW ? new FixtureEngine() : null
-const mockEngine = fixtureEngine ?? (process.env.LENS_MOCK ? new MockEngine() : null)
+const mockEngine = fixtureEngine ?? (process.env.LENS_MOCK || process.env.LENS_PASSTEST ? new MockEngine() : null)
 const pipeline = new EventEmitter()
 
 // 自测数据目录由 bootstrap 在导入原生模块前设置。
@@ -229,8 +230,8 @@ function createOverlay(display: Display): Overlay {
     show: false,
     frame: false,
     ...(isMac ? { type: 'panel' as const } : {}),
-    transparent: false,
-    backgroundColor: '#000000',
+    transparent: true,
+    backgroundColor: '#00000000',
     resizable: false,
     movable: false,
     minimizable: false,
@@ -331,10 +332,18 @@ async function startCapture() {
   if (hiding) await hiding
   if (generation !== captureGeneration) return
   overlayActive = true
+  // The user may hold Space while the first screenshot is still being captured.
+  // Consume it before it can type into the app that currently owns the keyboard.
+  if (process.platform === 'win32' && !AUTOTEST) {
+    const guard = { grabbed: grabPassKey() }
+    startupSpace = guard
+    // A renderer that never reports frame-ready must not keep the system Space key.
+    if (guard.grabbed) setTimeout(() => releasePassKey(guard), 3000).unref()
+  }
   if (releaseTimer) clearTimeout(releaseTimer)
   // 预热失败不能挡住截图：翻译时还会再报一次，届时在工具条上提示
   try {
-    engine?.warm()
+    if (settings.get().autoTranslate) engine?.warm()
   } catch (e) {
     logError('warm', e)
   }
@@ -342,6 +351,7 @@ async function startCapture() {
     const allowed = await ensureScreenCapture()
     if (generation !== captureGeneration || !overlayActive) return
     if (!allowed) {
+      releasePassKey(startupSpace)
       overlayActive = false
       quickPending = false
       return
@@ -354,6 +364,7 @@ async function startCapture() {
   } catch (e) {
     if (generation !== captureGeneration || !overlayActive) return
     // 出错一定要复位，否则之后每次按快捷键都只会在"关闭"分支里空转
+    releasePassKey(startupSpace)
     overlayActive = false
     quickPending = false
     logError('capture', e)
@@ -398,7 +409,7 @@ function presentCaptures(caps: DisplayCapture[], refresh = false) {
 ipcMain.on('overlay:frame-ready', (e) => {
   const o = overlayOf(e.sender)
   if (process.env.LENS_SHOWTEST && o) console.log('[show] frame-ready display', o.displayId, Date.now() - tHotkey, 'ms')
-  if (!o || !overlayActive) return
+  if (!o || !overlayActive || passthrough) return
   if (AUTOTEST) return o.win.webContents.send('overlay:shown')
   const display = screen.getAllDisplays().find((d) => d.id === o.displayId)
   if (display) {
@@ -407,24 +418,30 @@ ipcMain.on('overlay:frame-ready', (e) => {
   }
   o.win.setOpacity(0)
   o.win.setIgnoreMouseEvents(false)
-  o.win.show()
   o.win.setAlwaysOnTop(true, 'screen-saver')
   const cursor = screen.getCursorScreenPoint()
-  if (screen.getDisplayNearestPoint(cursor).id === o.displayId) {
-    if (refocus) {
-      refocus = false
-      if (process.platform === 'win32') forceForeground(hwndOf(o.win.getNativeWindowHandle()))
-      else if (isMac) app.focus({ steal: true })
-    }
+  const cursorDisplay = screen.getDisplayNearestPoint(cursor).id
+  const activeDisplay = (captures.has(cursorDisplay) ? cursorDisplay : captures.keys().next().value) === o.displayId
+  if (activeDisplay) {
+    o.win.show()
+    if (process.platform === 'win32') forceForeground(hwndOf(o.win.getNativeWindowHandle()))
+    else if (isMac && refocus) app.focus({ steal: true })
+    refocus = false
     o.win.focus()
     o.win.webContents.focus()
+    releasePassKey(startupSpace)
+  } else {
+    o.win.showInactive()
   }
-  o.win.webContents.send('overlay:shown')
+  // The first plain Space can go down before the overlay takes keyboard focus.
+  const spaceHeld = activeDisplay && process.platform === 'win32' && keyDown(VK_SPACE) &&
+    ![0x10, 0x11, 0x12, 0x5b, 0x5c].some((vk) => keyDown(vk))
+  o.win.webContents.send('overlay:shown', !!spaceHeld)
 })
 
 ipcMain.on('overlay:visible', (e) => {
   const o = overlayOf(e.sender)
-  if (o && overlayActive) o.win.setOpacity(1)
+  if (o && overlayActive && !passthrough) o.win.setOpacity(1)
   if (process.env.LENS_SHOWTEST && o) console.log('[show] visible display', o.displayId, Date.now() - tHotkey, 'ms', 'focused', o.win.isFocused(), 'bounds', JSON.stringify(o.win.getBounds()))
 })
 
@@ -457,6 +474,7 @@ function hideOverlays(immediate = false) {
   if (!overlayActive) return hiding ?? Promise.resolve()
   overlayActive = false
   framesShown = false
+  releasePassKey(startupSpace)
   if (passthrough?.timer) clearTimeout(passthrough.timer)
   if (passthrough) releasePassKey(passthrough)
   passthrough = null
@@ -485,17 +503,20 @@ async function doHide(immediate: boolean) {
 ipcMain.on('overlay:close', () => hideOverlays())
 
 // ------------------------------------------------------------------ 按住空格：遮罩暂时让开
-// 遮罩变成全透明、鼠标穿透，可以直接点、滚动下面的软件（点击、滚轮都不带修饰键）；松开空格后重新截图。
+// 只显示选区边框、鼠标穿透。松开空格时，先隐藏边框再重新截图。
 // 窗口不隐藏：键盘焦点留在遮罩上。按着期间把空格注册成全局热键，
 // 点进别的软件后空格的自动重复不会变成一串空格打进去。
 const PASS_KEY = 'Space'
-let passthrough: { faded: Promise<unknown>; timer: NodeJS.Timeout | null; grabbed: boolean } | null = null
+let startupSpace = { grabbed: false }
+let passthrough: { timer: NodeJS.Timeout | null; grabbed: boolean } | null = null
 /** 穿透期间用户可能点进了别的软件，回来时要把焦点抢回来 */
 let refocus = false
 
 const spaceDown = () => isMac ? macSpaceDown() : keyDown(VK_SPACE)
 
-ipcMain.on('overlay:passthrough', async () => {
+ipcMain.on('overlay:passthrough', async (e, rect: Rect) => {
+  const owner = overlayOf(e.sender)
+  if (!owner || !overlayActive || !framesShown || passthrough || hiding) return
   if (isMac && overlayActive && macSpaceDown() === null) {
     // 系统权限提示不能被 screen-saver 级别的截图窗口遮挡。
     await hideOverlays(true)
@@ -503,16 +524,13 @@ ipcMain.on('overlay:passthrough', async () => {
     return
   }
   // 只认此刻还按着的空格；读不到按键状态（没有 koffi）就不支持
-  if (!overlayActive || !framesShown || passthrough || hiding || spaceDown() !== true) return
+  if (spaceDown() !== true) return
   const shown = [...overlays.values()].filter((o) => o.win.isVisible())
-  for (const o of shown) o.win.setIgnoreMouseEvents(true)
-  let grabbed = false
-  try {
-    grabbed = !globalShortcut.isRegistered(PASS_KEY) && globalShortcut.register(PASS_KEY, () => {})
-  } catch (e) {
-    logError('passthrough key', e)
+  for (const o of shown) {
+    o.win.webContents.send('overlay:passing', o === owner ? rect : null)
+    o.win.setIgnoreMouseEvents(true)
   }
-  const p = { faded: Promise.all(shown.map((o) => fadeOut(o.win, 90))), timer: null as NodeJS.Timeout | null, grabbed }
+  const p = { timer: null as NodeJS.Timeout | null, grabbed: grabPassKey() }
   passthrough = p
   const poll = () => {
     if (passthrough !== p) return
@@ -525,15 +543,25 @@ ipcMain.on('overlay:passthrough', async () => {
   p.timer = setTimeout(poll, 16)
 })
 
-function releasePassKey(p: NonNullable<typeof passthrough>) {
+function grabPassKey(): boolean {
+  try {
+    return !globalShortcut.isRegistered(PASS_KEY) && globalShortcut.register(PASS_KEY, () => {})
+  } catch (e) {
+    logError('passthrough key', e)
+    return false
+  }
+}
+
+function releasePassKey(p: { grabbed: boolean }) {
   if (!p.grabbed) return
   p.grabbed = false
   globalShortcut.unregister(PASS_KEY)
 }
 
 async function endPassthrough(p: NonNullable<typeof passthrough>) {
-  // 淡出还没走完就松开了：等它走完，免得截到半透明的遮罩，或淡出盖掉之后的显示
-  await p.faded
+  // Let the desktop compositor remove the outline before sampling the live screen.
+  for (const o of overlays.values()) if (o.win.isVisible()) o.win.setOpacity(0)
+  await new Promise((resolve) => setTimeout(resolve, 50))
   if (passthrough !== p) return
   try {
     const excluded = process.platform === 'win32' ? [...overlays.values()].map((o) => hwndOf(o.win.getNativeWindowHandle())) : []
@@ -543,6 +571,7 @@ async function endPassthrough(p: NonNullable<typeof passthrough>) {
     refocus = true
     presentCaptures(caps, true)
   } catch (e) {
+    if (passthrough !== p) return
     logError('capture', e)
     passthrough = null
     void hideOverlays(true)
@@ -556,44 +585,55 @@ const ocrCache = new Map<string, OcrLine[]>()
 ipcMain.on('translate:start', async (e, msg: TranslateRequestMsg) => {
   const sender = e.sender
   const send = (event: TranslateEvent) => {
-    if (!sender.isDestroyed()) sender.send('translate:event', { requestId: msg.requestId, event })
+    if (!ctl.signal.aborted && !sender.isDestroyed()) sender.send('translate:event', { requestId: msg.requestId, event })
   }
   translations.get(sender.id)?.abort()
   const ctl = new AbortController()
   translations.set(sender.id, ctl)
 
-  const cap = captures.get(msg.displayId)
-  if (!cap) return send({ type: 'error', message: t('err.captureExpired'), code: 'unknown' })
-  const rect = clampRect(msg.rect, cap.width, cap.height)
-  if (rect.w < 4 || rect.h < 4) return send({ type: 'error', message: t('err.tooSmall'), code: 'no-text' })
   const t0 = Date.now()
-  const crop = cropRgba(cap.rgba, cap.width, rect)
-
-  // 1. OCR（GPU）
-  const key = `${msg.displayId}:${rect.x},${rect.y},${rect.w},${rect.h}`
-  let lines = msg.reuseOcr ? ocrCache.get(key) : undefined
-  if (!lines) {
-    try {
-      lines = await ocr.recognize({ data: crop, width: rect.w, height: rect.h })
-    } catch (err) {
-      return send({ type: 'error', message: t('err.ocr', { msg: String(err) }), code: 'unknown' })
-    }
-    ocrCache.set(key, lines)
-  }
-  if (ctl.signal.aborted) return
-  send({ type: 'ocr', lines, ms: Date.now() - t0 })
-  if (!lines.length) return send({ type: 'error', message: t('err.noText'), code: 'no-text' })
-
-  // 2. 模型
-  const signInProblem = await ensureFreshToken()
-  if (signInProblem) return send({ type: 'error', message: signInProblem, code: 'auth' })
-  const s = settings.get()
-  const eng = engine ?? buildEngine(s)
-  if (!eng) return send({ type: 'error', message: engineStatus().detail, code: 'config' })
-  const target = LANGUAGES.find((l) => l.code === msg.targetLang) ?? LANGUAGES[0]
-  const { image, factor } = encodeForModel(crop, rect.w, rect.h)
-  const promptLines = factor === 1 ? lines : lines.map((l) => ({ ...l, box: scaleRect(l.box, factor) }))
   try {
+    const cap = captures.get(msg.displayId)
+    if (!cap) return send({ type: 'error', message: t('err.captureExpired'), code: 'unknown' })
+    const rect = clampRect(msg.rect, cap.width, cap.height)
+    if (rect.w < 4 || rect.h < 4) return send({ type: 'error', message: t('err.tooSmall'), code: 'no-text' })
+    const crop = cropRgba(cap.rgba, cap.width, rect)
+
+    // 1. OCR（GPU）
+    const key = `${msg.displayId}:${rect.x},${rect.y},${rect.w},${rect.h}`
+    let lines = msg.reuseOcr ? ocrCache.get(key) : undefined
+    if (!lines) {
+      try {
+        lines = await ocr.recognize({ data: crop, width: rect.w, height: rect.h })
+      } catch (err) {
+        return send({ type: 'error', message: t('err.ocr', { msg: String(err) }), code: 'unknown' })
+      }
+      if (ctl.signal.aborted) return
+      if (captures.get(msg.displayId) === cap) ocrCache.set(key, lines)
+    }
+    if (ctl.signal.aborted) return
+    send({ type: 'ocr', lines, ms: Date.now() - t0 })
+    if (!lines.length) return send({ type: 'error', message: t('err.noText'), code: 'no-text' })
+
+    // 2. 模型
+    const s = settings.get()
+    const target = LANGUAGES.find((l) => l.code === msg.targetLang) ?? LANGUAGES[0]
+    const ocrOnly = !s.autoTranslate && !msg.manual
+    if (ocrOnly || await matchesTargetLanguage(lines, target.code)) {
+      if (ctl.signal.aborted) return
+      if (!ocrOnly) send({ type: 'lang', code: target.code, name: target.name })
+      send({ type: 'recognized', reason: ocrOnly ? 'ocr-only' : 'same-language' })
+      pipeline.emit('end', { ok: true, ms: Date.now() - t0, ocrMs: ocr.timing })
+      return
+    }
+    if (ctl.signal.aborted) return
+    const signInProblem = await ensureFreshToken()
+    if (ctl.signal.aborted) return
+    if (signInProblem) return send({ type: 'error', message: signInProblem, code: 'auth' })
+    const eng = engine ?? buildEngine(s)
+    if (!eng) return send({ type: 'error', message: engineStatus().detail, code: 'config' })
+    const { image, factor } = encodeForModel(crop, rect.w, rect.h)
+    const promptLines = factor === 1 ? lines : lines.map((l) => ({ ...l, box: scaleRect(l.box, factor) }))
     const res = await eng.translate(
       { image, lines: promptLines, target, styleHint: s.styleHint },
       send,

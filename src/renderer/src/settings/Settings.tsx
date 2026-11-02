@@ -285,6 +285,9 @@ function TranslatePage({ s, update }: { s: S; update: (p: SettingsPatch) => void
           onChange={(v) => update({ targetLang: v })}
         />
       </Card>
+      <Card title={t('tr.autoTranslate')} desc={t('tr.autoTranslateDesc')}>
+        <Toggle on={s.autoTranslate} onChange={(v) => update({ autoTranslate: v })} />
+      </Card>
       <Card stack title={t('tr.display')} desc={t('tr.displayDesc')}>
         <div className="mode-cards">
           <ModeCard on={s.displayMode === 'overlay'} onClick={() => update({ displayMode: 'overlay' })} icon={<Layers size={16} />} title={t('tr.overlay')} desc={t('tr.overlayDesc')}>

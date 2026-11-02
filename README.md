@@ -26,7 +26,7 @@
 
 | Platform | Download | First translation |
 | --- | --- | --- |
-| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.4](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.4/LavaTranslate-Setup-1.4.4.exe) | Install, then double-click the tray icon to configure your translation service. Press **Win + Space** and drag over the text. |
+| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.5](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.5/LavaTranslate-Setup-1.4.5.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
 | Android 10+ · arm64 | [Android APK, v1.4.1](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.1/LavaTranslate-Android-1.4.1.apk) | Open the app and add an API key. On Android 11+, enable LavaTranslate under Accessibility. Tap the app icon, then **Translate**. On Android 10, use screen sharing. |
 | macOS · Apple Silicon (M-series) | [Build the preview from source](#macos-development-preview) | Open **Settings** from the menu bar and configure a service. Press **Option + Space**, grant Screen Recording permission, then drag over the text. |
 
@@ -34,6 +34,7 @@ The Windows installer is unsigned. If SmartScreen shows **Unknown publisher**, u
 
 ### Recent changes
 
+- **Windows 1.4.5** lets you turn off automatic translation, copy the recognized text and skip translation when the selection is already in the target language. Hold Space to scroll the underlying app with the selection border visible. [Release notes](docs/releases/v1.4.5.md)
 - **Windows 1.4.4** bundles the Microsoft VC++ x64 runtime that LavaTranslate and its OCR engine need to start. This addresses startup failures on PCs where the runtime is missing or outdated. If initialization still fails, a dialog shows the error and the log location. [Release notes](docs/releases/v1.4.4.md)
 - **Windows 1.4.3** uses **Win + Space** once for a screenshot and twice for typed translation. While LavaTranslate is running, this takes over the Windows input-language shortcut. To keep using it for language switching, choose another capture shortcut in **Settings → General**. Upgrades migrate the old **Alt + Q** default and preserve other custom shortcuts. [Release notes](docs/releases/v1.4.3.md)
 - **Windows 1.4.2** keeps long translations from covering neighboring captions, columns and icons. If the translation still cannot fit, hover over the ellipsis to read the whole block, or use the side-by-side view or copy action for the full text. [Release notes](docs/releases/v1.4.2.md)

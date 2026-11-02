@@ -67,7 +67,7 @@ export function Overlay() {
   const reqId = useRef(0)
   const selPhys = useRef<Rect>({ x: 0, y: 0, w: 0, h: 0 })
   const [lines, setLines] = useState<OcrLine[]>([])
-  const linesRef = useRef<OcrLine[]>([])
+  const [recognized, setRecognized] = useState<'ocr-only' | 'same-language' | null>(null)
   const [blocks, setBlocks] = useState<TranslatedBlock[]>([])
   const [colors, setColors] = useState<Record<number, BlockColors>>({})
   const [phase, setPhase] = useState<Phase>('idle')
@@ -103,6 +103,8 @@ export function Overlay() {
   const [frameNo, setFrameNo] = useState(0)
   /** 按住空格操作完回来后，要在新截图上重新翻译的选区 */
   const resume = useRef<Rect | null>(null)
+  const scrollSelection = useRef<Rect | null>(null)
+  const [passing, setPassing] = useState(false)
   /** 有选区时按住 Alt：显示原文，翻译暂停 */
   const [altPeek, setAltPeek] = useState(false)
   /** 暂停期间收到的翻译事件，松开 Alt 后按顺序补上；不暂停时为 null */
@@ -113,8 +115,8 @@ export function Overlay() {
   /** 原文 / 译文每切换一次加一：选区上扫过一道光 */
   const [sweepN, setSweepN] = useState(0)
   /** 帧回调只注册一次，靠它读当前状态 */
-  const live = useRef({ stage, sel, meta })
-  live.current = { stage, sel, meta }
+  const live = useRef({ stage, sel, snap, meta })
+  live.current = { stage, sel, snap, meta }
 
   const scale = meta?.scale ?? window.devicePixelRatio
 
@@ -128,6 +130,7 @@ export function Overlay() {
     setSnap(null)
     setAdjusting(false)
     setLines([])
+    setRecognized(null)
     setBlocks([])
     setColors({})
     setPhase('idle')
@@ -144,6 +147,8 @@ export function Overlay() {
     replyPick.current = null
     replyDismissed.current = false
     resume.current = null
+    scrollSelection.current = null
+    setPassing(false)
     held.current = null
     setAltPeek(false)
   }, [])
@@ -160,8 +165,11 @@ export function Overlay() {
     const offFrame = window.lens.onFrame((f: CaptureFrame) => {
       // 按住空格操作完软件回来：这块屏上原来的选区留着；选区里的画面没变，译文也原样保留
       const prev = live.current
-      const keep = f.refresh && !f.quick && prev.stage === 'selected' && prev.sel && prev.meta?.width === f.width && prev.meta.height === f.height ? prev.sel : null
-      const same = !!keep && !!pixels.current && sameRegion(pixels.current, f.pixels, f.width, selPhys.current)
+      const keep = f.refresh && !f.quick && prev.meta?.width === f.width && prev.meta.height === f.height && prev.meta.scale === f.scale
+        ? (prev.stage === 'selected' ? prev.sel : scrollSelection.current) : null
+      const same = prev.stage === 'selected' && !!keep && !!pixels.current && sameRegion(pixels.current, f.pixels, f.width, selPhys.current)
+      scrollSelection.current = null
+      setPassing(false)
       const draft = replyDraft.current
       if (!same) reset()
       else endAlt()
@@ -225,6 +233,10 @@ export function Overlay() {
       setStage('quick')
       setQuickHere(here)
     })
+    const offPassing = window.lens.onPassing((rect) => {
+      scrollSelection.current = live.current.stage === 'idle' ? rect : null
+      setPassing(true)
+    })
     const offReset = window.lens.onReset(() => {
       reset()
       pixels.current = null
@@ -238,13 +250,14 @@ export function Overlay() {
       offFrame()
       offShown()
       offQuick()
+      offPassing()
       offReset()
     }
   }, [reset, endAlt])
 
   // ------------------------------------------------------------ 翻译
   const startTranslate = useCallback(
-    (rect: Rect, opts: { reuseOcr?: boolean; lang?: string } = {}) => {
+    (rect: Rect, opts: { reuseOcr?: boolean; lang?: string; manual?: boolean } = {}) => {
       if (!meta) return
       const id = ++reqId.current
       const s = meta.scale
@@ -262,14 +275,14 @@ export function Overlay() {
       if (!opts.reuseOcr) setColors({})
       setError(null)
       setStats(null)
+      setRecognized(null)
       setLang(null)
       setHoverKey(null)
       setTipKey(null)
       if (!opts.reuseOcr) {
-        linesRef.current = []
         setLines([])
       }
-      window.lens.translate({ requestId: id, displayId: meta.displayId, rect: phys, targetLang: opts.lang ?? target, reuseOcr: !!opts.reuseOcr })
+      window.lens.translate({ requestId: id, displayId: meta.displayId, rect: phys, targetLang: opts.lang ?? target, reuseOcr: !!opts.reuseOcr, manual: opts.manual })
     },
     [meta, target]
   )
@@ -277,7 +290,6 @@ export function Overlay() {
   applyRef.current = (event: TranslateEvent) => {
     switch (event.type) {
       case 'ocr': {
-        linesRef.current = event.lines
         // OCR 一出来就按行采样颜色，译文到达时直接可用
         const px = pixels.current
         if (px && meta) {
@@ -292,6 +304,10 @@ export function Overlay() {
       }
       case 'lang':
         setLang({ code: event.code, name: event.name, chat: event.chat })
+        break
+      case 'recognized':
+        setRecognized(event.reason)
+        setPhase('done')
         break
       case 'block':
         setBlocks((bs) => [...bs, event.block])
@@ -469,10 +485,7 @@ export function Overlay() {
     return () => clearTimeout(t)
   }, [toast])
 
-  const allText = useCallback(
-    (which: 'dst' | 'src') => blocks.map((b) => (which === 'dst' && !b.keep ? b.translation : b.source)).join('\n'),
-    [blocks]
-  )
+  const translatedText = useMemo(() => blocks.map((b) => b.keep ? b.source : b.translation).join('\n'), [blocks])
 
   /** 单击一段：复制这段译文；按着 Alt（正在看原文）则复制这段原文 */
   const copyBlock = (key: string, original = false) => {
@@ -484,15 +497,15 @@ export function Overlay() {
 
   const copyAll = useCallback(() => {
     if (!blocks.length) return
-    window.lens.copyText(allText('dst'))
+    window.lens.copyText(translatedText)
     flash(currentI18n().t('ov.copiedAll'))
-  }, [blocks, allText])
+  }, [blocks, translatedText])
 
   const copyOriginal = useCallback(() => {
-    if (!blocks.length) return
-    window.lens.copyText(allText('src'))
+    if (!lines.length) return
+    window.lens.copyText(lines.map((line) => line.text).join('\n'))
     flash(currentI18n().t('ov.copiedSource'))
-  }, [blocks, allText])
+  }, [lines])
 
   const panel = useMemo(() => (sel && mode === 'side' ? sidePanel(sel, vw, vh, tbSize.h) : null), [sel, mode, vw, vh, tbSize.h])
 
@@ -584,8 +597,8 @@ export function Overlay() {
   )
 
   const retry = useCallback(() => {
-    if (sel) startTranslate(sel)
-  }, [sel, startTranslate])
+    if (sel) startTranslate(sel, { reuseOcr: lines.length > 0, manual: true })
+  }, [sel, startTranslate, lines.length])
 
   const changeTarget = useCallback(
     (code: string) => {
@@ -675,7 +688,7 @@ export function Overlay() {
       } else if (e.key === 'Enter') {
         e.preventDefault()
         if (blocks.length) {
-          window.lens.copyText(allText('dst'))
+          window.lens.copyText(translatedText)
           window.lens.close()
         }
       } else if (e.altKey && k === 'c') {
@@ -685,45 +698,53 @@ export function Overlay() {
     }
     window.addEventListener('keydown', down)
     return () => window.removeEventListener('keydown', down)
-  }, [stage, mode, blocks, allText, copyAll, copyImage, copyOriginal, saveImage, pin, retry, changeMode, toggleReply])
+  }, [stage, mode, blocks, translatedText, copyAll, copyImage, copyOriginal, saveImage, pin, retry, changeMode, toggleReply])
 
-  // 按住空格：遮罩暂时透明、鼠标穿透，可以直接点击、滚动下面的软件；松开后主进程重新截图
-  // （选区保留，画面变了就重译同一块）
+  // Keep the outline in place while the pointer operates the app beneath it.
   useEffect(() => {
-    if (stage !== 'idle' && stage !== 'selected') return
     let timer = 0
     const cancel = () => {
       clearTimeout(timer)
       timer = 0
     }
-    const typing = (e: KeyboardEvent) => !!(e.target as HTMLElement).closest?.('input, textarea')
-    const down = (e: KeyboardEvent) => {
-      if (e.key !== ' ') return cancel()
-      if (typing(e)) return
-      // 不让空格按到工具条上获得焦点的按钮
-      e.preventDefault()
-      if (e.repeat || timer || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
+    const typing = (el: Element | null) => el instanceof HTMLInputElement || (el instanceof HTMLTextAreaElement && !!el.value)
+    const arm = () => {
+      if (timer) return
       timer = window.setTimeout(() => {
         timer = 0
-        if (!drag.current) window.lens.passthrough()
+        const { stage, sel, snap, meta } = live.current
+        if (!meta || drag.current || typing(document.activeElement)) return
+        const rect = stage === 'selected' ? sel : stage === 'idle' ? snap ?? { x: 0, y: 0, w: meta.width / meta.scale, h: meta.height / meta.scale } : null
+        if (rect) window.lens.passthrough(rect)
       }, HOLD_MS)
+    }
+    const down = (e: KeyboardEvent) => {
+      if (e.key !== ' ') return cancel()
+      const { stage } = live.current
+      if ((stage !== 'idle' && stage !== 'selected') || typing(e.target as Element)) return
+      if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return
+      e.preventDefault()
+      arm()
     }
     const up = (e: KeyboardEvent) => {
       if (e.key !== ' ') return
       cancel()
-      if (!typing(e)) e.preventDefault()
     }
+    const offShown = window.lens.onShown((alreadyHeld) => {
+      if (alreadyHeld) arm()
+    })
     // 捕获阶段：回复框会拦下大部分按键，这里也要看到
     window.addEventListener('keydown', down, true)
     window.addEventListener('keyup', up, true)
     window.addEventListener('blur', cancel)
     return () => {
       cancel()
+      offShown()
       window.removeEventListener('keydown', down, true)
       window.removeEventListener('keyup', up, true)
       window.removeEventListener('blur', cancel)
     }
-  }, [stage])
+  }, [])
 
   // 有选区时按住 Alt：显示原文、暂停翻译，松开恢复译文并接着显示；按着 Alt 双击复制原图
   useEffect(() => {
@@ -809,6 +830,7 @@ export function Overlay() {
 
   const working = phase === 'ocr' || phase === 'translating'
   const maskRect = stage === 'idle' ? snap : sel
+  const scrollRect = passing && (sel ?? scrollSelection.current)
   const showToolbar = stage === 'selected' && !adjusting && !capturing && tbPos
   const showReply = !!showToolbar && replyOpen && !!rpPos
   const s = scale
@@ -857,12 +879,15 @@ export function Overlay() {
 
   return (
     <div
-      className={`overlay stage-${stage}${shown ? ' is-shown' : ''}${capturing ? ' capturing' : ''}`}
+      className={`overlay stage-${stage}${shown ? ' is-shown' : ''}${capturing ? ' capturing' : ''}${passing ? ' passing' : ''}`}
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}
       onDoubleClick={onDoubleClick}
     >
       <canvas ref={canvas} className="bg" />
+      {scrollRect && (
+        <div className="scroll-outline" style={{ left: scrollRect.x, top: scrollRect.y, width: scrollRect.w, height: scrollRect.h }} />
+      )}
 
       {/* 遮罩：选区/窗口之外压暗 */}
       <motion.div
@@ -1025,6 +1050,7 @@ export function Overlay() {
             ref={toolbarRef}
             style={{ left: tbPos!.x, top: tbPos!.y }}
             phase={phase}
+            recognized={recognized}
             error={error}
             lang={lang}
             target={target}
@@ -1038,6 +1064,7 @@ export function Overlay() {
             onMode={changeMode}
             onPeek={setPeek}
             onCopy={copyAll}
+            onCopySource={copyOriginal}
             onCopyImage={copyImage}
             onPin={() => pin()}
             onSave={saveImage}

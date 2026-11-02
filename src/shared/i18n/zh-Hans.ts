@@ -135,6 +135,12 @@ const zhHans = {
 
   // 设置：翻译
   'tr.title': '翻译',
+  'tr.autoTranslate': '识别后自动翻译',
+  'tr.autoTranslateDesc': '关闭后只识别截图文字。需要译文时，可以在选区工具栏点击「翻译」。',
+  'tb.copySource': '复制识别文字',
+  'tb.ocrOnly': '仅识别',
+  'tb.sameLanguage': '已是目标语言',
+  'tb.translate': '翻译',
   'tr.target': '默认目标语言',
   'tr.targetDesc': '截图时也能在工具条上切换',
   'tr.display': '显示方式',

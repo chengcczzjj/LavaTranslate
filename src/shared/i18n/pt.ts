@@ -129,6 +129,12 @@ const pt: Messages = {
   'sc.exitDo': 'Sair',
 
   'tr.title': 'Tradução',
+  'tr.autoTranslate': 'Traduzir automaticamente após reconhecer o texto',
+  'tr.autoTranslateDesc': 'Desative para extrair apenas o texto. Para traduzi-lo, escolha Traduzir na barra da seleção.',
+  'tb.copySource': 'Copiar texto reconhecido',
+  'tb.ocrOnly': 'Somente texto',
+  'tb.sameLanguage': 'Já está no idioma de destino',
+  'tb.translate': 'Traduzir',
   'tr.target': 'Traduzir para',
   'tr.targetDesc': 'Também dá para trocar na barra de ferramentas',
   'tr.display': 'Exibição',

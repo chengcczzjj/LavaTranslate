@@ -129,6 +129,12 @@ const ja: Messages = {
   'sc.exitDo': '終了',
 
   'tr.title': '翻訳',
+  'tr.autoTranslate': '文字認識後に自動翻訳',
+  'tr.autoTranslateDesc': 'オフにすると、スクリーンショットの文字だけを認識します。翻訳するには選択範囲のツールバーで「翻訳」を押してください。',
+  'tb.copySource': '認識した文字をコピー',
+  'tb.ocrOnly': '文字認識のみ',
+  'tb.sameLanguage': '翻訳先と同じ言語',
+  'tb.translate': '翻訳',
   'tr.target': '翻訳先の言語',
   'tr.targetDesc': 'ツールバーでも切り替えられます',
   'tr.display': '表示方法',

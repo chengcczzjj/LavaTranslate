@@ -129,6 +129,12 @@ const ko: Messages = {
   'sc.exitDo': '나가기',
 
   'tr.title': '번역',
+  'tr.autoTranslate': '문자 인식 후 자동 번역',
+  'tr.autoTranslateDesc': '끄면 스크린샷의 텍스트만 인식합니다. 번역하려면 선택 영역 도구 모음에서 번역을 누르세요.',
+  'tb.copySource': '인식한 텍스트 복사',
+  'tb.ocrOnly': '텍스트만 인식',
+  'tb.sameLanguage': '이미 대상 언어임',
+  'tb.translate': '번역',
   'tr.target': '번역할 언어',
   'tr.targetDesc': '도구 모음에서도 바꿀 수 있습니다',
   'tr.display': '표시 방식',

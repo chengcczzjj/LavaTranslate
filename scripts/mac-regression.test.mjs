@@ -157,7 +157,7 @@ function captureHarness(permission, capture) {
       screen: { getAllDisplays: () => [display], getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => display }
     },
     '../shared/types': {}, './capture': { captureAll: capture }, './credentials': {}, '../core/detect': {}, '../core/lang': {},
-    '../core/platform': { setPlatform: noop }, './ocr': { PaddleOcr: class {} }, './pricing': {}, './updater': {},
+    '../core/platform': { setPlatform: noop }, './ocr': { PaddleOcr: class {} }, './ocr-language': {}, './pricing': {}, './updater': {},
     './settings': { settings: { get: () => ({ hotkey: 'Command+Shift+2' }) } },
     './i18n': { t: (key) => key }, '../shared/i18n': {}, '../shared/hotkeys': {}, './win-space': { WinSpaceHotkey: class {} }, './winapi': {}, './secrets': { secretLocked: () => false },
     './macos': { isMac: true, configureMacOverlay: noop, ensureScreenCapture: permission },

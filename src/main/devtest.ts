@@ -1,9 +1,12 @@
 // 开发自测：LENS_AUTOTEST=1 时用测试图伪造截屏，离屏渲染遮罩并模拟鼠标操作，逐步截图到 .scratch/shots
 // LENS_MOCK=1 时使用模拟翻译引擎（不消耗额度）
 import { app, BrowserWindow, clipboard, globalShortcut, nativeImage, net, protocol, screen } from 'electron'
+import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { createInterface } from 'node:readline'
 import { load } from 'koffi'
-import { forceForeground, hwndOf } from './winapi'
+import { forceForeground } from './winapi'
+import { Window as ScreenshotWindow } from 'node-screenshots'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -754,61 +757,123 @@ export async function runReview(h: Hooks & { engine: FixtureEngine; setTarget: (
   app.quit()
 }
 
-/**
- * LENS_PASSTEST=1：在真窗口上走一遍「按住空格穿透」。模拟按下空格 → 遮罩应透明、鼠标穿透、空格被临时注册成全局热键；
- * 打开另一个程序的窗口抢走焦点 → 松开空格 → 遮罩应重新截图显示，把焦点抢回来，并释放空格。屏幕会闪几秒。
- */
+/** Windows smoke test for Space pressed before the first frame and again with a selection. */
 export async function runPassTest(h: { start: () => Promise<void>; hide: () => Promise<void>; overlays: () => BrowserWindow[] }) {
   const u = load('user32.dll')
-  const keybd = u.func('void __stdcall keybd_event(uint8_t bVk, uint8_t bScan, uint32_t dwFlags, uintptr_t dwExtraInfo)')
-  // POINT 按值传：x64 下等同一个 64 位整数
-  const fromPoint = u.func('intptr_t __stdcall WindowFromPoint(int64_t pt)')
-  const rootOf = u.func('intptr_t __stdcall GetAncestor(intptr_t hwnd, uint32_t flags)')
-  const foreground = u.func('intptr_t __stdcall GetForegroundWindow()')
-  const VK_SPACE = 0x20
-  const KEYUP = 2
-  const state = (tag: string) => {
-    for (const w of h.overlays()) {
-      if (!w.isVisible()) continue
-      const hwnd = hwndOf(w.getNativeWindowHandle())
-      const b = w.getBounds()
-      const c = screen.dipToScreenPoint({ x: b.x + Math.round(b.width / 2), y: b.y + Math.round(b.height / 2) })
-      const hit = Number(rootOf(fromPoint((BigInt(c.y) << 32n) | BigInt(c.x >>> 0)), 2))
-      console.log(
-        `[passtest] ${tag}`,
-        JSON.stringify({ opacity: +w.getOpacity().toFixed(2), focused: w.isFocused(), foreground: Number(foreground()) === hwnd, hitOverlay: hit === hwnd, spaceGrabbed: globalShortcut.isRegistered('Space') })
-      )
+  const key = u.func('void __stdcall keybd_event(uint8_t key, uint8_t scan, uint32_t flags, uintptr_t extra)')
+  const mouse = u.func('void __stdcall mouse_event(uint32_t flags, uint32_t x, uint32_t y, int32_t data, uintptr_t extra)')
+  const move = u.func('int __stdcall SetCursorPos(int x, int y)')
+  const cursor = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursor)
+  const bounds = display.workArea
+  // Window enumeration deliberately excludes the capturing process on Windows.
+  const fixture = spawn('powershell', ['-NoProfile', '-STA', '-Command', `
+    Add-Type -AssemblyName System.Windows.Forms
+    $f = New-Object Windows.Forms.Form
+    $f.Text = 'LavaTranslate scroll test'
+    $f.TopMost = $true
+    $f.StartPosition = 'Manual'
+    $f.SetBounds(${bounds.x + 20}, ${bounds.y + 20}, 600, 460)
+    $t = New-Object Windows.Forms.TextBox
+    $t.Multiline = $true
+    $t.ScrollBars = 'Vertical'
+    $t.Dock = 'Fill'
+    $t.Font = New-Object Drawing.Font('Arial', 18)
+    $t.Lines = @(1..120 | ForEach-Object { "Screen recognition sample $_" })
+    $f.Controls.Add($t)
+    $t.Add_MouseWheel({ [Console]::WriteLine('wheel') })
+    $f.Add_Shown({ $f.Activate(); $t.Focus() | Out-Null; [Console]::WriteLine($f.Handle.ToInt64()) })
+    [Windows.Forms.Application]::Run($f)
+  `], { windowsHide: true, stdio: ['ignore', 'pipe', 'inherit'] })
+  const output = createInterface({ input: fixture.stdout })
+  const ready = new Promise<number>((resolve, reject) => {
+    output.once('line', (line) => resolve(Number(line)))
+    fixture.once('error', reject)
+    fixture.once('exit', () => reject(new Error('Test window closed')))
+  })
+  const overlay = h.overlays().find((w) => w.getBounds().x === display.bounds.x && w.getBounds().y === display.bounds.y)!
+  const read = (js: string) => overlay.webContents.executeJavaScript(js)
+  const waitFor = async (js: string) => {
+    for (let i = 0; i < 100; i++) {
+      if (await read('!!(' + js + ')')) return
+      await sleep(80)
     }
+    throw new Error('Timed out waiting for ' + js)
   }
-  let child: ReturnType<typeof spawn> | null = null
+  const moveTo = (pt: Electron.Point) => {
+    const p = screen.dipToScreenPoint(pt)
+    move(p.x, p.y)
+  }
+  let failed = false
+  const original = settings.get()
+  const writeText = clipboard.writeText
+  let copied = ''
   try {
-    await h.start()
-    await sleep(1500)
-    const cur = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).bounds
-    const mine = h.overlays().find((w) => w.isVisible() && w.getBounds().x === cur.x && w.getBounds().y === cur.y)
-    if (mine) {
-      forceForeground(hwndOf(mine.getNativeWindowHandle()))
-      mine.focus()
-      mine.webContents.focus()
-    }
-    await sleep(300)
-    state('shown')
-    keybd(VK_SPACE, 0, 0, 0)
-    await sleep(500)
-    state('space-down')
-    // 另一个进程的窗口抢走焦点（相当于按着空格点进了别的软件）
-    child = spawn('powershell', ['-NoProfile', '-Command', "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object Windows.Forms.Form; $f.Text = 'passtest'; $f.Add_Shown({ $f.Activate() }); [Windows.Forms.Application]::Run($f)"], { stdio: 'ignore' })
-    const mineHwnd = mine ? hwndOf(mine.getNativeWindowHandle()) : 0
-    for (let i = 0; i < 60 && Number(foreground()) === mineHwnd; i++) await sleep(100)
-    await sleep(300)
-    state('other-app')
-    keybd(VK_SPACE, 0, KEYUP, 0)
-    await sleep(1000)
-    state('space-up')
+    clipboard.writeText = async (text) => { copied = text }
+    settings.update({ autoTranslate: false, targetLang: 'en', uiLang: 'en', displayMode: 'overlay' })
+    const hwnd = await ready
+    assert.ok(hwnd)
+    const fixtureBounds = screen.dipToScreenRect(null, { x: bounds.x + 20, y: bounds.y + 20, width: 600, height: 460 })
+    const place = u.func('int __stdcall SetWindowPos(intptr_t hwnd, intptr_t after, int x, int y, int w, int h, uint32_t flags)')
+    assert.ok(place(hwnd, -1, fixtureBounds.x, fixtureBounds.y, fixtureBounds.width, fixtureBounds.height, 0x0040))
+    forceForeground(hwnd)
+    moveTo({ x: bounds.x + 160, y: bounds.y + 160 })
+    await sleep(250)
+    const window = ScreenshotWindow.all().find((w) => w.id() === hwnd)
+    assert.ok(window, 'the scroll test window must be visible')
+    const expected = screen.screenToDipRect(null, { x: window.x(), y: window.y(), width: window.width(), height: window.height() })
+    const start = h.start()
+    key(0x20, 0, 0, 0)
+    await start
+    await waitFor('document.querySelector(".overlay.passing .scroll-outline")')
+    const initialRect = await read('document.querySelector(".scroll-outline").getBoundingClientRect().toJSON()')
+    assert.ok(Math.abs(initialRect.width - expected.width) <= 1 && Math.abs(initialRect.height - expected.height) <= 1, 'the hovered test window is the default OCR region')
+    assert.equal(await read('getComputedStyle(document.querySelector(".bg")).visibility'), 'hidden')
+    assert.equal(await read('getComputedStyle(document.querySelector(".scroll-outline")).visibility'), 'visible')
+    let wheel = false
+    output.on('line', (line) => { if (line === 'wheel') wheel = true })
+    mouse(0x0800, 0, 0, -120, 0)
+    await sleep(350)
+    assert.ok(wheel, 'first hold routes the wheel to the test page')
+    forceForeground(hwnd)
+    key(0x20, 0, 2, 0)
+    await waitFor(`document.querySelector('.stage-selected:not(.passing) button[aria-label="Copy recognized text"]:enabled')`)
+    assert.equal(globalShortcut.isRegistered('Space'), false)
+    assert.equal(overlay.isFocused(), true)
+    const selectionRect = () => read('document.querySelector(".sel-frame").getBoundingClientRect().toJSON()')
+    assert.deepEqual(await selectionRect(), initialRect, 'release recognizes the same window')
+    await waitFor('document.querySelector(".tb-src")?.textContent === "Text only"')
+    await read(`document.querySelector('button[aria-label="Copy recognized text"]').click()`)
+    await waitFor('document.querySelector(".toast")')
+    assert.match(copied, /recognition sample[^\n]*\n.*recognition sample/i, 'the copy action preserves OCR line breaks')
+    await read(`document.querySelector('button[aria-label="Translate"]').click()`)
+    await waitFor('document.querySelector(".tb-src")?.textContent === "Already in target language"')
+
+    // Selecting a different target in OCR-only mode must still wait for an explicit translation.
+    await read('document.querySelector(".tb-lang").click()')
+    await waitFor('document.querySelector(".lp-item")')
+    await read('document.querySelector(".lp-item").click()')
+    await waitFor('document.querySelector(".tb-src")?.textContent === "Text only"')
+    await read(`document.querySelector('button[aria-label="Translate"]').click()`)
+    await waitFor('document.querySelector(".tb-time")')
+    key(0x20, 0, 0, 0)
+    await waitFor('document.querySelector(".overlay.passing .scroll-outline")')
+    assert.deepEqual(await read('document.querySelector(".scroll-outline").getBoundingClientRect().toJSON()'), initialRect, 'existing selection stays visible')
+    key(0x20, 0, 2, 0)
+    await waitFor('document.querySelector(".stage-selected:not(.passing) .sel-frame")')
+    assert.deepEqual(await selectionRect(), initialRect)
+    console.log('[passtest] PASS: first hold, wheel delivery, default window, retained outline, focus, OCR-only, source copy, language skip and manual translation')
+  } catch (error) {
+    failed = true
+    console.error('[passtest] FAIL', error)
   } finally {
-    keybd(VK_SPACE, 0, KEYUP, 0)
-    child?.kill()
+    clipboard.writeText = writeText
+    settings.update({ autoTranslate: original.autoTranslate, targetLang: original.targetLang, uiLang: original.uiLang, displayMode: original.displayMode })
+    key(0x20, 0, 2, 0)
     await h.hide()
+    fixture.kill()
+    moveTo(cursor)
+    if (failed) app.once('will-quit', () => app.exit(1))
     app.quit()
   }
 }

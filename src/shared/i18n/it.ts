@@ -129,6 +129,12 @@ const it: Messages = {
   'sc.exitDo': 'Esci',
 
   'tr.title': 'Traduzione',
+  'tr.autoTranslate': 'Traduci automaticamente dopo il riconoscimento',
+  'tr.autoTranslateDesc': 'Disattiva per estrarre solo il testo. Per tradurlo, scegli Traduci nella barra della selezione.',
+  'tb.copySource': 'Copia il testo riconosciuto',
+  'tb.ocrOnly': 'Solo testo',
+  'tb.sameLanguage': 'Già nella lingua di destinazione',
+  'tb.translate': 'Traduci',
   'tr.target': 'Traduci in',
   'tr.targetDesc': 'Puoi cambiarla anche dalla barra degli strumenti',
   'tr.display': 'Visualizzazione',

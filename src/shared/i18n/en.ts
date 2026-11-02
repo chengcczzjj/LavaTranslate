@@ -129,6 +129,12 @@ const en: Messages = {
   'sc.exitDo': 'Exit',
 
   'tr.title': 'Translation',
+  'tr.autoTranslate': 'Translate automatically after recognition',
+  'tr.autoTranslateDesc': 'Turn off to extract text only. Choose Translate on the selection toolbar when you want a translation.',
+  'tb.copySource': 'Copy recognized text',
+  'tb.ocrOnly': 'Text only',
+  'tb.sameLanguage': 'Already in target language',
+  'tb.translate': 'Translate',
   'tr.target': 'Translate into',
   'tr.targetDesc': 'You can also switch it on the toolbar',
   'tr.display': 'Display',

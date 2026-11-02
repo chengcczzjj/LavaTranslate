@@ -37,6 +37,7 @@ export type Phase = 'idle' | 'ocr' | 'translating' | 'done' | 'error'
 
 export type TranslateEvent =
   | { type: 'ocr'; lines: OcrLine[]; ms: number }
+  | { type: 'recognized'; reason: 'ocr-only' | 'same-language' }
   /** chat：模型判断截图是不是可以回复的对话（聊天、私信、评论、邮件） */
   | { type: 'lang'; code: string; name: string; chat?: boolean }
   | { type: 'block'; block: TranslatedBlock }
@@ -83,6 +84,7 @@ export interface ProviderConfig {
 export interface Settings {
   hotkey: string
   targetLang: string
+  autoTranslate: boolean
   /** 当前使用的翻译服务 */
   provider: ProviderId
   /** 各服务分别保存 Key、接口地址、模型，切换时互不影响 */
@@ -112,6 +114,7 @@ export type SettingsPatch = Omit<Partial<Settings>, 'providers'> & {
 export const DEFAULT_SETTINGS: Settings = {
   hotkey: 'Super+Space',
   targetLang: 'zh-Hans',
+  autoTranslate: true,
   provider: 'gemini',
   providers: {},
   autoUpdate: true,
@@ -240,4 +243,6 @@ export interface TranslateRequestMsg {
   rect: Rect
   targetLang: string
   reuseOcr: boolean
+  /** 用户主动点击翻译；仅此操作可以覆盖「只识别」设置。 */
+  manual?: boolean
 }

@@ -129,6 +129,12 @@ const de: Messages = {
   'sc.exitDo': 'Beenden',
 
   'tr.title': 'Übersetzung',
+  'tr.autoTranslate': 'Nach der Texterkennung automatisch übersetzen',
+  'tr.autoTranslateDesc': 'Wenn diese Option aus ist, wird nur der Text erkannt. Wähle bei Bedarf „Übersetzen“ in der Werkzeugleiste.',
+  'tb.copySource': 'Erkannten Text kopieren',
+  'tb.ocrOnly': 'Nur Texterkennung',
+  'tb.sameLanguage': 'Bereits in der Zielsprache',
+  'tb.translate': 'Übersetzen',
   'tr.target': 'Übersetzen in',
   'tr.targetDesc': 'Auch in der Werkzeugleiste umschaltbar',
   'tr.display': 'Darstellung',

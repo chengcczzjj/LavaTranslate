@@ -2,6 +2,25 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { stripTypeScriptTypes } from 'node:module'
+import { matchesTargetLanguage } from '../src/main/ocr-language.ts'
+
+test('skip aligned OCR locally, preserving mixed languages and Chinese script conversion', async () => {
+  for (const [target, texts, expected] of [
+    ['zh-Hans', ['退出', '这是已经识别出来的中文。', '2026'], true],
+    ['zh-Hant', ['你好', '這行文字已經是繁體中文。'], true],
+    ['zh-Hans', ['這行文字已經是繁體中文。'], false],
+    ['zh-Hant', ['这行文字是简体中文。'], false],
+    ['zh-Hans', ['日本語の文章です。'], false],
+    ['zh-Hans', ['设置', 'Open the settings'], false],
+    ['zh-Hans', ['中文和 English text'], false],
+    ['ja', ['日本語の文章です。'], true],
+    ['en', ['This is an English sentence.', '42'], true],
+    ['en', ['This is an English sentence.', 'Enregistrer les modifications'], false],
+    ['fr', ['Enregistrer les modifications'], true]
+  ]) {
+    assert.equal(await matchesTargetLanguage(texts.map((text) => ({ text })), target), expected, target + ' / ' + texts.join(' / '))
+  }
+})
 
 const source = readFileSync(new URL('../src/main/capture-geometry.ts', import.meta.url), 'utf8')
 const js = stripTypeScriptTypes(source)

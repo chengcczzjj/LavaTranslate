@@ -5,6 +5,8 @@ import {
   ChevronDown,
   Columns2,
   Copy,
+  ScanText,
+  Languages,
   Download,
   Eye,
   ImageDown,
@@ -25,6 +27,7 @@ import { isMac, shortcutLabel } from '../lib/desktop'
 
 export interface ToolbarProps {
   phase: Phase
+  recognized: 'ocr-only' | 'same-language' | null
   error: { message: string; code?: ErrorCode } | null
   lang: { code: string; name: string } | null
   target: string
@@ -39,6 +42,7 @@ export interface ToolbarProps {
   onMode: (m: 'overlay' | 'side') => void
   onPeek: (on: boolean) => void
   onCopy: () => void
+  onCopySource: () => void
   onCopyImage: () => void
   onPin: () => void
   onSave: () => void
@@ -100,7 +104,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
               >
-                {srcName ?? (p.phase === 'ocr' ? t('tb.detecting') : t('tb.auto'))}
+                {p.recognized ? t(p.recognized === 'ocr-only' ? 'tb.ocrOnly' : 'tb.sameLanguage') : srcName ?? (p.phase === 'ocr' ? t('tb.detecting') : t('tb.auto'))}
               </motion.span>
             </AnimatePresence>
             <ArrowRight size={13} className="tb-arrow" />
@@ -167,6 +171,11 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
 
       <div className="tb-sep" />
 
+      <Tip label={t('tb.copySource')} keys={shortcutLabel('Alt C')}>
+        <button className="tb-btn" aria-label={t('tb.copySource')} disabled={!p.progress.total} onClick={p.onCopySource}>
+          <ScanText size={17} />
+        </button>
+      </Tip>
       <Tip label={t('tb.copy')} keys={shortcutLabel('Ctrl C')}>
         <button className="tb-btn" disabled={!p.progress.done} onClick={p.onCopy}>
           <Copy size={16} />
@@ -198,9 +207,9 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
 
       <div className="tb-sep" />
 
-      <Tip label={busy ? t('tb.busy') : t('tb.retranslate')} keys={shortcutLabel('Ctrl R')}>
-        <button className="tb-btn" disabled={busy} onClick={p.onRetry}>
-          <RotateCw size={15} className={busy ? 'spin-slow' : ''} />
+      <Tip label={busy ? t('tb.busy') : t(p.recognized === 'ocr-only' ? 'tb.translate' : 'tb.retranslate')} keys={shortcutLabel('Ctrl R')}>
+        <button className="tb-btn" disabled={busy} onClick={p.onRetry} aria-label={t(p.recognized === 'ocr-only' ? 'tb.translate' : 'tb.retranslate')}>
+          {p.recognized === 'ocr-only' ? <Languages size={17} /> : <RotateCw size={15} className={busy ? 'spin-slow' : ''} />}
         </button>
       </Tip>
       <Tip label={t('tb.settingsTip')}>
