@@ -1,11 +1,10 @@
 // 在真实 Electron / macOS 进程中验证原生依赖和本地 OCR，不申请权限、不调用翻译服务。
 // node_modules/.bin/electron scripts/check-mac.cjs
 const assert = require('node:assert/strict')
-const { readFileSync } = require('node:fs')
-const { join } = require('node:path')
+const { join, resolve } = require('node:path')
 const { runInThisContext } = require('node:vm')
 const { app, nativeImage, screen, systemPreferences } = require('electron')
-const { transformSync } = require('esbuild')
+const { buildSync } = require('esbuild')
 
 const root = join(__dirname, '..')
 app.setPath('userData', join(app.getPath('temp'), 'lavatrans-mac-native-check'))
@@ -33,14 +32,15 @@ app.whenReady().then(async () => {
     inputMonitoring: canListen()
   }))
 
-  const { code } = transformSync(readFileSync(join(root, 'src/main/ocr.ts'), 'utf8'), {
-    loader: 'ts', format: 'cjs', target: 'node22'
-  })
+  const code = buildSync({ entryPoints: [join(root, 'src/main/ocr.ts')], bundle: true,
+    write: false, platform: 'node', packages: 'external', format: 'cjs', target: 'node22'
+  }).outputFiles[0].text
   const mod = { exports: {} }
   // ONNX Runtime 会检查 TypedArray 的构造函数，必须与原生库处在同一个 JS realm。
   runInThisContext(`(function(require, module, exports) { ${code}\n})`, { filename: 'ocr.ts' })(require, mod, mod.exports)
   const ocr = new mod.exports.PaddleOcr(join(root, 'resources/models'))
-  const image = nativeImage.createFromPath(join(root, 'resources/test.png'))
+  const customImage = process.argv[2]
+  const image = nativeImage.createFromPath(customImage ? resolve(customImage) : join(root, 'resources/test.png'))
   assert.ok(!image.isEmpty(), '缺少 OCR 测试图片')
   const { width, height } = image.getSize()
   const bgra = image.toBitmap()
@@ -51,14 +51,23 @@ app.whenReady().then(async () => {
     data[i + 2] = bgra[i]
     data[i + 3] = bgra[i + 3]
   }
-  const lines = await ocr.recognize({ data, width, height })
+  const start = performance.now()
+  await ocr.init()
+  const initMs = Math.round(performance.now() - start)
+  const samples = []
+  let lines
+  for (let i = 0; i < 3; i++) {
+    lines = await ocr.recognize({ data, width, height })
+    samples.push({ ...ocr.timing })
+  }
   assert.equal(ocr.provider, 'cpu')
-  assert.match(lines.map((line) => line.text).join(' '), /Good morning/i)
+  if (!customImage) assert.match(lines.map((line) => line.text).join(' '), /Good morning/i)
+  else assert.ok(lines.some((line) => line.text.trim()), '图片未识别出文字')
   for (const { box } of lines) {
     assert.ok(box.x >= 0 && box.y >= 0 && box.w > 0 && box.h > 0)
     assert.ok(box.x + box.w <= width && box.y + box.h <= height)
   }
-  console.log('[mac] real OCR OK', JSON.stringify({ provider: ocr.provider, lines, timing: ocr.timing }))
+  console.log('[mac] real OCR OK', JSON.stringify({ provider: ocr.provider, width, height, initMs, samples, lines }))
   app.exit(0)
 }).catch((error) => {
   console.error('[mac] native check failed', error)

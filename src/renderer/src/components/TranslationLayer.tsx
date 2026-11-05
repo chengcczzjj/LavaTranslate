@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { memo, useMemo, useRef } from 'react'
 import type { BlockColors, OcrLine, TranslatedBlock } from '@shared/types'
 import { layoutBlocks } from '../lib/layout'
+import { isRtl } from '../lib/fit'
 import './translation-layer.css'
 
 export interface LayerProps {
@@ -97,16 +98,18 @@ export const TranslationLayer = memo(function TranslationLayer(p: LayerProps) {
               <div
                 key={i}
                 className="tl-line"
+                dir={q.sideways ? (isRtl(p.targetLang) ? 'rtl' : 'ltr') : undefined}
                 style={{
                   left: q.x - L.box.x,
                   top: q.y - L.box.y,
                   width: q.w,
                   height: q.h,
-                  lineHeight: `${q.h}px`,
+                  lineHeight: `${q.vertical || q.sideways ? q.w : q.h}px`,
                   justifyContent: L.align === 'center' ? 'center' : L.align === 'right' ? 'flex-end' : 'flex-start',
                   textAlign: L.align,
                   whiteSpace: 'pre',
-                  writingMode: q.vertical ? 'vertical-rl' : undefined
+                  writingMode: q.vertical ? 'vertical-rl' : q.sideways,
+                  textOrientation: q.vertical ? 'upright' : undefined
                 }}
               >
                 {q.text}

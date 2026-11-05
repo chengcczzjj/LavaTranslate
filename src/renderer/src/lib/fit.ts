@@ -16,8 +16,10 @@ export function familyFor(lang: string) {
 }
 
 export function isCjk(lang: string) {
-  return lang.startsWith('zh') || lang === 'ja' || lang === 'ko'
+  return /^(zh|ja|ko)(?:-|$)/i.test(lang)
 }
+
+export const isRtl = (lang: string) => /^(ar|fa|he|ur)(?:-|$)/i.test(lang)
 
 const CJK_RE = /[぀-ヿ㐀-鿿가-힯豈-﫿＀-￯]/
 
@@ -147,4 +149,63 @@ export function breakLines(
     lines.push(line.trimEnd())
   }
   return lines
+}
+
+/** Thai has dictionary word boundaries even without spaces. */
+function proseUnits(text: string, language: string): string[] {
+  let units = tokenize(text)
+  if (/^th(?:-|$)/i.test(language)) {
+    units = []
+    for (const { segment } of new Intl.Segmenter('th', { granularity: 'word' }).segment(text)) {
+      const prev = units.at(-1)
+      if (prev !== undefined && (NO_START.test(segment) || NO_END.test(prev) || !segment.trim())) units[units.length - 1] += segment
+      else units.push(segment)
+    }
+  }
+  return units
+}
+
+/** Keep the minimum column count that fits this font, then balance lengths.
+ * Try smaller fonts before emergency grapheme breaks; bound work for huge text. */
+export function wrapProse(
+  text: string, font: string, widthOf: (k: number) => number,
+  maxLines: number, language: string, emergency = false
+): string[] | null {
+  const units = proseUnits(text, language)
+  const greedy = breakLines(units, font, widthOf, maxLines, () => emergency ? 'break' : 'fail')
+  if (!greedy || greedy.length < 2 || emergency || units.length > 100 || greedy.length > 20) return greedy
+  const count = greedy.length
+  const memo = new Map<string, { cost: number; rows: string[] } | null>()
+  const solve = (start: number, row: number): { cost: number; rows: string[] } | null => {
+    if (row === count) return start === units.length ? { cost: 0, rows: [] } : null
+    const key = `${start}:${row}`
+    if (memo.has(key)) return memo.get(key)!
+    const capacity = widthOf(row)
+    let best: { cost: number; rows: string[] } | null = null, value = ''
+    for (let end = start + 1; end <= units.length - (count - row - 1); end++) {
+      value += units[end - 1]
+      const advance = measure(font, value.trimEnd())
+      if (advance > capacity) break
+      const tail = solve(end, row + 1)
+      if (!tail) continue
+      const cost = (1 - advance / capacity) ** 2 + tail.cost
+      if (!best || cost < best.cost) best = { cost, rows: [value.trimEnd(), ...tail.rows] }
+    }
+    memo.set(key, best)
+    return best
+  }
+  return solve(0, 0)?.rows ?? greedy
+}
+
+/** Keep whole words at the visible tail too; full text remains available to copy. */
+export function ellipsizeProse(text: string, font: string, widthOf: (k: number) => number, maxLines: number, language: string) {
+  const units = proseUnits(text, language)
+  let lo = 0, hi = units.length
+  let best = wrapProse('…', font, widthOf, maxLines, language)
+  while (lo <= hi) {
+    const n = (lo + hi) >> 1
+    const rows = wrapProse(units.slice(0, n).join('').trimEnd() + '…', font, widthOf, maxLines, language)
+    if (rows) { best = rows; lo = n + 1 } else hi = n - 1
+  }
+  return best
 }

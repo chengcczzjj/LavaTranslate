@@ -4,6 +4,7 @@ import * as ort from 'onnxruntime-node'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { OcrLine, Rect } from '../shared/types'
+import { unfoldVertical } from './ocr-vertical'
 
 export interface RgbaImage {
   data: Uint8Array
@@ -15,6 +16,8 @@ const DET_THRESH = 0.2
 const DET_BOX_THRESH = 0.45
 const DET_UNCLIP = 1.4
 const DET_MAX_SIDE = 3200
+const CPU_MAX_SIDE = 1600
+const CPU_MAX_PIXELS = 1_500_000
 const DET_PAD = 16 // 检测图四周留白（检测空间像素），防止贴边文字漏检
 const REC_H = 48
 const REC_MIN_W = 320
@@ -91,8 +94,12 @@ export class PaddleOcr {
           for (let y = (h / 2 - 6) | 0; y < h / 2 + 6; y++) for (let x = 20; x < w - 20; x += 3) d.fill(0, (y * w + x) * 4, (y * w + x) * 4 + 3)
           return this.run({ data: d, width: w, height: h })
         }
-        await warm(640, 360)
-        await warm(1280, 720)
+        // CPU has no GPU shape compilation. Do not make the first capture wait
+        // for two synthetic detector + recognizer passes on a Retina Mac.
+        if (this.provider === 'dml') {
+          await warm(640, 360)
+          await warm(1280, 720)
+        }
       })()
     }
     return this.ready
@@ -118,6 +125,7 @@ export class PaddleOcr {
       score: +texts[i].score.toFixed(3),
       box: b.rect,
       vertical: b.vertical || undefined,
+      rotation: texts[i].rotation,
       cx: b.vertical ? undefined : texts[i].cx
     }))
   }
@@ -127,7 +135,9 @@ export class PaddleOcr {
     const { width: W, height: H, data } = img
     // 小图放大以提升细小文字的检出率；大图限制最长边
     let scale = Math.min(2, Math.max(1, 960 / Math.max(W, H)))
-    scale = Math.min(scale, (DET_MAX_SIDE - DET_PAD * 2) / Math.max(W, H))
+    scale = this.provider === 'cpu'
+      ? Math.min(1, (CPU_MAX_SIDE - DET_PAD * 2) / Math.max(W, H), Math.sqrt(CPU_MAX_PIXELS / (W * H)))
+      : Math.min(scale, (DET_MAX_SIDE - DET_PAD * 2) / Math.max(W, H))
     const cw = Math.round(W * scale)
     const ch = Math.round(H * scale)
     const dw = Math.ceil((cw + DET_PAD * 2) / 32) * 32
@@ -251,13 +261,40 @@ export class PaddleOcr {
 
   // ---------------------------------------------------------------- 识别
   private async recognizeBoxes(img: RgbaImage, boxes: Box[]) {
-    const items = boxes.map((b, i) => {
+    // Upright CJK is not a rotated horizontal line. Reassemble its glyphs
+    // top-to-bottom without rotating them; also try both sideways directions
+    // for book spines / rotated UI labels. All candidates share normal batches.
+    const candidates = boxes.flatMap((b, i) => {
+      if (!b.vertical) return [{ i, img, box: b, rotation: undefined as 90 | 270 | undefined, glyphs: 0 }]
+      const strip = unfoldVertical(img, b.rect)
+      return [
+        ...(strip ? [{ i, img: strip, box: { rect: { x: 0, y: 0, w: strip.width, h: strip.height }, vertical: false }, rotation: undefined, glyphs: strip.glyphs }] : []),
+        { i, img, box: b, rotation: 90 as const, glyphs: 0 },
+        { i, img, box: b, rotation: 270 as const, glyphs: 0 }
+      ]
+    })
+    const items = candidates.map((candidate) => {
+      const b = candidate.box
       const w = b.vertical ? b.rect.h : b.rect.w
       const h = b.vertical ? b.rect.w : b.rect.h
-      return { i, ratio: w / h }
+      return { ...candidate, ratio: w / h }
     })
     items.sort((a, b) => a.ratio - b.ratio)
-    const results: { text: string; score: number; cx: number[] }[] = new Array(boxes.length)
+    const results: { text: string; score: number; cx: number[]; rotation?: 90 | 270 }[] = new Array(boxes.length)
+    const ranks = new Array<number>(boxes.length).fill(-1)
+    const accept = (it: typeof items[number], decoded: ReturnType<PaddleOcr['decodeIdx']>, imgW: number, T: number) => {
+      const value = this.withPositions(decoded, it.box, it.ratio, imgW, T)
+      // A single confident character from a long unreadable column is not a
+      // successful recognition. Prefer a complete upright CJK candidate.
+      const count = [...value.text].length
+      const coverage = it.glyphs ? Math.min(1, count / (it.glyphs * 0.8)) : 1
+      const upright = it.glyphs && /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(value.text)
+      const rank = value.score * coverage + (upright ? 0.06 : 0)
+      if (rank > ranks[it.i]) {
+        ranks[it.i] = rank
+        results[it.i] = { ...value, score: value.score * coverage, rotation: it.rotation }
+      }
+    }
 
     // 宽高比相近的分到一批，按批内最宽者补齐
     let k = 0
@@ -278,26 +315,26 @@ export class PaddleOcr {
     for (const { batch, imgW } of batches) {
       const plane = REC_H * imgW
       const input = new Float32Array(batch.length * 3 * plane) // 0 即灰色补齐
-      batch.forEach((it, bi) => this.fillRec(img, boxes[it.i], it.ratio, imgW, input, bi * 3 * plane))
+      batch.forEach((it, bi) => this.fillRec(it.img, it.box, it.ratio, imgW, input, bi * 3 * plane, it.rotation))
       const res = await this.rec.run({ x: new ort.Tensor('float32', input, [batch.length, 3, REC_H, imgW]) })
       if (this.recArgmax) {
         const idx = res.best_idx
         const T = idx.dims[1] as number
         const ids = idx.data as BigInt64Array
         const ps = res.best_prob.data as Float32Array
-        batch.forEach((it, bi) => (results[it.i] = this.withPositions(this.decodeIdx(ids, ps, bi * T, T), boxes[it.i], it.ratio, imgW, T)))
+        batch.forEach((it, bi) => accept(it, this.decodeIdx(ids, ps, bi * T, T), imgW, T))
       } else {
         const out = res[this.rec.outputNames[0]]
         const [, T, C] = out.dims as number[]
         const probs = out.data as Float32Array
-        batch.forEach((it, bi) => (results[it.i] = this.withPositions(this.decodeProbs(probs, bi * T * C, T, C), boxes[it.i], it.ratio, imgW, T)))
+        batch.forEach((it, bi) => accept(it, this.decodeProbs(probs, bi * T * C, T, C), imgW, T))
       }
     }
     return results
   }
 
   /** 把一个文字框裁出、缩放到高 48，写进批张量 */
-  private fillRec(img: RgbaImage, box: Box, ratio: number, imgW: number, out: Float32Array, base: number) {
+  private fillRec(img: RgbaImage, box: Box, ratio: number, imgW: number, out: Float32Array, base: number, rotation: 90 | 270 = 270) {
     const { data, width: W, height: H } = img
     const { rect, vertical } = box
     const tw = Math.min(imgW, Math.max(8, Math.ceil(REC_H * ratio)))
@@ -329,11 +366,11 @@ export class PaddleOcr {
       }
       return
     }
-    // 竖排：逆时针旋转 90°，输出的 x 对应原图从下到上
+    // Sideways text only: try both directions, rather than rotating upright CJK.
     for (let y = 0; y < REC_H; y++) {
       for (let x = 0; x < tw; x++) {
-        const fx = clamp(rect.x + ((y + 0.5) / REC_H) * rect.w - 0.5, 0, W - 1)
-        const fy = clamp(rect.y + rect.h - ((x + 0.5) / tw) * rect.h - 0.5, 0, H - 1)
+        const fx = clamp(rect.x + (rotation === 90 ? 1 - (y + 0.5) / REC_H : (y + 0.5) / REC_H) * rect.w - 0.5, 0, W - 1)
+        const fy = clamp(rect.y + (rotation === 90 ? (x + 0.5) / tw : 1 - (x + 0.5) / tw) * rect.h - 0.5, 0, H - 1)
         const p = ((fy | 0) * W + (fx | 0)) * 4
         const d = base + y * imgW + x
         out[d] = REC_LUT[data[p + 2]]
@@ -449,18 +486,22 @@ function round1(v: number) {
 }
 
 /** 阅读顺序：先按行（y 中心接近视为同一行），行内从左到右 */
-function sortReadingOrder<T extends { rect: Rect }>(boxes: T[]): T[] {
+function sortReadingOrder<T extends { rect: Rect; vertical: boolean }>(boxes: T[]): T[] {
   const sorted = [...boxes].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x)
   const rows: T[][] = []
   for (const b of sorted) {
     const cy = b.rect.y + b.rect.h / 2
     const row = rows.find((r) => {
       const ref = r[0].rect
+      if (b.vertical && r.every((o) => o.vertical)) {
+        return Math.min(ref.y + ref.h, b.rect.y + b.rect.h) - Math.max(ref.y, b.rect.y) > Math.min(ref.h, b.rect.h) * 0.3
+      }
+      if (b.vertical || r.some((o) => o.vertical)) return false
       return Math.abs(ref.y + ref.h / 2 - cy) < Math.min(ref.h, b.rect.h) * 0.5
     })
     if (row) row.push(b)
     else rows.push([b])
   }
   rows.sort((a, b) => a[0].rect.y - b[0].rect.y)
-  return rows.flatMap((r) => r.sort((a, b) => a.rect.x - b.rect.x))
+  return rows.flatMap((r) => r.sort((a, b) => a.vertical && b.vertical ? b.rect.x - a.rect.x : a.rect.x - b.rect.x))
 }

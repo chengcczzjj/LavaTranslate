@@ -26,6 +26,9 @@ const technicalLabels = /\b(?:(?:Ctrl|Alt|Shift|Win|Cmd|Command)(?:\s*\+\s*[A-Za
 
 /** Only skip a screenshot when every line is already readable in the requested language. */
 export async function matchesTargetLanguage(lines: OcrLine[], target: string): Promise<boolean> {
+  // Failed OCR is not evidence of the target language. In particular, vertical
+  // Japanese may otherwise collapse to a few Han characters and empty strings.
+  if (!lines.length || lines.some((l) => !l.text.trim() || l.score < 0.8 || l.vertical)) return false
   const [{ eld }, normalizeChinese] = await Promise.all([import('eld/small'), chineseNormalizer(target)])
   const chineseSelection = normalizeChinese && lines.some(({ text }) => /\p{Script=Han}/u.test(text))
   return lines.every(({ text }) => {

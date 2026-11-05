@@ -17,6 +17,8 @@ export interface OcrLine {
   score: number
   box: Rect
   vertical?: boolean
+  /** Tall text that is a rotated horizontal line, rather than upright glyphs. */
+  rotation?: 90 | 270
   /** 每个字符中心相对 box.x 的横坐标（物理像素），来自 CTC 时间步；用于裁掉误识别成文字的图标 */
   cx?: number[]
 }
@@ -222,6 +224,8 @@ export interface PinPayload {
 
 /** 一行原文的视觉样式（从截图像素分析得到） */
 export interface BlockColors {
+  /** Pixel-verified safe text area in a shared vertical-text bubble. */
+  textRegion?: { id: number; box: Rect; lineIds: number[] }
   bg: string
   fg: string
   bold: boolean

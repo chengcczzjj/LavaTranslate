@@ -14,6 +14,7 @@ import {
   type TranslateEvent
 } from '@shared/types'
 import { TranslationLayer } from '../components/TranslationLayer'
+import { sampleTextRegions } from '../lib/text-regions'
 import { sampleColors } from '../lib/colors'
 import { langBase, ReplyComposer } from './ReplyComposer'
 import { Toolbar } from './Toolbar'
@@ -296,6 +297,7 @@ export function Overlay() {
           const o = selPhys.current
           const cs: Record<number, BlockColors> = {}
           for (const l of event.lines) cs[l.id] = sampleColors(px, meta.width, meta.height, { x: l.box.x + o.x, y: l.box.y + o.y, w: l.box.w, h: l.box.h }, l.box.h)
+          sampleTextRegions(px, meta.width, meta.height, o, event.lines, cs)
           setColors(cs)
         }
         setLines(event.lines)

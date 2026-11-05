@@ -1,15 +1,17 @@
 import type { BlockColors, OcrLine, TranslatedBlock } from '@shared/types'
-import { breakLines, familyFor, fontOf, inkFactor, isCjk, longUnit, measure, mostlyCjk, MONO, scriptRatio, tokenize, type Slot } from './fit'
+import { breakLines, ellipsizeProse, familyFor, fontOf, inkFactor, isCjk, longUnit, measure, mostlyCjk, MONO, scriptRatio, tokenize, wrapProse, type Slot } from './fit'
+import { layoutBubble } from './bubble-layout'
 
 export const PATCH_PAD = 2
 
 /** emoji（含肤色、组合序列）；© ® ™ 这类默认按文字显示的符号不算 */
 const EMOJI = /(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F)(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F?))*/gu
 
-interface Piece extends Slot {
+export interface Piece extends Slot {
   text: string
   bg: string
   vertical?: boolean
+  sideways?: 'sideways-rl' | 'sideways-lr'
 }
 
 export interface Layout {
@@ -35,8 +37,29 @@ export function layoutBlocks(
   const lineMap = new Map(lines.map((l) => [l.id, l]))
   const layouts: Layout[] = []
   const occupied: Slot[] = []
+  const handled = new Set<string>()
   for (const block of blocks) {
-    if (block.keep) continue
+    if (block.keep || handled.has(block.key)) continue
+    const own = block.lineIds.map((id) => lineMap.get(id)).filter((l): l is OcrLine => !!l)
+    const region = own.length ? colors[own[0].id]?.textRegion : undefined
+    if (!isCjk(targetLang) && region && own.every((l) => l.vertical && !l.rotation && colors[l.id]?.textRegion?.id === region.id)) {
+      const ids = new Set(region.lineIds)
+      const related = blocks.filter((b) => b.lineIds.some((id) => ids.has(id)))
+      // Wait for this bubble's remaining paragraphs; don't lay the first one
+      // across source text that is still being translated. Other bubbles stream.
+      if (!region.lineIds.every((id) => related.some((b) => b.lineIds.includes(id)))) continue
+      if (related.every((b) => !b.keep && b.lineIds.every((id) => ids.has(id)))) {
+        const regionLines = region.lineIds.map((id) => lineMap.get(id)!).filter(Boolean)
+        const obstacles = [...lines.filter((l) => !ids.has(l.id)).map((l) => ({ x: l.box.x / scale, y: l.box.y / scale, w: l.box.w / scale, h: l.box.h / scale })), ...occupied]
+        const group = layoutBubble(related, regionLines, region.box, colors, scale, targetLang, width, height, obstacles)
+        if (group) {
+          layouts.push(...group)
+          occupied.push(...group.flatMap((l) => l.pieces.filter((p) => p.text)))
+          related.forEach((b) => handled.add(b.key))
+          continue
+        }
+      }
+    }
     const layout = layoutBlock(block, lineMap, lines, colors, scale, width, height, targetLang, occupied)
     if (!layout) continue
     layouts.push(layout)
@@ -164,12 +187,115 @@ function layoutBlock(
     return { key: block.key, pieces: ps, patches, truncated: !!fit.truncated, fullText: block.translation, fontSize: fit.fontSize, fg, family, weight, align, box: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } }
   }
 
-  if (single && ls[0].vertical && cjk) {
-    // 竖排原文 → 竖排译文
-    const sl = geo[0].slot
-    const fontSize = Math.min(sl.w * 0.72, sl.h / Math.max(1, text.length))
-    const fit = valid({ fontSize, pieces: [{ ...sl, text, bg: sts[0].bg, vertical: true }] })
-    if (fit) return done(fit, 'left')
+  if (ls.every((l) => l.vertical)) {
+    const columns = geo.map((g, i) => ({ slot: g.slot, bg: sts[i].bg, rotation: ls[i].rotation }))
+      .sort((a, b) => b.slot.x - a.slot.x || a.slot.y - b.slot.y)
+    const covers = columns.map((c) => ({ ...c.slot, text: '', bg: c.bg }))
+    // Detector padding can make adjacent columns overlap. Share the gap at
+    // their center midpoint, while keeping full source boxes for erasure.
+    const textColumns = columns.map((c, i) => {
+      const center = c.slot.x + c.slot.w / 2
+      const right = columns[i - 1]?.slot, left = columns[i + 1]?.slot
+      let x = Math.max(c.slot.x, left ? (center + left.x + left.w / 2) / 2 + 1 : c.slot.x)
+      let end = Math.min(c.slot.x + c.slot.w, right ? (center + right.x + right.w / 2) / 2 - 1 : c.slot.x + c.slot.w)
+      // Adjacent columns may belong to separately streamed blocks. Detector
+      // padding is not permission to place text inside that neighbor's box.
+      for (const g of guards) {
+        if (g.y >= c.slot.y + c.slot.h || g.y + g.h <= c.slot.y || g.x >= end || g.x + g.w <= x) continue
+        if (g.x + g.w / 2 < center) x = Math.max(x, g.x + g.w)
+        else end = Math.min(end, g.x)
+      }
+      return { ...c, slot: { ...c.slot, x, w: Math.max(0, end - x) } }
+    })
+    const upright = cjk && !ls.some((l) => l.rotation)
+    const sideways = (ls.every((l) => l.rotation === ls[0].rotation) ? ls[0].rotation : undefined)
+      ?? (!cjk ? 90 : undefined)
+    if (upright || sideways) {
+      // A paragraph may span several unequal-height columns. Keep each column
+      // inside its own source box and flow from the right column to the left.
+      // Upright text uses grapheme advances; sideways text uses actual widths.
+      const chars = Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text.replace(/\s*\n\s*/g, ' ')), (s) => s.segment)
+      const topSize = Math.min(base, ...textColumns.map((c) => c.slot.w * 0.86))
+      if (topSize <= 0) return null
+      const minSize = Math.min(topSize, Math.max(8, topSize * 0.5))
+      const placeColumns = (fs: number, truncate = false, emergency = false): Fit | null => {
+        const font = fontOf(weight, fs, family)
+        if (sideways) {
+          const prose = text.replace(/\s*\n\s*/g, ' ')
+          const capacity = (i: number) => textColumns[i].slot.h - 2
+          const rows = truncate ? ellipsizeProse(prose, font, capacity, textColumns.length, targetLang)
+            : wrapProse(prose, font, capacity, textColumns.length, targetLang, emergency)
+          if (!rows) return null
+          return valid({ fontSize: fs, truncated: truncate, pieces: [...covers, ...rows.flatMap((value, i): Piece[] => {
+            if (!value) return []
+            const c = textColumns[i]
+            return [{ ...c.slot, text: value, bg: c.bg, sideways: sideways === 90 ? 'sideways-rl' : 'sideways-lr' }]
+          })] })
+        }
+        let at = 0
+        const pieces: Piece[] = [...covers]
+        for (const c of textColumns) {
+          const s = c.slot
+          // Upright latin/digits intentionally occupy one em, just like CJK;
+          // punctuation is shaped by the browser's vertical OpenType forms.
+          let value = ''
+          const start = at
+          while (at < chars.length) {
+            const next = value + chars[at]
+            const advance = upright ? (at - start + 1) * fs : measure(font, next)
+            if (advance > s.h - 2) break
+            value = next
+            at++
+          }
+          // Avoid putting a closing mark at the head of the next column, or an
+          // opening bracket alone at this column's foot. Keep at least one glyph.
+          if (upright && at - start > 1 && at < chars.length &&
+            (/[（「『【《〈]$/.test(value) || /^[，。、；：？！）」』】》〉]/.test(chars[at]))) {
+            at--
+            value = chars.slice(start, at).join('')
+          }
+          if (value) pieces.push({ ...s, text: value, bg: c.bg, vertical: upright || undefined, sideways: sideways ? (sideways === 90 ? 'sideways-rl' : 'sideways-lr') : undefined })
+        }
+        if (at < chars.length && !truncate) return null
+        const last = pieces.findLast((p) => p.text)
+        if (!last) return null
+        if (at < chars.length) {
+          const tail = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(last.text)].map((s) => s.segment)
+          tail.pop()
+          while (tail.length && !upright && measure(font, tail.join('') + '…') > last.h - 2) tail.pop()
+          last.text = tail.join('') + '…'
+        }
+        return valid({ fontSize: fs, pieces, truncated: at < chars.length })
+      }
+      for (let fs = topSize; fs >= minSize; fs = Math.max(minSize, fs * 0.94)) {
+        const fit = placeColumns(fs)
+        if (fit) return done(fit, 'left')
+        if (fs === minSize) break
+      }
+      const fit = (sideways ? placeColumns(minSize, false, true) : null) ?? placeColumns(minSize, true)
+      return fit ? done(fit, 'left') : null
+    }
+    // Without a verified bubble background, stay inside the source extent.
+    // Confirmed bubbles use layoutBubble above and can use their blank sides.
+    const x = Math.min(...columns.map((c) => c.slot.x))
+    const y = Math.min(...columns.map((c) => c.slot.y))
+    const w = Math.max(...columns.map((c) => c.slot.x + c.slot.w)) - x
+    const h = Math.max(...columns.map((c) => c.slot.y + c.slot.h)) - y
+    const units = tokenize(text.replace(/\s*\n\s*/g, ' '))
+    const topSize = Math.min(base, median(columns.map((c) => c.slot.w)) * 0.8)
+    const floor = Math.min(topSize, Math.max(8, topSize * 0.5))
+    for (let fs = topSize; fs >= floor; fs = Math.max(floor, fs * 0.94)) {
+      const font = fontOf(weight, fs, family), lead = fs * 1.25
+      const count = Math.floor(h / lead)
+      if (count > 0) {
+        const full = breakLines(units, font, () => w, count, (u) => longUnit(u) ? 'break' : 'fail')
+        const rows = full ?? (fs === floor ? ellipsize(text, font, () => w, count) : null)
+        const fit = rows && valid({ fontSize: fs, truncated: !full, pieces: [...covers, ...rows.map((t, i) => ({ x, y: y + lead * i, w, h: lead, text: t, bg: columns[0].bg }))] })
+        if (fit) return done(fit, 'left')
+      }
+      if (fs === floor) break
+    }
+    return null
   }
 
   // 在整条行高内检查 OCR 框，不能只依赖几条水平像素探针（会漏掉旁边的小字）。
@@ -438,6 +564,7 @@ function slotOf(l: OcrLine, src: string | null, scale: number): Geo {
 
 /** 由笔画实际高度估计原文字号（CSS 像素）；拿不到笔画信息时退回按框高估计 */
 function lineFontSize(l: OcrLine, st: BlockColors, g: Geo, scale: number) {
+  if (l.vertical) return Math.max(6, l.box.w * 0.72) / scale
   const boxFs = Math.max(6, (l.box.h - 3.5) / 1.03)
   let top = Infinity
   let bot = -Infinity

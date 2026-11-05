@@ -26,14 +26,15 @@
 
 | Platform | Download | First translation |
 | --- | --- | --- |
-| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.6](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.6/LavaTranslate-Setup-1.4.6.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
-| Android 10+ · arm64 | [Android APK, v1.4.1](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.1/LavaTranslate-Android-1.4.1.apk) | Open the app and add an API key. On Android 11+, enable LavaTranslate under Accessibility. Tap the app icon, then **Translate**. On Android 10, use screen sharing. |
+| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.7](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.7/LavaTranslate-Setup-1.4.7.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
+| Android 10+ · arm64 | [Android APK, v1.4.7](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.7/LavaTranslate-Android-1.4.7.apk) | Open the app and add an API key. On Android 11+, enable LavaTranslate under Accessibility. Tap the app icon, then **Translate**. On Android 10, use screen sharing. |
 | macOS · Apple Silicon (M-series) | [Build the preview from source](#macos-development-preview) | Open **Settings** from the menu bar and configure a service. Press **Option + Space**, grant Screen Recording permission, then drag over the text. |
 
 The Windows installer is unsigned. If SmartScreen shows **Unknown publisher**, use **More info → Run anyway** after checking that the file came from the release linked above.
 
 ### Recent changes
 
+- **Windows and Android 1.4.7** improve vertical speech-bubble layout, rotate whole lines for horizontal target languages, and balance columns while preserving words. Windows also fixes vertical OCR and speeds up CPU recognition; the Mac preview source includes those desktop fixes. [Release notes](docs/releases/v1.4.7.md)
 - **Windows 1.4.6** fixes the extra click previously needed to scroll after capture. Translation progress now appears only when a translation starts. [Release notes](docs/releases/v1.4.6.md)
 - **Windows 1.4.5** lets you turn off automatic translation, copy the recognized text and skip translation when the selection is already in the target language. Hold Space to scroll the underlying app with the selection border visible. [Release notes](docs/releases/v1.4.5.md)
 - **Windows 1.4.4** bundles the Microsoft VC++ x64 runtime that LavaTranslate and its OCR engine need to start. This addresses startup failures on PCs where the runtime is missing or outdated. If initialization still fails, a dialog shows the error and the log location. [Release notes](docs/releases/v1.4.4.md)

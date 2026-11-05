@@ -4,6 +4,8 @@ import type { BlockColors, OcrLine, TranslatedBlock } from '../src/shared/types'
 import { layoutBlocks } from '../src/renderer/src/lib/layout'
 import { breakLines, fontOf, measure, tokenize, type Slot } from '../src/renderer/src/lib/fit'
 import { TranslationLayer } from '../src/renderer/src/components/TranslationLayer'
+import { runBubbleLayoutTests } from './bubble-layout.test'
+import { runMultilingualLayoutTests } from './multilingual-layout.test'
 
 function assert(ok: unknown, message: string): asserts ok { if (!ok) throw new Error(message) }
 const overlap = (a: Slot, b: Slot) => a.x < b.x + b.w - 0.01 && a.x + a.w > b.x + 0.01 && a.y < b.y + b.h - 0.01 && a.y + a.h > b.y + 0.01
@@ -23,7 +25,13 @@ const cases: Case[] = [
   { name: '紧贴底边的超长翻译与长网址', lines: [line(1, 'Bottom', 24, 142, 170, 22), line(2, 'Keep', 210, 142, 80, 18)], blocks: [block('bottom', [1], 'https://example.com/an/extremely/long/path/that/will/not/fit/inside/this/label'.repeat(5), 'ui')], lang: 'en', truncated: true },
   { name: '保留列表符号', lines: [line(1, '•', 20, 40, 10, 20), line(2, 'List item', 38, 40, 220, 20)], blocks: [block('list', [1, 2], '• 需要保留列表前面的符号', 'paragraph')] },
   { name: '保留下拉箭头，不能用无限宽兜底覆盖它', lines: [{ ...line(1, 'Save ▼', 24, 40, 74, 24), cx: [5, 15, 25, 35, 47, 65] }, line(2, 'Next', 110, 40, 80, 22)], blocks: [{ ...block('icon', [1], '保存这个菜单项目的所有修改', 'ui'), source: 'Save' }] },
-  { name: '竖排文字', lines: [{ ...line(1, '縦書き', 24, 20, 30, 130), vertical: true }, line(2, '旁边', 64, 24, 60, 18)], blocks: [block('vertical', [1], '竖排文字')] }
+  { name: '竖排文字', lines: [{ ...line(1, '縦書き', 24, 20, 30, 130), vertical: true }, line(2, '旁边', 64, 24, 60, 18)], blocks: [block('vertical', [1], '竖排文字')] },
+  { name: '漫画多列竖排，从右往左，长短列共享译文', lines: [{ ...line(1, '金木犀ね', 420, 20, 30, 65), vertical: true }, { ...line(2, 'もうすっかり秋だし', 380, 20, 30, 140), vertical: true }, { ...line(3, '別の吹き出し', 220, 20, 32, 130), vertical: true }], blocks: [block('bubble', [2, 1], '是桂花呢，已经完全入秋了。', 'paragraph')] },
+  { name: '竖排韩文和全角标点', lines: [{ ...line(1, '縦書き', 70, 20, 30, 130), vertical: true }, { ...line(2, '縦書き', 30, 20, 30, 130), vertical: true }], blocks: [block('ko', [1, 2], '「세로쓰기」문장입니다。')], lang: 'ko' },
+  { name: '竖排超长译文有最小字号并截断', lines: [{ ...line(1, '縦書き', 24, 20, 30, 130), vertical: true }], blocks: [block('long-vertical', [1], '很长的竖排文字，'.repeat(40))], truncated: true },
+  { name: '竖排日文译成英文，整行顺时针旋转 90 度', lines: [{ ...line(1, '金木犀ね', 70, 20, 30, 90), vertical: true }, { ...line(2, 'もう秋', 30, 20, 30, 130), vertical: true }], blocks: [block('en-bubble', [1, 2], 'Sweet osmanthus. Autumn is here.')], lang: 'en' },
+  { name: '旋转英文书脊保持整行旋转', lines: [{ ...line(1, 'BOOK TITLE', 24, 20, 30, 130), vertical: true, rotation: 270 }], blocks: [block('spine', [1], 'Book title')], lang: 'en' },
+  { name: '截图真实比例：竖排检测框外扩后重叠', lines: [{ ...line(1, '金木犀ね', 335.95, 54.95, 26.15, 77.65), vertical: true }, { ...line(2, 'もうすっかり秋だし', 315.45, 55.45, 23.1, 112), vertical: true }], blocks: [block('overlap-bubble', [1, 2], '是桂花呢，已经完全入秋了。', 'paragraph')] }
 ]
 
 function scaled(c: Case, scale: number) {
@@ -48,7 +56,8 @@ function check(c: Case, scale: number) {
       assert(p.x >= 0 && p.y >= 0 && p.x + p.w <= 540.01 && p.y + p.h <= 170.01, `${c.name}: outside image`)
       assert(!foreign.some((l) => overlap(p, l.box)), `${c.name}: text covers a neighboring OCR line`)
       assert(!textPieces.slice(0, j).some((q) => overlap(p, q)), `${c.name}: own lines overlap`)
-      if (!p.vertical) assert(measure(fontOf(layout.weight, layout.fontSize, layout.family), p.text) <= p.w + 0.01, `${c.name}: glyph width exceeds assigned width`)
+      if (!p.vertical) assert(measure(fontOf(layout.weight, layout.fontSize, layout.family), p.text) <= (p.sideways ? p.h : p.w) + 0.01, `${c.name}: glyph width exceeds assigned width`)
+      else assert([...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(p.text)].length * layout.fontSize <= p.h, `${c.name}: vertical glyphs exceed column`)
     }
     for (const p of layout.patches) {
       assert(!foreign.some((l) => overlap(p, l.box)), `${c.name}: patch erases a neighboring OCR line`)
@@ -87,6 +96,15 @@ Object.assign(window, { runLayoutTests() {
   assert(JSON.stringify(initial[0]) === JSON.stringify(complete[0]), 'streaming shifted an earlier block')
   check({ ...c, blocks: [...c.blocks].reverse() }, 1)
   passed.push('streaming stability and reversed arrival order')
+  const vertical = check(cases[11], 1)[0]
+  const columns = vertical.pieces.filter((p) => p.text)
+  assert(columns.length === 2 && columns[0].x > columns[1].x, 'vertical paragraph must flow right-to-left')
+  assert(columns.map((p) => p.text).join('') === cases[11].blocks[0].translation, 'vertical paragraph lost or reordered characters')
+  assert(vertical.fontSize < 30, 'vertical font size must use column width, not height')
+  const english = check(cases[14], 1)[0]
+  assert(english.pieces.filter((p) => p.text).every((p) => p.sideways === 'sideways-rl'), 'English must stay rotated even without bubble geometry')
+  const ordinary = check({ name: 'ordinary horizontal English', lines: [line(1, '原来横排的文字', 20, 20, 250, 24)], blocks: [block('horizontal-en', [1], 'Ordinary horizontal text')], lang: 'en' }, 1)
+  assert(ordinary[0].pieces.every((p) => !p.sideways && !p.vertical), 'horizontal source text must remain horizontal')
 
   const container = document.createElement('div')
   document.body.style.cssText = 'margin:20px;background:#eef0f4;font:14px sans-serif;color:#252a35'
@@ -94,11 +112,11 @@ Object.assign(window, { runLayoutTests() {
   flushSync(() => createRoot(container).render(<>
     <h2>截图翻译排版回归 · 真实 Chromium 字体与共享组件</h2>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 540px)', gap: 18 }}>
-      {cases.slice(0, 8).map((c) => {
+      {cases.map((c) => {
         const { lines, colors } = scaled(c, 1)
         return <section key={c.name}><div style={{ marginBottom: 8 }}>{c.name}</div>
           <div style={{ width: 540, height: 170, background: 'white', position: 'relative', border: '1px solid #d2d5dc' }}>
-            {lines.map((l) => <div key={l.id} style={{ position: 'absolute', left: l.box.x, top: l.box.y, width: l.box.w, height: l.box.h, lineHeight: `${l.box.h}px`, fontSize: Math.max(8, l.box.h * 0.7), whiteSpace: 'nowrap', overflow: 'hidden' }}>{l.text}</div>)}
+            {lines.map((l) => <div key={l.id} style={{ position: 'absolute', left: l.box.x, top: l.box.y, width: l.box.w, height: l.box.h, lineHeight: `${l.vertical ? l.box.w : l.box.h}px`, fontSize: Math.max(8, (l.vertical ? l.box.w : l.box.h) * 0.7), writingMode: l.vertical ? 'vertical-rl' : undefined, whiteSpace: 'nowrap', overflow: 'hidden' }}>{l.text}</div>)}
             <TranslationLayer lines={lines} blocks={c.blocks} colors={colors} scale={1} width={540} height={170} targetLang={c.lang ?? 'zh-Hans'} peek={false} pending={null} />
           </div>
         </section>
@@ -107,5 +125,29 @@ Object.assign(window, { runLayoutTests() {
   </>))
   const truncated = document.querySelector('[data-block="title"][title]')
   assert(truncated?.getAttribute('title') === cases[1].blocks[0].translation, 'truncated block exposes full translation on hover')
-  return { status: 'passed', layoutCases: cases.length * 5 + 2, passed }
+  const bubble = runBubbleLayoutTests()
+  passed.push(bubble.passed)
+  const multilingual = runMultilingualLayoutTests()
+  passed.push(multilingual.passed)
+  for (const element of document.querySelectorAll<HTMLElement>('.tl-line')) {
+    const computed = getComputedStyle(element)
+    if (computed.writingMode === 'horizontal-tb') {
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      const box = element.getBoundingClientRect()
+      for (const r of range.getClientRects()) {
+        // Range height includes fallback-font leading, not just painted ink.
+        // The English bubble font is checked in both axes; other scripts keep
+        // their existing ink-height-based layout and are checked for width.
+        assert(r.left >= box.left - 1 && r.right <= box.right + 1 &&
+          (!element.closest('#bubble-regression') || (r.top >= box.top - 1 && r.bottom <= box.bottom + 1)),
+          `rendered horizontal text is clipped: ${element.textContent}; line=${JSON.stringify(box.toJSON())}; text=${JSON.stringify(r.toJSON())}; font=${computed.font}`)
+      }
+      continue
+    }
+    assert(element.scrollHeight <= element.clientHeight + 1, 'rendered vertical text is clipped along the column')
+    assert(element.scrollWidth <= element.clientWidth + 1, 'rendered vertical text is clipped across the column')
+    assert(Math.abs(parseFloat(computed.lineHeight) - parseFloat(computed.width)) < 0.05, 'vertical line height must use column width')
+  }
+  return { status: 'passed', layoutCases: cases.length * 5 + 2 + bubble.cases + multilingual.cases, regionSamplingMs: bubble.timing, multilingual: multilingual.metrics, passed }
 } })

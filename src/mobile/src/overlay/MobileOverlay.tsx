@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LANGUAGES, type BlockColors, type ErrorCode, type OcrLine, type Phase, type Rect, type TranslatedBlock } from '@shared/types'
 import { TranslationLayer } from '@renderer/components/TranslationLayer'
 import { sampleColors } from '@renderer/lib/colors'
+import { sampleTextRegions } from '@renderer/lib/text-regions'
 import { ReplyComposer } from '@renderer/overlay/ReplyComposer'
 import { call, notify, on } from '../bridge'
 import { engineFor, engineProblem, type MobileSettings } from '../engine'
@@ -173,6 +174,7 @@ export function MobileOverlay() {
       if (px) {
         const cs: Record<number, BlockColors> = {}
         for (const l of ocr.lines) cs[l.id] = sampleColors(px, f.w, f.h, { x: l.box.x + f.content.x, y: l.box.y + f.content.y, w: l.box.w, h: l.box.h }, l.box.h)
+        sampleTextRegions(px, f.w, f.h, f.content, ocr.lines, cs)
         setColors(cs)
       }
       setLines(ocr.lines)

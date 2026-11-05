@@ -21,8 +21,16 @@ test('skip aligned OCR locally, preserving mixed languages and Chinese script co
     ['en', ['This is an English sentence.', 'Enregistrer les modifications'], false],
     ['fr', ['Enregistrer les modifications'], true]
   ]) {
-    assert.equal(await matchesTargetLanguage(texts.map((text) => ({ text })), target), expected, target + ' / ' + texts.join(' / '))
+    assert.equal(await matchesTargetLanguage(texts.map((text) => ({ text, score: 0.99 })), target), expected, target + ' / ' + texts.join(' / '))
   }
+})
+
+test('unreliable, empty and vertical OCR never bypasses image translation as already Chinese', async () => {
+  for (const lines of [
+    [], [{ text: '', score: 0 }], [{ text: '名：', score: 0.502 }],
+    [{ text: '和', score: 0.99, vertical: true }],
+    [{ text: '你好', score: 0.99 }, { text: '', score: 0 }]
+  ]) assert.equal(await matchesTargetLanguage(lines, 'zh-Hans'), false)
 })
 
 const source = readFileSync(new URL('../src/main/capture-geometry.ts', import.meta.url), 'utf8')
