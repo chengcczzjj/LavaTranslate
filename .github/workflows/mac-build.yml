@@ -25,6 +25,8 @@ jobs:
         run: npm run check:mac
       - name: Build DMG, ZIP and update manifest
         run: npm run dist:mac
+      - name: Verify actual automatic ZIP download without native installation
+        run: node_modules/.bin/electron scripts/check-mac-update.cjs
       - name: Verify app signature and update files
         run: |
           codesign --verify --deep --strict dist/mac-arm64/LavaTranslate.app

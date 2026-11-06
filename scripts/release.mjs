@@ -7,6 +7,7 @@ import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename } from 'node:path'
+import { retainPlatformUpdate } from './retain-platform-update.mjs'
 
 const bump = process.argv[2] ?? 'patch'
 const run = (cmd, env, cwd) => execSync(cmd, { stdio: 'inherit', env: { ...process.env, ...env }, cwd })
@@ -27,6 +28,8 @@ run('npx electron-builder --win --x64 --publish never', {
 // 安装包、差量更新用的 blockmap、以及 electron-updater 读取的 latest.yml
 const exe = `dist/${build.productName}-Setup-${version}.exe`
 const files = [exe, `${exe}.blockmap`, 'dist/latest.yml']
+const previousMac = retainPlatformUpdate(`${owner}/${repo}`, 'latest-mac.yml')
+if (previousMac) files.push(previousMac)
 
 // 安卓：签名的 arm64 安装包 + 应用内更新读取的 latest-android.json（版本号、下载地址、大小、SHA-256、更新说明）
 if (android) {
@@ -52,6 +55,9 @@ if (android) {
     )
   )
   files.push(apk, 'dist/latest-android.json')
+} else {
+  const previousAndroid = retainPlatformUpdate(`${owner}/${repo}`, 'latest-android.json')
+  if (previousAndroid) files.push(previousAndroid)
 }
 
 for (const f of files) if (!existsSync(f)) throw new Error(`缺少 ${f}`)
