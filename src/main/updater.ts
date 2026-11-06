@@ -46,6 +46,14 @@ export function initUpdater(opts: { enabled: () => boolean; onChange: (s: Update
   if (mac) {
     // Only the signed build entry point opts into native Squirrel installation.
     try { manualInstall = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')).macUpdateMode !== 'native' } catch { manualInstall = true }
+    // The latest release retains the Mac manifest even for Windows-only releases.
+    // GenericProvider preserves absolute URLs pointing to the original Mac assets;
+    // GitHubProvider would incorrectly prepend the latest release's tag to them.
+    autoUpdater.setFeedURL({
+      provider: 'generic',
+      url: 'https://github.com/chengcczzjj/LavaTranslate/releases/latest/download/',
+      useMultipleRangeRequest: false
+    })
   }
   autoUpdater.autoDownload = true
   // MacUpdater downloads and verifies the ZIP but must not hand ad-hoc builds to

@@ -78,6 +78,8 @@ Windows 的 `Win + Space` 由独立线程上的低级键盘钩子处理（`win-s
 
 ## 自动更新
 
+Mac 1.4.9 起启用检查与 ZIP 自动下载。默认 ad-hoc 构建的 `autoInstallOnAppQuit` 为 false，下载后用 Finder 手动替换；Developer ID 签名/公证入口可开启原生自动安装。Mac 使用 GenericProvider 读取 GitHub 最新发行版中的 `latest-mac.yml`，允许清单中的绝对下载地址指向原来的 Release。发布脚本在只发 Windows 时保留已有 Mac 清单，并固定这些地址，避免下次更新找不到安装包；Windows 继续使用 GitHubProvider。`node --test scripts/updater.test.mjs scripts/retain-platform-update.test.mjs` 验证更新状态以及实际更新库对跨平台清单的解析。
+
 安装版每 4 小时检查一次 GitHub Releases（`chengcczzjj/LavaTranslate`），在后台按块差量下载，下载完成后托盘与设置里出现「重启并更新」，不点也会在下次退出时安装。
 发布新版本：`npm run release -- patch|minor|major|current`（需要 `gh auth login`），会升版本号、打包，并用 `gh release create` 上传安装包、blockmap 和 `latest.yml`，发布说明取 `docs/releases/v<版本>.md`。图标：`python scripts/make-icons.py` 一次生成桌面（exe、托盘、设置页）与安卓（自适应图标、单色图标、通知栏图标）的全部图标，图形定义在 `scripts/icons/lava.py`（黑底上一滴朱红到琥珀的发光熔岩，≤32px 用去掉文字的简化版），用 Electron 渲染 SVG。
 

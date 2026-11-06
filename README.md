@@ -16,7 +16,7 @@
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
-<p align="center">Windows x64 · Android arm64 · macOS preview for Apple Silicon</p>
+<p align="center">Windows x64 · Android arm64 · macOS for Apple Silicon</p>
 
 ---
 
@@ -26,13 +26,15 @@
 
 | Platform | Download | First translation |
 | --- | --- | --- |
-| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.8](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.8/LavaTranslate-Setup-1.4.8.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
+| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.9](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.9/LavaTranslate-Setup-1.4.9.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
 | Android 10+ · arm64 | [Android APK, v1.4.7](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.7/LavaTranslate-Android-1.4.7.apk) | Open the app and add an API key. On Android 11+, enable LavaTranslate under Accessibility. Tap the app icon, then **Translate**. On Android 10, use screen sharing. |
-| macOS · Apple Silicon (M-series) | [Build the preview from source](#macos-development-preview) | Open **Settings** from the menu bar and configure a service. Press **Option + Space**, grant Screen Recording permission, then drag over the text. |
+| macOS · Apple Silicon (M-series) | [Mac installer (.dmg), v1.4.9](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.9/LavaTranslate-Mac-1.4.9-arm64.dmg) | Open **Settings** from the menu bar and configure a service. Press **Option + Space**, grant Screen Recording permission, then drag over the text. |
 
 The Windows installer is unsigned. If SmartScreen shows **Unknown publisher**, use **More info → Run anyway** after checking that the file came from the release linked above.
 
 ### Recent changes
+
+- **Windows and Mac 1.4.9** add the first downloadable Mac packages and enable Mac update checks/downloads. Mac installation remains a manual Finder step. Windows also fixes cancellation of a pending automatic update check. [Release notes](docs/releases/v1.4.9.md)
 
 - **Windows 1.4.8** hardens keyboard/input-method compatibility, releases Space after failures, and adds an interest poll for an optional ~1.13 GB offline translation model. Android remains on 1.4.7. [Release notes](docs/releases/v1.4.8.md)
 - **Windows and Android 1.4.7** improve vertical speech-bubble layout, rotate whole lines for horizontal target languages, and balance columns while preserving words. Windows also fixes vertical OCR and speeds up CPU recognition; the Mac preview source includes those desktop fixes. [Release notes](docs/releases/v1.4.7.md)
@@ -43,11 +45,11 @@ The Windows installer is unsigned. If SmartScreen shows **Unknown publisher**, u
 - **Windows 1.4.2** keeps long translations from covering neighboring captions, columns and icons. If the translation still cannot fit, hover over the ellipsis to read the whole block, or use the side-by-side view or copy action for the full text. [Release notes](docs/releases/v1.4.2.md)
 - **Windows and Android 1.4.1** added a target-language picker to replies and typed translation. On Windows, new pins land in the top-left corner and can show either the original or the translation. [Release notes](docs/releases/v1.4.1.md)
 
-## macOS (development preview)
+## macOS (Apple Silicon)
 
-The preview app has been built and opened on an Apple Silicon Mac. Local OCR (CPU) and the settings window have been checked. The full capture-to-translation flow and alignment across multiple displays still need testing on Mac hardware. GitHub Releases has no Mac installer yet.
+Download the DMG above and move LavaTranslate into Applications. Version 1.4.9 enables in-app update checks and automatic ZIP downloads. After downloading, choose **Show update package**, unzip it in Finder, quit the app and replace it in Applications. Older preview builds need one manual upgrade first. The current Mac build uses ad-hoc signing and is not Apple-notarized; macOS security checks still apply. Full screen-capture interaction and mixed-display alignment still need validation on your Mac.
 
-To try it, clone this repository on an Apple Silicon Mac, open its directory and use native arm64 Node.js 22.18 or later:
+To build from source, clone this repository on an Apple Silicon Mac, open its directory and use native arm64 Node.js 22.18 or later:
 
 ```bash
 npm ci
@@ -57,7 +59,7 @@ npm run dev
 
 On first capture, allow **Screen & System Audio Recording** under **System Settings → Privacy & Security** for Electron in development or LavaTranslate in a packaged build. Quit and reopen the app if prompted. **Input Monitoring** is only needed to hold Space and interact with the app beneath the translation.
 
-To build a local app, run `npm run pack:mac`. To build a DMG and ZIP, run `npm run dist:mac`. Preview builds are ad-hoc signed, have no Apple notarization and are updated manually. [Mac setup and troubleshooting guide (Chinese)](docs/MACOS.md)
+To build a local app, run `npm run pack:mac`. To build a DMG and ZIP, run `npm run dist:mac`. Default builds are ad-hoc signed and not notarized. Updates download in the app; installation uses Finder. [Mac setup and troubleshooting guide (Chinese)](docs/MACOS.md)
 
 ## Why LavaTranslate
 
@@ -66,7 +68,7 @@ Most screenshot translators show a list of sentences in a separate window, so yo
 - **Same position, size, color, weight and alignment.** Each line keeps its font size (measured from the actual stroke height), text color (robust to ClearType fringes), bold or regular weight, and left/center/right alignment. Paragraphs that wrap around images keep their shape.
 - **Icons stay visible.** Arrows, stars, list numbers and other icons that OCR mistakes for letters are not painted over.
 - **The model looks at the screenshot itself.** OCR runs locally; a vision model then fixes recognition errors, merges wrapped lines into paragraphs, and leaves code, commands, URLs, @handles and brand names untranslated.
-- **Translations appear block by block.** Windows tries DirectML for local OCR and falls back to the CPU. The Mac preview uses CPU OCR.
+- **Translations appear block by block.** Windows tries DirectML for local OCR and falls back to the CPU. The Mac app uses CPU OCR.
 
 ![Before and after on GitHub](docs/images/compare-github.png)
 
@@ -135,7 +137,7 @@ LavaTranslate asks every model to skip "thinking" (each provider's own switch, f
 
 ## Shortcuts
 
-| Desktop action | Windows | macOS preview |
+| Desktop action | Windows | macOS |
 | --- | --- | --- |
 | Start a capture | **Win + Space** or click the tray icon | **Option + Space** or choose **Translate screenshot** from the menu bar icon |
 | Translate typed text | Press the capture shortcut twice | Press the capture shortcut twice |
@@ -157,7 +159,7 @@ On either desktop, drag to select a region, or click to select a window. Drag th
 
 - OCR runs on your device. Desktop translation sends the selected region (image and recognized text) to the service you configure. Android screen translation uses the current screen. Reply and type-to-translate requests also send the text you enter. Recent replies are stored locally so you can recall them with the arrow keys.
 - **Windows** uses Electron’s `safeStorage` (DPAPI) for API keys and ChatGPT sign-in tokens when system encryption is available. **Android** encrypts API keys with a key held in Android Keystore.
-- **macOS preview** stores credentials in plaintext in the app’s local `settings.json`. File mode `0600` limits access to your macOS account, including apps running as you. The settings window masks keys. If upgrading from a preview that used Keychain, re-enter your key once. Keep the settings file private.
+- **macOS** stores credentials in plaintext in the app’s local `settings.json`. File mode `0600` limits access to your macOS account, including apps running as you. The settings window masks keys. If upgrading from a preview that used Keychain, re-enter your key once. Keep the settings file private.
 
 ## Updates
 
@@ -168,7 +170,7 @@ On either desktop, drag to select a region, or click to select a window. Drag th
 - When it's ready you get a notification, and **重启并更新到 vX (Restart & update)** appears in the tray menu and on the About page. If you don't restart, it installs the next time you quit.
 - The version and update status are also shown at the bottom of the Settings sidebar; click them to open the About page. Turn automatic updates off in Settings → 关于.
 
-**Android** checks its own update manifest and offers to install new APKs in the app. **Mac preview** users update their source checkout and rebuild locally.
+**Android** checks its own update manifest and offers to install new APKs in the app. **Mac** checks and downloads ZIP updates in the app; use Finder to unzip and replace the app after quitting it. Older previews require one manual upgrade to 1.4.9.
 
 ## FAQ
 
@@ -195,7 +197,7 @@ npm run dev      # run in development mode
 npm run dist     # build the NSIS installer into dist/
 ```
 
-These commands build the Windows installer. For Apple Silicon, use the [Mac preview instructions](#macos-development-preview). Android build requirements, the layout engine and test commands are in the [development guide (Chinese)](docs/DEVELOPMENT.md).
+These commands build the Windows installer. For Apple Silicon, use the [Mac build instructions](docs/MACOS.md). Android build requirements, the layout engine and test commands are in the [development guide (Chinese)](docs/DEVELOPMENT.md).
 
 The desktop app uses Electron, React and Motion. ONNX Runtime runs the local [PaddleOCR PP-OCRv6](https://github.com/PaddlePaddle/PaddleOCR) models.
 

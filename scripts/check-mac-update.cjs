@@ -33,14 +33,16 @@ app.whenReady().then(async () => {
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const { MacUpdater } = require('electron-updater')
-  updater = new MacUpdater({ provider: 'generic', url: `http://127.0.0.1:${server.address().port}` })
+  updater = new MacUpdater()
   updater.forceDevUpdateConfig = true
   updater.autoDownload = true
   updater.autoInstallOnAppQuit = false
   updater.disableDifferentialDownload = true
   const config = join(dir, 'dev-app-update.yml')
-  writeFileSync(config, dump({ provider: 'generic', url: `http://127.0.0.1:${server.address().port}`, updaterCacheDirName: basename(dir) }))
+  writeFileSync(config, dump({ provider: 'github', owner: 'chengcczzjj', repo: 'LavaTranslate', updaterCacheDirName: basename(dir) }))
   updater.updateConfigPath = config
+  // Match production: override the build's GitHub config with the Mac asset feed.
+  updater.setFeedURL({ provider: 'generic', url: `http://127.0.0.1:${server.address().port}`, useMultipleRangeRequest: false })
   let downloaded
   updater.on('update-downloaded', info => { downloaded = info.downloadedFile })
   const result = await updater.checkForUpdates()

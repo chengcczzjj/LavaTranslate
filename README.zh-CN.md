@@ -16,7 +16,7 @@
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
-<p align="center">Windows x64 · 安卓 arm64 · macOS 预览版（Apple Silicon）</p>
+<p align="center">Windows x64 · 安卓 arm64 · macOS（Apple Silicon）</p>
 
 ---
 
@@ -26,13 +26,15 @@
 
 | 平台 | 下载入口 | 第一次翻译 |
 | --- | --- | --- |
-| Windows 10/11 · x64 | [Windows 安装程序（.exe），v1.4.8](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.8/LavaTranslate-Setup-1.4.8.exe) | 按 **Win + 空格**，拖动框选即可识别文字。双击托盘图标可配置翻译服务。 |
+| Windows 10/11 · x64 | [Windows 安装程序（.exe），v1.4.9](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.9/LavaTranslate-Setup-1.4.9.exe) | 按 **Win + 空格**，拖动框选即可识别文字。双击托盘图标可配置翻译服务。 |
 | 安卓 10 及以上 · arm64 | [安卓安装包（APK），v1.4.7](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.7/LavaTranslate-Android-1.4.7.apk) | 打开应用，填写 API Key。安卓 11 及以上可在「无障碍」中启用 LavaTranslate，再点应用图标 →「翻译」。安卓 10 使用「截屏授权」。 |
-| macOS · Apple Silicon（M 系列） | [从源码运行预览版](#mac-版调试预览) | 从菜单栏图标打开「设置」，配置翻译服务。按 **Option + 空格**，按提示授予录屏权限后即可框选。 |
+| macOS · Apple Silicon（M 系列） | [Mac 安装包（.dmg），v1.4.9](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.9/LavaTranslate-Mac-1.4.9-arm64.dmg) | 从菜单栏图标打开「设置」，配置翻译服务。按 **Option + 空格**，按提示授予录屏权限后即可框选。 |
 
 Windows 安装程序尚未签名。如果 SmartScreen 显示「未知发布者」，确认文件来自上方发布链接后，可点「更多信息 → 仍要运行」。
 
 ### 近期版本改动
+
+- **Windows 和 Mac 1.4.9** 补齐 Mac 安装包、应用内检查更新和自动下载；Mac 下载后通过 Finder 手动安装。Windows 同步修复关闭自动更新后仍触发启动检查的问题。[版本说明](docs/releases/v1.4.9.md)
 
 - **Windows 1.4.8** 加固输入法与键盘监听兼容性，异常时自动释放空格，并加入约 1.13 GB 离线翻译包的意向调查。安卓稳定版仍为 1.4.7。[版本说明](docs/releases/v1.4.8.md)
 - **Windows 和安卓 1.4.7** 改进竖排漫画气泡排版，横排目标语言整行旋转 90°，自动均衡列数并优先保留完整单词。Windows 同时修正竖排 OCR、加速 CPU 识别；Mac 预览版源码同步桌面修复。[版本说明](docs/releases/v1.4.7.md)
@@ -43,9 +45,9 @@ Windows 安装程序尚未签名。如果 SmartScreen 显示「未知发布者�
 - **Windows 1.4.2** 修复了长译文盖住标题旁小字、相邻分栏或图标的问题。空间不足时显示省略号，鼠标悬停即可看全文，切换并排对照或复制也能拿到完整译文。[版本说明](docs/releases/v1.4.2.md)
 - **Windows 和安卓 1.4.1** 支持为回复和输入翻译单独选择目标语言。Windows 上钉住的截图会排在屏幕左上角，可以钉译图，也可以钉原图。[版本说明](docs/releases/v1.4.1.md)
 
-## Mac 版（调试预览）
+## Mac 版（Apple Silicon）
 
-预览版已在 Apple Silicon Mac 上构建并打开，已检查设置窗口和本地 CPU 文字识别。从框选到显示译文的完整流程，以及多显示器下的选区对齐，仍待真机验证。GitHub Releases 目前没有 Mac 安装包。
+下载上方 DMG，将 LavaTranslate 拖入「应用程序」。1.4.9 起可在软件内检查更新并自动下载 ZIP；下载后点「查看更新包」，在 Finder 解压，退出软件后替换 Applications 中的旧应用。旧预览版需要先手动升级一次。当前 Mac 包使用 ad-hoc 签名，尚未经过 Apple 公证，仍遵循 macOS 安全检查。完整框选翻译与多屏对齐仍需在实际使用的 Mac 上验证。
 
 要试用，请在 M 系列 Mac 上克隆本仓库，进入项目目录，使用原生 arm64 版 Node.js 22.18 或更高版本运行：
 
@@ -57,7 +59,7 @@ npm run dev
 
 首次截图时，在「系统设置 → 隐私与安全 → 录屏与系统录音」（旧版系统称「屏幕录制」）中允许 Electron（开发模式）或 LavaTranslate（打包版）。若系统提示，完全退出后重新打开。只有「按住空格操作下层应用」需要额外授予「输入监控」权限。
 
-在 Mac 上运行 `npm run pack:mac` 可生成本地 `.app`，运行 `npm run dist:mac` 可生成 DMG 和 ZIP。预览包采用本地临时签名，未经 Apple 公证，后续版本需手动更新。[Mac 构建与排查指南](docs/MACOS.md)
+在 Mac 上运行 `npm run pack:mac` 可生成本地 `.app`，运行 `npm run dist:mac` 可生成 DMG 和 ZIP。默认包采用本地临时签名，未经 Apple 公证；支持自动下载更新，安装通过 Finder 完成。[Mac 构建与排查指南](docs/MACOS.md)
 
 ## 有什么不一样
 
@@ -66,7 +68,7 @@ npm run dev
 - **位置、字号、颜色、粗细、对齐都和原文一致**：字号按笔画的实际高度推算，文字颜色能抵消 ClearType 的彩色边，粗体常规分得清，左对齐、居中、右对齐都保持，绕图排列的段落也保持原来的形状；
 - **图标不会被盖掉**：被 OCR 误认成字符的箭头、星星、列表序号都保留可见；
 - **模型会看截图**：文字识别在本地完成，再由支持看图的模型纠正识别错误、把折行的句子合成段落，代码、命令、网址、@用户名、品牌名保持原样不翻；
-- **译文逐段出现**。Windows 本地文字识别优先使用 DirectML，可回退到 CPU。Mac 预览版使用 CPU 识别。
+- **译文逐段出现**。Windows 本地文字识别优先使用 DirectML，可回退到 CPU。Mac 版使用 CPU 识别。
 
 ![GitHub 页面翻译前后](docs/images/compare-github.png)
 
@@ -135,7 +137,7 @@ Windows 上双击托盘图标，Mac 上点菜单栏图标并选择「设置」�
 
 ## 快捷键
 
-| 桌面操作 | Windows | macOS 预览版 |
+| 桌面操作 | Windows | macOS |
 | --- | --- | --- |
 | 开始截图 | **Win + 空格**，或单击托盘图标 | **Option + 空格**，或点菜单栏图标 →「截图翻译」 |
 | 输入文字翻译 | 连按两次截图快捷键 | 连按两次截图快捷键 |
@@ -157,7 +159,7 @@ Windows 上双击托盘图标，Mac 上点菜单栏图标并选择「设置」�
 
 - 文字识别在设备本地完成。桌面版把选区图片和识别出的文字发送给你配置的翻译服务，安卓版整屏翻译使用当前屏幕。回复和输入翻译也会发送你输入的文字。最近用过的回复保存在本机，方便用方向键调出。
 - **Windows** 在系统加密可用时，通过 Electron 的 `safeStorage`（DPAPI）加密 API Key 和 ChatGPT 登录令牌。**安卓**使用 Android Keystore 中的密钥加密 API Key。
-- **Mac 预览版**将凭据以明文保存在本机的 `settings.json` 中。文件权限为 `0600`，同一 macOS 账号下运行的程序仍可读取，设置界面会对 Key 打码。若从使用钥匙串的旧预览版升级，请重新填写一次 Key。请勿分享这个配置文件。
+- **Mac 版**将凭据以明文保存在本机的 `settings.json` 中。文件权限为 `0600`，同一 macOS 账号下运行的程序仍可读取，设置界面会对 Key 打码。若从使用钥匙串的旧预览版升级，请重新填写一次 Key。请勿分享这个配置文件。
 
 ## 自动更新
 
@@ -168,7 +170,7 @@ Windows 上双击托盘图标，Mac 上点菜单栏图标并选择「设置」�
 - 下载完成后弹出通知，托盘菜单和「关于」页出现「**重启并更新到 vX**」，点一下立即更新；不点的话，下次退出软件时自动安装；
 - 设置窗口左下角显示当前版本和更新状态，点它直接跳到「关于」页；在「关于」页可以关闭自动更新。
 
-**安卓版**通过独立的更新索引检查新 APK，可在应用内安装。**Mac 预览版**需要更新本地源码，再重新构建。
+**安卓版**通过独立的更新索引检查新 APK，可在应用内安装。**Mac 版**可在软件内检查并自动下载 ZIP，退出后在 Finder 中解压替换应用。旧预览版需先手动升级一次到 1.4.9。
 
 ## 常见问题
 
@@ -195,7 +197,7 @@ npm run dev      # 开发模式运行
 npm run dist     # 打包 NSIS 安装程序到 dist/
 ```
 
-以上命令用于 Windows 安装包。Apple Silicon 用户请按 [Mac 预览版步骤](#mac-版调试预览)构建。安卓编译环境、排版引擎和测试命令见[开发文档](docs/DEVELOPMENT.md)。
+以上命令用于 Windows 安装包。Apple Silicon 用户请按 [Mac 构建步骤](docs/MACOS.md)构建。安卓编译环境、排版引擎和测试命令见[开发文档](docs/DEVELOPMENT.md)。
 
 桌面版使用 Electron、React 和 Motion，通过 ONNX Runtime 运行本地的 [PaddleOCR PP-OCRv6](https://github.com/PaddlePaddle/PaddleOCR) 模型。
 

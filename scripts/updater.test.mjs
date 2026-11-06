@@ -12,6 +12,7 @@ function harness({ platform = 'darwin', packaged = true, mode = 'installer', exi
   let nextTimer = 0, calls = 0, quits = 0, enabled = true, failure
   updater.checkForUpdates = async () => { calls++; if (failure) throw failure }
   updater.quitAndInstall = () => quits++
+  updater.setFeedURL = config => { updater.feed = config }
   const mocks = {
     electron: { app: { isPackaged: packaged, getVersion: () => '1.4.8', getAppPath: () => '/app' }, shell: { showItemInFolder: file => shown.push(file) } },
     'electron-updater': { autoUpdater: updater },
@@ -32,6 +33,8 @@ test('Mac checks and downloads; manual packages never invoke native installation
   const h = harness()
   assert.equal(h.updater.autoDownload, true)
   assert.equal(h.updater.autoInstallOnAppQuit, false)
+  assert.equal(h.updater.feed.provider, 'generic')
+  assert.equal(h.updater.feed.url, 'https://github.com/chengcczzjj/LavaTranslate/releases/latest/download/')
   await h.api.check(); assert.equal(h.calls(), 1)
   h.updater.emit('update-downloaded', { version: '1.4.9', downloadedFile: '/cache/update.zip' })
   assert.equal((await h.api.check()).manualInstall, true)
@@ -49,6 +52,7 @@ test('signed Mac build opts into native installation', () => {
 })
 test('Windows retains native automatic installation', () => {
   const h = harness({ platform: 'win32' })
+  assert.equal(h.updater.feed, undefined, 'Windows keeps its GitHub provider')
   assert.equal(h.updater.autoInstallOnAppQuit, true)
   h.updater.emit('update-downloaded', { version: '1.4.9', downloadedFile: '/cache/update.exe' })
   h.api.installNow(); assert.equal(h.quits(), 1)

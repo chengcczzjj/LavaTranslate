@@ -20,7 +20,7 @@ jobs:
       - run: npm run models
       - run: npm run typecheck
       - run: npm run check:platform
-      - run: node --test scripts/updater.test.mjs scripts/offline-survey.test.mjs
+      - run: node --test scripts/updater.test.mjs scripts/retain-platform-update.test.mjs scripts/offline-survey.test.mjs
       - name: Check native dependencies and CPU OCR
         run: npm run check:mac
       - name: Build DMG, ZIP and update manifest
