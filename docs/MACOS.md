@@ -1,6 +1,6 @@
 # macOS 适配与调试（Apple Silicon）
 
-Apple Silicon（M 系列，arm64）版本目前以源码预览形式提供。2026-10-22 已在 Mac 真机上构建并打开 `.app`，检查了本地 CPU OCR 和设置界面。完整翻译流程、多显示器和混合缩放仍待真机验收。GitHub Releases 暂未提供 Mac 安装包。
+Apple Silicon（M 系列，arm64）与 Windows 共用最新桌面源码。1.4.9 补上 GitHub Actions 的 Mac 原生构建、安装包和更新通道；发行文件为 DMG、ZIP 与 latest-mac.yml。完整翻译流程、多显示器和混合缩放仍需在实际使用的 Mac 上验收。
 
 ## 三个平台的关系
 
@@ -27,7 +27,7 @@ cd LavaTranslate
 
 可以修改界面、翻译逻辑、平台分支、权限引导与打包配置，并运行 TypeScript 检查、坐标测试和前端构建。实际 macOS 截屏、系统权限、原生模块、窗口焦点与安装包必须在 Mac 验证。
 
-当前项目包含 node-screenshots、koffi、ONNX Runtime 原生依赖。macOS 签名只能在 macOS 完成；本项目的 Mac 打包命令因此明确要求在 Mac 运行。也可以日后使用远程 Mac 或 macOS CI 构建机。[electron-builder 跨平台构建说明](https://www.electron.build/v26/docs/features/multi-platform-build/)
+当前项目包含 node-screenshots、koffi、ONNX Runtime 原生依赖。macOS 签名只能在 macOS 完成；本项目的 Mac 打包命令因此明确要求在 Mac 运行。仓库的 `.github/workflows/mac-build.yml` 使用 GitHub 的 Apple Silicon 构建机，可在 Actions → Build Mac arm64 中手动运行。[electron-builder 跨平台构建说明](https://www.electron.build/v26/docs/features/multi-platform-build/)
 
 ## 带到 Mac
 
@@ -72,7 +72,7 @@ Mac 版按本地保存方式处理 API Key：明文写入 Electron 的 `userData
 
 旧版 `enc:` 加密内容在重新填写前原样保留，修改其他设置不会清空它，也不会触发验证。它无法绕过钥匙串解密；请从服务商后台复制或新建 API Key，在「翻译服务」重新填写一次，之后重新启动也不需要钥匙串密码。应用不会还原或删除 macOS 钥匙串。
 
-## 在 Mac 生成本地调试安装包
+## 在 Mac 生成安装包
 
 ```bash
 # 只生成 .app，适合优先调试
@@ -85,9 +85,16 @@ npm run dist:mac
 
 本地打包会在 `dist/` 生成 `LavaTranslate-Mac-<版本号>-arm64.dmg` 和同名 `.zip`。先退出开发模式，再启动打包版，避免单实例锁或快捷键冲突。将应用放进 Applications 后再授予权限，后续尽量保持安装路径不变。
 
-这个入口使用 ad-hoc 本地签名、不公证、不上传发布，不需要 Apple Developer 证书。它适合本人调试，不能当作已完成 Apple 公证的正式发行版。公开分发前需使用 Developer ID 签名、公证并完成真机验收。[electron-builder macOS 打包说明](https://www.electron.build/v26/docs/mac/)
+默认入口使用 ad-hoc 签名，不需要 Apple Developer 证书，也没有完成 Apple 公证。首次打开仍由 macOS 安全策略处理；不会关闭 Gatekeeper 或自动清除隔离属性。具备 Developer ID 签名与公证条件后，可以运行 `npm run dist:mac -- --signed`，此模式需要 `CSC_LINK` 或 `CSC_NAME` 及公证凭据。[electron-builder macOS 打包说明](https://www.electron.build/v26/docs/mac/)
 
-Mac 预览版暂时关闭应用内自动更新，设置页会显示需手动安装新版本；待准备好签名的 Mac Release 和 latest-mac.yml 后再启用。Windows、安卓现有更新逻辑不变。
+## 更新方式（1.4.9 起）
+
+- 打包后的 Mac 软件支持在「关于」中检查更新；开启自动更新后，会检查并下载对应的 ZIP，并验证发布清单中的校验值。
+- 默认 ad-hoc 构建下载后显示「查看更新包」：在 Finder 中解压 ZIP，退出 LavaTranslate，再将新应用拖入 Applications 替换。不会调用要求 Developer ID 签名的 Squirrel 自动安装流程。
+- 经签名/公证入口构建的应用在 package.json 中记录 `macUpdateMode: native`，启用标准的重启自动安装流程。已有的 ad-hoc 版本切换到这种签名版本时需要手动安装一次。
+- 1.4.8 及更早的旧 Mac 预览版把更新功能硬编码关闭，因此必须先手动安装一次 1.4.9；仅在服务器发布文件无法修复旧应用本身。
+- 「预览版」原本表示 Mac 只做过局部原生验证、未建立发行更新通道，并不表示源码与 Windows 完全不同。1.4.9 不再对所有 Mac 固定显示这个标签，开发模式仍明确禁用更新。
+- GitHub Release 必须同时包含 Mac ZIP、DMG 和 `latest-mac.yml`。更新入口不能只上传 Windows 文件。缺少 Mac 清单会显示错误，不会假称「已是最新版」。
 
 ## OCR 速度与竖排验收（2026-11-04）
 

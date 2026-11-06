@@ -11,10 +11,12 @@ export async function checkSettingsHotkey(platform: 'Win32' | 'MacIntel') {
   const off = () => () => {}
   let rejectNext = false
   let surveyCalls = 0
+  let updateOpens = 0
   Object.assign(window, { lens: {
     uiLang: () => 'zh-Hans', onUiLang: off,
     getSettings: async () => saved, onSettings: (cb: (s: S) => void) => { listeners.add(cb); return () => listeners.delete(cb) },
-    appInfo: async () => ({ version: 'test' }), updateState: async () => ({ state: 'idle' }), onUpdate: off,
+    appInfo: async () => ({ version: 'test' }), updateState: async () => ({ state: 'ready', version: '1.4.8', next: '1.4.9', manualInstall: platform === 'MacIntel' }), onUpdate: off,
+    updateInstall: () => { updateOpens++ },
     engineStatus: async () => ({ ok: true }), ocrInfo: async () => 'CPU',
     suspendHotkey: async () => {}, onHotkeyRecorded: off,
     macSettingsStatus: async () => ({}),
@@ -79,7 +81,15 @@ export async function checkSettingsHotkey(platform: 'Win32' | 'MacIntel') {
     click('[data-page="home"]')
     await wait(() => !!host.querySelector('.hero-keys'))
     assert(keys() === label('Ctrl+Shift+K'), 'failed shortcut must not change the home hint')
-    return `${platform}: saved shortcut updates home; rejected shortcut keeps previous hint`
+    click('[data-page="about"]')
+    await wait(() => !!host.querySelector('.update-card.ready button'))
+    const button = host.querySelector('.update-card.ready button')!
+    assert(button.textContent?.includes(platform === 'MacIntel' ? '查看更新包' : '重启'), 'update action must match install mode')
+    assert(!host.textContent?.includes('Mac 预览版'), 'packaged Mac is not unconditionally labeled a preview')
+    if (platform === 'MacIntel') assert(host.querySelector('.update-card')?.textContent?.includes('Finder'), 'Mac must explain the installation step')
+    click('.update-card.ready button')
+    assert(updateOpens === 1, 'update action must reach the main process')
+    return `${platform}: shortcut synchronization, survey retry/dismissal and update install mode`
   } finally { root.unmount(); host.remove() }
 }
 

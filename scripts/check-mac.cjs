@@ -11,7 +11,7 @@ app.setPath('userData', join(app.getPath('temp'), 'lavatrans-mac-native-check'))
 
 app.whenReady().then(async () => {
   assert.equal(process.platform, 'darwin', '此检查需要在 Mac 上运行')
-  assert.equal(process.arch, 'arm64', '当前 Mac 预览版需要 arm64 Electron')
+  assert.equal(process.arch, 'arm64', '当前 Mac 版需要 arm64 Electron')
   const { Monitor } = require('node-screenshots')
   const monitors = Monitor.all()
   const displays = screen.getAllDisplays()

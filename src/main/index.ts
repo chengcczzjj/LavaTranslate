@@ -57,6 +57,7 @@ import { langBase, providerName, UI_LANGS } from '../shared/i18n'
 import { focusWindowAt, forceForeground, hwndOf, keyDown, VK_SPACE } from './winapi'
 import { configureMacOverlay, ensureKeyMonitoring, ensureScreenCapture, isMac, macSpaceDown, macSettingsStatus, openMacSettings } from './macos'
 import { acceleratorLabel } from '../shared/hotkeys'
+import { macUpdateText } from '../shared/mac-update'
 import { WinSpaceHotkey } from './win-space'
 import { OpenAIEngine, TranslateError, type Engine } from '../core/translator'
 import { cancelSignIn, listPlanModels, refresh as refreshChatGPT, SignInExpired, signIn as signInChatGPT } from './chatgpt'
@@ -1114,7 +1115,7 @@ ipcMain.handle('app:info', () => ({ version: app.getVersion() }))
 ipcMain.handle('update:state', () => updateState())
 ipcMain.handle('update:check', () => checkUpdate())
 ipcMain.on('update:install', () => {
-  quitting = true
+  if (!updateState().manualInstall) quitting = true
   installNow()
 })
 ipcMain.handle('ocr:info', async () => {
@@ -1208,7 +1209,7 @@ function trayMenu(): Electron.MenuItemConstructorOptions[] {
   const u = updateState()
   const upd: Electron.MenuItemConstructorOptions =
     u.state === 'ready'
-      ? { label: t('tray.updateReady', { v: u.next }), click: () => ((quitting = true), installNow()) }
+      ? { label: u.manualInstall ? `${macUpdateText(uiLang(), 'open')} (v${u.next})` : t('tray.updateReady', { v: u.next }), click: () => { if (!u.manualInstall) quitting = true; installNow() } }
       : u.state === 'downloading' || u.state === 'available'
         ? { label: t('tray.updateDownloading', { v: u.next, p: u.percent }), enabled: false }
         : {
@@ -1345,7 +1346,7 @@ export const startup = app.whenReady().then(async () => {
       if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('update:state', st)
       updateTray()
       if (st.state === 'ready') {
-        notify(t('notify.updateReadyTitle'), t('notify.updateReadyBody', { v: st.next }))
+        notify(t('notify.updateReadyTitle'), st.manualInstall ? macUpdateText(uiLang(), 'install') : t('notify.updateReadyBody', { v: st.next }))
       }
     }
   })

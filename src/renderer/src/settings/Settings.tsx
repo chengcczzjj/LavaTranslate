@@ -41,6 +41,7 @@ import {
 } from '@shared/types'
 import { UI_LANGS, type MsgKey } from '@shared/i18n'
 import { acceleratorLabel } from '@shared/hotkeys'
+import { macUpdateText } from '@shared/mac-update'
 import { useI18n, type I18n } from '../lib/i18n'
 import { isMac, shortcutLabel } from '../lib/desktop'
 import { OfflineSurvey } from './OfflineSurvey'
@@ -1159,7 +1160,7 @@ function About({ s, update, version, ocr }: { s: S; update: (p: SettingsPatch) =
         </div>
         {u?.state === 'ready' ? (
           <button className="btn primary" onClick={() => window.lens.updateInstall()}>
-            {t('about.restart')}
+            {u.manualInstall ? macUpdateText(i.lang, 'open') : t('about.restart')}
           </button>
         ) : isMac && u?.state === 'disabled' ? (
           <button className="btn" onClick={() => window.lens.openExternal('https://github.com/chengcczzjj/LavaTranslate/releases')}>
@@ -1171,7 +1172,7 @@ function About({ s, update, version, ocr }: { s: S; update: (p: SettingsPatch) =
           </button>
         )}
       </div>
-      {(!isMac || u?.state !== 'disabled') && <Card title={t('about.autoUpdate')} desc={t('about.autoUpdateDesc')} icon={<Download size={18} />}>
+      {u?.state !== 'disabled' && <Card title={t('about.autoUpdate')} desc={u?.manualInstall ? macUpdateText(i.lang, 'auto') : t('about.autoUpdateDesc')} icon={<Download size={18} />}>
         <Toggle on={s.autoUpdate} onChange={(v) => update({ autoUpdate: v })} />
       </Card>}
 
@@ -1222,13 +1223,13 @@ function updateTitle(u: UpdateState | null, busy: boolean, { t }: I18n) {
   }
 }
 
-function updateDesc(u: UpdateState | null, { t }: I18n) {
+function updateDesc(u: UpdateState | null, { t, lang }: I18n) {
   switch (u?.state) {
     case 'available':
     case 'downloading':
       return t('upd.desc.downloading', { p: u.percent })
     case 'ready':
-      return t('upd.desc.ready')
+      return u.manualInstall ? macUpdateText(lang, 'ready') : t('upd.desc.ready')
     case 'error':
     case 'disabled':
       return u.message

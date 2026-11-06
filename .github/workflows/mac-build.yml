@@ -1,0 +1,43 @@
+name: Build Mac arm64
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Verify native Apple Silicon runner
+        run: node -e "if(process.platform!=='darwin'||process.arch!=='arm64')throw Error('Mac arm64 runner required')"
+      - run: npm ci
+      - run: python3 -m pip install --user --break-system-packages onnx
+      - run: npm run models
+      - run: npm run typecheck
+      - run: npm run check:platform
+      - run: node --test scripts/updater.test.mjs scripts/offline-survey.test.mjs
+      - name: Check native dependencies and CPU OCR
+        run: npm run check:mac
+      - name: Build DMG, ZIP and update manifest
+        run: npm run dist:mac
+      - name: Verify app signature and update files
+        run: |
+          codesign --verify --deep --strict dist/mac-arm64/LavaTranslate.app
+          test -s dist/latest-mac.yml
+          shasum -a 256 dist/LavaTranslate-Mac-*.dmg dist/LavaTranslate-Mac-*.zip > dist/SHA256SUMS-Mac.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mac-arm64-release
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/LavaTranslate-Mac-*.dmg
+            dist/LavaTranslate-Mac-*.zip
+            dist/LavaTranslate-Mac-*.blockmap
+            dist/latest-mac.yml
+            dist/SHA256SUMS-Mac.txt

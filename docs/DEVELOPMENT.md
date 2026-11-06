@@ -149,7 +149,7 @@ npm run dist     # 打包 NSIS 安装程序到 dist/
 - ChatGPT 登录刷新与设置保存：`LENS_SIGNIN_TEST=1 npx electron .`（令牌接口在应用内换成假响应，不需要真账号；
   检查并发刷新只发一次、临时故障与登录失效的区分、刷新期间重新登录、设置文件原子写入与损坏另存）
 
-## macOS 版（调试预览）
+## macOS 版（Apple Silicon）
 
 macOS / Apple Silicon 的适配状态、源码转移和本机打包方式另见 [MACOS.md](MACOS.md)。
 

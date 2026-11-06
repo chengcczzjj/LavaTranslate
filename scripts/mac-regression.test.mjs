@@ -159,7 +159,7 @@ function captureHarness(permission, capture) {
     '../shared/types': {}, './capture': { captureAll: capture }, './credentials': {}, '../core/detect': {}, '../core/lang': {},
     '../core/platform': { setPlatform: noop }, './ocr': { PaddleOcr: class {} }, './ocr-language': {}, './pricing': {}, './updater': {},
     './settings': { settings: { get: () => ({ hotkey: 'Command+Shift+2' }) } },
-    './offline-survey': { submitOfflineVote: noop },
+    './offline-survey': { submitOfflineVote: noop }, '../shared/mac-update': { macUpdateText: noop },
     './i18n': { t: (key) => key }, '../shared/i18n': {}, '../shared/hotkeys': {}, './win-space': { WinSpaceHotkey: class {} }, './winapi': {}, './secrets': { secretLocked: () => false },
     './macos': { isMac: true, configureMacOverlay: noop, ensureScreenCapture: permission },
     '../core/translator': {}, './chatgpt': {}, './devtest': {}, './diagnostics': { logError: noop }

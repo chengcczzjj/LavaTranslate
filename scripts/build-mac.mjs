@@ -6,12 +6,13 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const arch = process.argv[2] ?? 'arm64'
+const signed = process.argv.includes('--signed')
 if (process.platform !== 'darwin') {
   console.error('请在 Mac 上运行此命令。Windows 上可运行 npm run typecheck、npm run build、npm run export:mac，再把源码包带到 Mac 调试。')
   process.exit(1)
 }
 if (arch !== 'arm64' || process.arch !== 'arm64') {
-  console.error('当前 Mac 预览版面向 Apple Silicon。请使用原生 arm64 Node.js，避免通过 Rosetta 运行；此打包入口尚未适配 Intel Mac。')
+  console.error('当前 Mac 版面向 Apple Silicon。请使用原生 arm64 Node.js，避免通过 Rosetta 运行；此打包入口尚未适配 Intel Mac。')
   process.exit(1)
 }
 for (const name of ['det.onnx', 'rec.onnx', 'rec_dict.txt']) {
@@ -33,9 +34,17 @@ function run(script, args = [], env = {}) {
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
 run('node_modules/electron-vite/bin/electron-vite.js', ['build'])
-// 本地预览使用 ad-hoc 签名，无需 Apple 开发者证书；不能作为已公证的正式发布包。
+if (signed && !process.env.CSC_LINK && !process.env.CSC_NAME) {
+  console.error('--signed 需要 Developer ID Application 证书（CSC_LINK 或 CSC_NAME）。')
+  process.exit(1)
+}
+// Ad-hoc builds can download verified ZIP updates and reveal them in Finder.
+// Only a signed/notarized build enables Squirrel.Mac automatic installation.
 run('node_modules/electron-builder/cli.js', [
   '--mac', '--arm64', '--publish', 'never',
-  '--config.mac.identity=-', '--config.mac.hardenedRuntime=false', '--config.mac.notarize=false',
+  `--config.extraMetadata.macUpdateMode=${signed ? 'native' : 'installer'}`,
+  ...(signed
+    ? ['--config.forceCodeSigning=true', '--config.mac.hardenedRuntime=true', '--config.mac.notarize=true']
+    : ['--config.mac.identity=-', '--config.mac.hardenedRuntime=false', '--config.mac.notarize=false']),
   ...(process.argv.includes('--dir') ? ['--dir'] : [])
-], { CSC_IDENTITY_AUTO_DISCOVERY: 'false' })
+], signed ? {} : { CSC_IDENTITY_AUTO_DISCOVERY: 'false' })

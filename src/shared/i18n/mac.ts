@@ -10,8 +10,6 @@ const zh: Partial<Messages> = {
   'sc.tray': '菜单栏图标',
   'sc.trayDo': '选择「设置」，或按 ⌘ ,',
   'notify.updateReadyBody': 'v{v} 已就绪，可从菜单栏重启更新。',
-  'upd.title.disabled': 'Mac 预览版 · 手动更新',
-  'upd.short.dev': 'Mac 预览版',
   'about.privacyDesc': '文字识别在 Mac 本机完成。所选区域的图像、识别文字及你输入的回复会发送至所配置的翻译服务；API Key 以明文保存在此 Mac 的应用配置中，仅当前用户可读，应用不保存翻译历史。'
 }
 const zhHant: Partial<Messages> = {
@@ -24,8 +22,6 @@ const zhHant: Partial<Messages> = {
   'sc.tray': '選單列圖像',
   'sc.trayDo': '選擇「設定」，或按 ⌘ ,',
   'notify.updateReadyBody': 'v{v} 已就緒，可從選單列重新啟動更新。',
-  'upd.title.disabled': 'Mac 預覽版 · 手動更新',
-  'upd.short.dev': 'Mac 預覽版',
   'about.privacyDesc': '文字辨識在 Mac 本機完成。所選區域的影像、辨識文字及你輸入的回覆會傳送至設定的翻譯服務；API Key 以明文儲存在此 Mac 的 App 設定中，僅目前使用者可讀，App 不儲存翻譯記錄。'
 }
 const en: Partial<Messages> = {
@@ -37,8 +33,6 @@ const en: Partial<Messages> = {
   'sc.tray': 'Menu bar icon',
   'sc.trayDo': 'Choose Settings, or press ⌘ ,',
   'notify.updateReadyBody': 'v{v} is ready. Restart from the menu bar to update.',
-  'upd.title.disabled': 'Mac preview · Manual updates',
-  'upd.short.dev': 'Mac preview',
   'about.privacyDesc': 'Text recognition runs on your Mac. Selected images, recognized text and typed replies are sent to your configured service. API keys are stored in plaintext in this Mac’s app settings, readable only by your macOS user; the app does not save translation history.'
 }
 

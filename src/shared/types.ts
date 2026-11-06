@@ -175,11 +175,12 @@ export interface ModelInfo {
   perCall: number | null
 }
 
-export type UpdateState =
+export type UpdateState = { manualInstall?: boolean } & (
   | { state: 'idle' | 'checking' | 'latest' | 'disabled'; version: string; message?: string }
   | { state: 'available' | 'downloading'; version: string; next: string; percent: number }
   | { state: 'ready'; version: string; next: string }
   | { state: 'error'; version: string; message: string }
+)
 
 export interface EngineStatus {
   provider: ProviderId
