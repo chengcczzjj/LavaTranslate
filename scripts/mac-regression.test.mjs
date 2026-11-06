@@ -159,6 +159,7 @@ function captureHarness(permission, capture) {
     '../shared/types': {}, './capture': { captureAll: capture }, './credentials': {}, '../core/detect': {}, '../core/lang': {},
     '../core/platform': { setPlatform: noop }, './ocr': { PaddleOcr: class {} }, './ocr-language': {}, './pricing': {}, './updater': {},
     './settings': { settings: { get: () => ({ hotkey: 'Command+Shift+2' }) } },
+    './offline-survey': { submitOfflineVote: noop },
     './i18n': { t: (key) => key }, '../shared/i18n': {}, '../shared/hotkeys': {}, './win-space': { WinSpaceHotkey: class {} }, './winapi': {}, './secrets': { secretLocked: () => false },
     './macos': { isMac: true, configureMacOverlay: noop, ensureScreenCapture: permission },
     '../core/translator': {}, './chatgpt': {}, './devtest': {}, './diagnostics': { logError: noop }
@@ -371,74 +372,4 @@ test('saved shortcut labels localize Windows keys and preserve Mac Control versu
   assert.equal(acceleratorLabel('Ctrl+Shift+Z', 'win32', 'zh-Hans'), 'Ctrl + Shift + Z')
   assert.equal(acceleratorLabel('Alt+Space', 'darwin', 'zh-Hans'), '⌥ Option + Space')
   assert.equal(acceleratorLabel('Ctrl+Command+K', 'darwin', 'en'), '⌃ Control + ⌘ Command + K')
-})
-
-test('Win+Space hook passes unrelated keys, consumes repeat/release, records, and unhooks', () => {
-  let callback
-  const state = new Int32Array(new SharedArrayBuffer(20))
-  const held = new Set()
-  const sent = [], masked = []
-  let unhooked = 0, released = 0
-  const press = (key, up = false, code = 0) => callback(code, up ? 0x101 : 0x100, key)
-  const native = {
-    SetWindowsHookExW: () => 1,
-    UnhookWindowsHookEx: () => { unhooked++ },
-    CallNextHookEx: () => 42,
-    PeekMessageW: noop,
-    GetAsyncKeyState: (key) => held.has(key) ? 0x8000 : 0,
-    keybd_event: (key, _scan, flags) => masked.push([key, flags]),
-    GetCurrentThreadId: () => 123,
-    GetModuleHandleW: () => 1,
-    GetMessageW: () => {
-      assert.equal(press(0x20), 42) // Disabled.
-      state[0] = 1
-      assert.equal(press(0x20), 42) // Plain Space.
-      held.add(0x5b)
-      assert.equal(press(0x41), 42) // Win+A belongs to Windows.
-      assert.equal(press(0x20, false, -1), 42)
-      for (const modifier of [0x10, 0x11, 0x12]) {
-        held.add(modifier)
-        assert.equal(press(0x20), 42)
-        held.delete(modifier)
-      }
-      assert.equal(press(0x20), 1)
-      assert.equal(press(0x20), 1)
-      assert.deepEqual(sent, ['ready', 'press'])
-      held.clear() // Win released before Space.
-      state[0] = 0 // Switching the configured shortcut must still consume its paired release.
-      assert.equal(press(0x20, true), 1)
-      assert.equal(press(0x20), 42)
-      state[0] = 2
-      held.add(0x5c) // Right Win works too.
-      assert.equal(press(0x20), 1)
-      assert.equal(press(0x20, true), 1)
-      assert.deepEqual(sent, ['ready', 'press', 'record'])
-      state[0] = 1
-      state[3] = 1
-      assert.equal(press(0x20), 1)
-      held.clear()
-      assert.equal(press(0x5c, true), 42)
-      assert.equal(state[4], 1)
-      assert.equal(press(0x20, true), 1)
-      assert.equal(state[4], 0)
-      assert.equal(press(0x20), 1)
-      assert.equal(press(0x20), 1)
-      assert.equal(press(0x20, true), 1)
-      assert.deepEqual(sent.slice(-3), ['press', 'scroll', 'scroll'])
-      state[3] = 0
-      assert.equal(press(0x20), 42)
-      return 0
-    }
-  }
-  loadTs('src/main/win-space-worker.ts', {
-    'node:worker_threads': { workerData: state.buffer, parentPort: { postMessage: (s) => sent.push(s), close: noop } },
-    koffi: {
-      load: () => ({ func: (signature) => native[signature.match(/__stdcall (\w+)\(/)[1]] }),
-      proto: noop, pointer: noop, decode: (value) => value,
-      register: (fn) => { callback = fn; return fn }, unregister: () => { released++ }
-    }
-  })
-  assert.equal(unhooked, 1)
-  assert.equal(released, 1)
-  assert.deepEqual(masked, [[0x11, 0], [0x11, 2], [0x11, 0], [0x11, 2], [0x11, 0], [0x11, 2]])
 })

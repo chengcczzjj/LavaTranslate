@@ -43,6 +43,7 @@ import { UI_LANGS, type MsgKey } from '@shared/i18n'
 import { acceleratorLabel } from '@shared/hotkeys'
 import { useI18n, type I18n } from '../lib/i18n'
 import { isMac, shortcutLabel } from '../lib/desktop'
+import { OfflineSurvey } from './OfflineSurvey'
 
 type Page = 'home' | 'translate' | 'engine' | 'general' | 'about'
 
@@ -256,6 +257,7 @@ function Home({ s, status, ocr, go }: { s: S; status: EngineStatus | null; ocr: 
         </motion.div>
       )}
 
+      <OfflineSurvey dismissed={s.offlineSurveyDismissed} />
       <h3 className="h3">{t('home.keys')}</h3>
       <div className="shortcuts">
         {SHORTCUTS.map(([k, d]) => (
@@ -977,6 +979,7 @@ function GeneralPage({ s, update }: { s: S; update: Upd }) {
   return (
     <>
       <h2>{t('gen.title')}</h2>
+      <OfflineSurvey dismissed={s.offlineSurveyDismissed} />
       <Card title={t('gen.hotkey')} desc={t('gen.hotkeyDesc', { key: acceleratorLabel(s.hotkey, isMac ? 'darwin' : 'win32', lang) })} icon={<Keyboard size={18} />}>
         <HotkeyInput value={s.hotkey} />
       </Card>

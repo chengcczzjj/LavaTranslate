@@ -713,12 +713,15 @@ export function Overlay() {
     const active = () => sync(document.activeElement)
     const leave = (e: FocusEvent) => sync(e.relatedTarget as Element | null)
     active()
+    // Renew capture only while this renderer responds. Worker expiry restores typing.
+    const heartbeat = window.setInterval(active, 250)
     document.addEventListener('focusin', active)
     document.addEventListener('focusout', leave)
     document.addEventListener('input', active)
     window.addEventListener('focus', active)
     window.addEventListener('blur', active)
     return () => {
+      window.clearInterval(heartbeat)
       document.removeEventListener('focusin', active)
       document.removeEventListener('focusout', leave)
       document.removeEventListener('input', active)

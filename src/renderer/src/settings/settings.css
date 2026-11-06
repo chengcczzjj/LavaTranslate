@@ -48,6 +48,29 @@ body {
   height: 100%;
 }
 
+.offline-survey {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 16px;
+  margin: 20px 0 8px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: var(--card);
+}
+.offline-survey-icon { color: #e45a34; flex: none; align-self: flex-start; padding-top: 2px; }
+.offline-survey-copy { flex: 1; min-width: 0; }
+.offline-survey-copy b { font-size: 13px; }
+.offline-survey-copy p { color: var(--fg-2); font-size: 12px; line-height: 1.65; margin: 5px 0; }
+.offline-survey-copy small { display: block; color: var(--fg-3); font-size: 11px; line-height: 1.6; }
+.offline-survey .btn { flex: none; max-width: 180px; white-space: normal; text-align: center; }
+.offline-survey-error { display: block; color: #d64232; font-size: 12px; margin-top: 5px; }
+@media (max-width: 760px) {
+  .offline-survey { flex-wrap: wrap; }
+  .offline-survey-copy { flex-basis: calc(100% - 34px); }
+  .offline-survey .btn { margin-left: 30px; max-width: 100%; }
+}
+
 .titlebar {
   height: 48px;
   flex: none;

@@ -11,6 +11,7 @@ import {
   nativeTheme,
   net,
   Notification,
+  powerMonitor,
   screen,
   session,
   shell,
@@ -49,6 +50,7 @@ import { matchesTargetLanguage } from './ocr-language'
 import { refreshPrices, sortByPrice } from './pricing'
 import { check as checkUpdate, initUpdater, installNow, setAutoUpdate, updateState } from './updater'
 import { settings } from './settings'
+import { submitOfflineVote } from './offline-survey'
 import { secretLocked } from './secrets'
 import { errorText, t, uiLang } from './i18n'
 import { langBase, providerName, UI_LANGS } from '../shared/i18n'
@@ -101,7 +103,15 @@ let engine: Engine | null = null
 function loadPage(win: BrowserWindow, page: 'overlay' | 'settings' | 'pin') {
   win.webContents.on('did-fail-load', (_event, code, description) => logError(`${page} load`, `${code}: ${description}`))
   win.webContents.on('preload-error', (_event, _path, error) => logError(`${page} preload`, error))
-  win.webContents.on('render-process-gone', (_event, details) => logError(`${page} renderer`, details.reason))
+  win.webContents.on('render-process-gone', (_event, details) => {
+    logError(`${page} renderer`, details.reason)
+    if (page === 'overlay') void hideOverlays(true)
+    if (page === 'settings') void registerHotkey(settings.get().hotkey)
+  })
+  win.on('unresponsive', () => {
+    if (page === 'overlay') void hideOverlays(true)
+    if (page === 'settings') void registerHotkey(settings.get().hotkey)
+  })
   if (isMac) {
     if (process.env.LENS_DIAGNOSTIC) {
       win.webContents.on('did-finish-load', () => console.log('[page loaded]', page))
@@ -332,20 +342,17 @@ async function startCapture() {
   if (hiding) await hiding
   if (generation !== captureGeneration) return
   overlayActive = true
-  // The user may hold Space while the first screenshot is still being captured.
-  // Consume it before it can type into the app that currently owns the keyboard.
+  // The native worker owns this short lease, even if capture blocks the main loop.
   if (process.platform === 'win32' && !AUTOTEST) {
-    const guard = { grabbed: grabPassKey() }
-    startupSpace = guard
-    // A renderer that never reports frame-ready must not keep the system Space key.
-    if (guard.grabbed) setTimeout(() => releasePassKey(guard), 3000).unref()
+    await winSpace.setCaptureSpace(true, 3000)
+    if (generation !== captureGeneration || !overlayActive) return
   }
   if (releaseTimer) clearTimeout(releaseTimer)
   try {
     const allowed = await ensureScreenCapture()
     if (generation !== captureGeneration || !overlayActive) return
     if (!allowed) {
-      releasePassKey(startupSpace)
+      void winSpace.setCaptureSpace(false)
       overlayActive = false
       quickPending = false
       return
@@ -358,7 +365,7 @@ async function startCapture() {
   } catch (e) {
     if (generation !== captureGeneration || !overlayActive) return
     // 出错一定要复位，否则之后每次按快捷键都只会在"关闭"分支里空转
-    releasePassKey(startupSpace)
+    void winSpace.setCaptureSpace(false)
     overlayActive = false
     quickPending = false
     logError('capture', e)
@@ -423,7 +430,6 @@ ipcMain.on('overlay:frame-ready', (e) => {
     refocus = false
     o.win.focus()
     o.win.webContents.focus()
-    releasePassKey(startupSpace)
   } else {
     o.win.showInactive()
   }
@@ -465,12 +471,12 @@ function fadeOut(win: BrowserWindow, ms: number) {
 function hideOverlays(immediate = false) {
   captureGeneration++
   quickPending = false
+  if (process.platform === 'win32') void winSpace.setCaptureSpace(false)
   if (!overlayActive) return hiding ?? Promise.resolve()
   overlayActive = false
   framesShown = false
   editingOverlays.clear()
-  if (process.platform === 'win32') winSpace.setCaptureSpace(false)
-  releasePassKey(startupSpace)
+  overlayHeartbeats.clear()
   if (passthrough?.timer) clearTimeout(passthrough.timer)
   if (passthrough) releasePassKey(passthrough)
   passthrough = null
@@ -502,7 +508,6 @@ ipcMain.on('overlay:close', () => hideOverlays())
 // 只显示选区边框、鼠标穿透。松开空格时，先隐藏边框再重新截图。
 // Windows 上键盘钩子跨焦点监听空格，滚动期间把焦点还给鼠标下方的应用。
 const PASS_KEY = 'Space'
-let startupSpace = { grabbed: false }
 let passthrough: { timer: NodeJS.Timeout | null; grabbed: boolean } | null = null
 /** 穿透期间用户可能点进了别的软件，回来时要把焦点抢回来 */
 let refocus = false
@@ -511,12 +516,21 @@ const spaceDown = () => isMac ? macSpaceDown() : winSpace.scrollHeld || keyDown(
 const plainSpaceHeld = () => spaceDown() === true &&
   (process.platform !== 'win32' || ![0x10, 0x11, 0x12, 0x5b, 0x5c].some((vk) => keyDown(vk)))
 const editingOverlays = new Set<number>()
+const overlayHeartbeats = new Map<number, number>()
 
 ipcMain.on('overlay:space-editing', (e, editing: boolean) => {
-  if (process.platform !== 'win32' || !overlayActive || !overlayOf(e.sender)) return
+  if (process.platform !== 'win32' || !overlayActive || !framesShown || !overlayOf(e.sender)) return
   if (editing) editingOverlays.add(e.sender.id)
   else editingOverlays.delete(e.sender.id)
-  winSpace.setCaptureSpace(framesShown && !editingOverlays.size)
+  const now = Date.now()
+  overlayHeartbeats.set(e.sender.id, now)
+  // Another healthy monitor must not renew input ownership for a frozen renderer.
+  const participants = [...overlays.values()].filter((o) => captures.has(o.displayId))
+  // Preserve the initial hold while monitors deliver their first frame. The
+  // independent startup lease still expires if a monitor never responds.
+  if (!editingOverlays.size && participants.some((o) => !overlayHeartbeats.has(o.win.webContents.id))) return
+  const responsive = participants.every((o) => now - (overlayHeartbeats.get(o.win.webContents.id) ?? 0) < 1000)
+  void winSpace.setCaptureSpace(responsive && !editingOverlays.size)
 })
 
 function requestScrollAtCursor() {
@@ -561,6 +575,8 @@ ipcMain.on('overlay:passthrough', async (e, rect: Rect) => {
 })
 
 function grabPassKey(): boolean {
+  // Windows uses the independently expiring hook, never a main-thread Space hotkey.
+  if (process.platform === 'win32') return false
   try {
     return !globalShortcut.isRegistered(PASS_KEY) && globalShortcut.register(PASS_KEY, () => {})
   } catch (e) {
@@ -968,6 +984,7 @@ ipcMain.on('pin:zoom', (e, factor: number) => {
 
 // ------------------------------------------------------------------ 设置窗口
 function openSettings() {
+  void hideOverlays(true)
   if (settingsWin && !settingsWin.isDestroyed()) {
     settingsWin.show()
     settingsWin.focus()
@@ -990,7 +1007,10 @@ function openSettings() {
   })
   settingsWin.setMenu(null)
   settingsWin.once('ready-to-show', () => settingsWin?.show())
-  settingsWin.on('closed', () => (settingsWin = null))
+  settingsWin.on('closed', () => {
+    settingsWin = null
+    if (!quitting) void registerHotkey(settings.get().hotkey)
+  })
   loadPage(settingsWin, 'settings')
 }
 
@@ -999,6 +1019,21 @@ nativeTheme.on('updated', () => {
 })
 
 ipcMain.handle('settings:get', () => settings.public())
+let openingOfflineSurvey: Promise<{ ok: boolean }> | null = null
+ipcMain.handle('survey:offline', (e) => {
+  if (!settingsWin || e.sender !== settingsWin.webContents) return { ok: false }
+  if (openingOfflineSurvey) return openingOfflineSurvey
+  openingOfflineSurvey = (async () => {
+    try {
+      await submitOfflineVote()
+      return { ok: true }
+    } catch (error) {
+      logError('offline survey', error)
+      return { ok: false }
+    } finally { openingOfflineSurvey = null }
+  })()
+  return openingOfflineSurvey
+})
 // 界面语言：各窗口加载时同步取一次（首帧就是对的语言），之后有变化再推送
 ipcMain.on('ui:lang', (e) => (e.returnValue = uiLang()))
 let sentLang = ''
@@ -1127,10 +1162,10 @@ ipcMain.handle('engine:test', async () => {
 let registeredHotkey = ''
 const winSpace = new WinSpaceHotkey()
 const hotkeyLabel = (value: string) => acceleratorLabel(value, process.platform, uiLang())
-function registerHotkey(hotkey: string): boolean {
+async function registerHotkey(hotkey: string): Promise<boolean> {
   if (registeredHotkey) globalShortcut.unregister(registeredHotkey)
   registeredHotkey = ''
-  winSpace.setMode(0)
+  void winSpace.setMode(0)
   if (process.platform === 'win32' && hotkey === 'Super+Space') return winSpace.setMode(1)
   try {
     if (globalShortcut.register(hotkey, onHotkey)) {
@@ -1143,14 +1178,14 @@ function registerHotkey(hotkey: string): boolean {
   return false
 }
 
-ipcMain.handle('hotkey:set', (_e, hotkey: string) => {
+ipcMain.handle('hotkey:set', async (_e, hotkey: string) => {
   const prev = settings.get().hotkey
-  if (registerHotkey(hotkey)) {
+  if (await registerHotkey(hotkey)) {
     settings.update({ hotkey })
     updateTray()
     return { ok: true }
   }
-  registerHotkey(prev)
+  await registerHotkey(prev)
   return { ok: false, message: t('hotkey.taken') }
 })
 
@@ -1158,8 +1193,8 @@ ipcMain.handle('hotkey:suspend', (_e, on: boolean) => {
   // 录制快捷键时暂停全局热键
   if (on) {
     globalShortcut.unregisterAll()
-    winSpace.setMode(2)
-  } else registerHotkey(settings.get().hotkey)
+    return winSpace.setMode(2)
+  } else return registerHotkey(settings.get().hotkey)
 })
 
 function updateTray() {
@@ -1274,7 +1309,7 @@ export const startup = app.whenReady().then(async () => {
   updateMacMenu()
   if (isMac) app.dock?.setIcon(nativeImage.createFromPath(appIcon))
   buildEngine(s)
-  void ocr.init()
+  // OCR loads on the first capture/settings request, not during Windows sign-in.
   syncOverlays()
   screen.on('display-added', syncOverlays)
   screen.on('display-removed', syncOverlays)
@@ -1318,8 +1353,15 @@ export const startup = app.whenReady().then(async () => {
   await winSpace.start((recording) => {
     if (recording) settingsWin?.webContents.send('hotkey:recorded', 'Super+Space')
     else onHotkey()
-  }, requestScrollAtCursor)
-  const ok = registerHotkey(s.hotkey)
+  }, requestScrollAtCursor, () => { if (!quitting) void hideOverlays(true) })
+  const ok = await registerHotkey(s.hotkey)
+  if (process.platform === 'win32') {
+    const releaseInput = () => { void hideOverlays(true); void winSpace.setMode(0) }
+    powerMonitor.on('lock-screen', releaseInput)
+    powerMonitor.on('suspend', releaseInput)
+    powerMonitor.on('unlock-screen', () => { void registerHotkey(settings.get().hotkey) })
+    powerMonitor.on('resume', () => { void registerHotkey(settings.get().hotkey) })
+  }
   settings.onChange((next, prev) => {
     if (next.provider !== prev.provider || JSON.stringify(next.providers[next.provider]) !== JSON.stringify(prev.providers[prev.provider])) buildEngine(next)
     if (next.launchAtLogin !== prev.launchAtLogin) app.setLoginItemSettings({ openAtLogin: next.launchAtLogin })

@@ -10,6 +10,7 @@ export async function checkSettingsHotkey(platform: 'Win32' | 'MacIntel') {
   const listeners = new Set<(s: S) => void>()
   const off = () => () => {}
   let rejectNext = false
+  let surveyCalls = 0
   Object.assign(window, { lens: {
     uiLang: () => 'zh-Hans', onUiLang: off,
     getSettings: async () => saved, onSettings: (cb: (s: S) => void) => { listeners.add(cb); return () => listeners.delete(cb) },
@@ -17,6 +18,13 @@ export async function checkSettingsHotkey(platform: 'Win32' | 'MacIntel') {
     engineStatus: async () => ({ ok: true }), ocrInfo: async () => 'CPU',
     suspendHotkey: async () => {}, onHotkeyRecorded: off,
     macSettingsStatus: async () => ({}),
+    openOfflineSurvey: async () => {
+      surveyCalls++
+      if (surveyCalls === 1) return { ok: false }
+      saved = { ...saved, offlineSurveyDismissed: true }
+      for (const cb of listeners) cb(saved)
+      return { ok: true }
+    },
     setHotkey: async (hotkey: string) => {
       if (rejectNext) return { ok: false, message: 'hotkey.taken' }
       saved = { ...saved, hotkey }
@@ -41,8 +49,16 @@ export async function checkSettingsHotkey(platform: 'Win32' | 'MacIntel') {
     await wait(() => !!host.querySelector('.hero-keys'))
     const label = (acc: string) => acceleratorLabel(acc, platform === 'MacIntel' ? 'darwin' : 'win32', 'zh-Hans')
     assert(keys() === label(saved.hotkey), 'home must show saved default')
+    assert(host.querySelector('.offline-survey')?.textContent?.includes('1.13 GB'), 'survey must explain download size')
+    click('.offline-survey button')
+    await wait(() => !!host.querySelector('.offline-survey-error'))
+    assert(!saved.offlineSurveyDismissed, 'failed submission must remain retryable')
+    click('.offline-survey button')
+    await wait(() => !host.querySelector('.offline-survey'))
+    assert(saved.offlineSurveyDismissed && surveyCalls === 2, 'successful submission persists dismissal')
     click('[data-page="general"]')
     await wait(() => !!host.querySelector('.hotkey'))
+    assert(!host.querySelector('.offline-survey'), 'survey stays hidden on the other settings page')
     click('.hotkey')
     await wait(() => !!host.querySelector('.hotkey.rec'))
     await pause()

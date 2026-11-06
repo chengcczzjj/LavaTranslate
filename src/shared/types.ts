@@ -98,6 +98,10 @@ export interface Settings {
   replyAssist: boolean
   replyTone: 'auto' | 'formal' | 'casual'
   launchAtLogin: boolean
+  /** Offline-pack vote was acknowledged by the server. */
+  offlineSurveyDismissed: boolean
+  /** Separate random survey ID, unrelated to translation accounts. */
+  offlineSurveyId: string
   /** 显示模式：覆盖原文 / 原文下方对照 */
   displayMode: 'overlay' | 'side'
   /** 翻译风格补充说明 */
@@ -124,6 +128,8 @@ export const DEFAULT_SETTINGS: Settings = {
   replyAssist: true,
   replyTone: 'auto',
   launchAtLogin: false,
+  offlineSurveyDismissed: false,
+  offlineSurveyId: '',
   displayMode: 'overlay',
   styleHint: '',
   firstRunDone: false,

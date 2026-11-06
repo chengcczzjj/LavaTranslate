@@ -76,6 +76,7 @@ const api = {
   setSettings: (patch: SettingsPatch): Promise<Settings> => ipcRenderer.invoke('settings:set', patch),
   onSettings: (cb: (s: Settings) => void) => on('settings:changed', cb),
   openSettings: () => ipcRenderer.send('settings:open'),
+  openOfflineSurvey: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('survey:offline'),
   engineStatus: (): Promise<EngineStatus> => ipcRenderer.invoke('engine:status'),
   macSettingsStatus: (): Promise<{ screen: boolean; input: boolean; launchAtLogin: boolean } | null> => ipcRenderer.invoke('mac:settings-status'),
   openMacSettings: (pane: 'screen' | 'input' | 'login' | 'keyboard'): Promise<void> => ipcRenderer.invoke('mac:open-settings', pane),
