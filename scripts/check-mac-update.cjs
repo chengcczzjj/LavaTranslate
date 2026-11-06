@@ -39,7 +39,7 @@ app.whenReady().then(async () => {
   updater.autoInstallOnAppQuit = false
   updater.disableDifferentialDownload = true
   const config = join(dir, 'dev-app-update.yml')
-  writeFileSync(config, dump({ updaterCacheDirName: basename(dir) }))
+  writeFileSync(config, dump({ provider: 'generic', url: `http://127.0.0.1:${server.address().port}`, updaterCacheDirName: basename(dir) }))
   updater.updateConfigPath = config
   let downloaded
   updater.on('update-downloaded', info => { downloaded = info.downloadedFile })
