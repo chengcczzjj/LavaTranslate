@@ -94,7 +94,7 @@ npm run dist:mac
 - 经签名/公证入口构建的应用在 package.json 中记录 `macUpdateMode: native`，启用标准的重启自动安装流程。已有的 ad-hoc 版本切换到这种签名版本时需要手动安装一次。
 - 1.4.8 及更早的旧 Mac 预览版把更新功能硬编码关闭，因此必须先手动安装一次 1.4.9；仅在服务器发布文件无法修复旧应用本身。
 - 「预览版」原本表示 Mac 只做过局部原生验证、未建立发行更新通道，并不表示源码与 Windows 完全不同。1.4.9 不再对所有 Mac 固定显示这个标签，开发模式仍明确禁用更新。
-- GitHub Release 必须同时包含 Mac ZIP、DMG 和 `latest-mac.yml`。更新入口不能只上传 Windows 文件。缺少 Mac 清单会显示错误，不会假称「已是最新版」。
+- 发布新版 Mac 时，GitHub Release 必须包含 Mac ZIP、DMG 和 `latest-mac.yml`。只发布 Windows 时，发布脚本会保留已有的 Mac 清单，并将下载地址固定到安装包所在的旧 Release；Mac 通过 GenericProvider 读取这些地址。缺少 Mac 清单会显示错误，不会假称「已是最新版」。
 
 ## OCR 速度与竖排验收（2026-11-04）
 
