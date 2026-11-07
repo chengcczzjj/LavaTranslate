@@ -334,6 +334,8 @@ const zhHans = {
   'ov.hintExit': '右键或 {k} 退出',
   'tb.detecting': '识别中',
   'tb.auto': '自动检测',
+  'tb.autoTranslate': '自动翻译',
+  'tb.autoTranslateFailed': '自动翻译设置保存失败，请重试',
   'tb.settings': '去设置',
   'tb.retry': '重试',
   'tb.overlay': '原位覆盖',
@@ -393,7 +395,9 @@ const zhHans = {
   'pin.copyOriginal': '复制原文（Ctrl+C）',
   'pin.copiedOriginal': '已复制原文',
   'pin.top': '始终在最上层',
-  'pin.close': '关闭（Esc / 双击）'
+  'pin.close': '关闭（Esc / 右键）',
+  'pin.collapseHint': '双击缩小为方块 · 右键关闭',
+  'pin.expandHint': '双击恢复原尺寸 · 右键关闭'
 }
 
 export type MsgKey = keyof typeof zhHans

@@ -322,6 +322,8 @@ const vi: Messages = {
   'ov.hintExit': 'Chuột phải hoặc {k} để thoát',
   'tb.detecting': 'Đang đọc',
   'tb.auto': 'Tự nhận dạng',
+  'tb.autoTranslate': 'Tự động dịch',
+  'tb.autoTranslateFailed': 'Không thể lưu cài đặt tự động dịch. Vui lòng thử lại.',
   'tb.settings': 'Cài đặt',
   'tb.retry': 'Thử lại',
   'tb.overlay': 'Phủ lên',
@@ -379,7 +381,9 @@ const vi: Messages = {
   'pin.copyOriginal': 'Sao chép văn bản gốc (Ctrl+C)',
   'pin.copiedOriginal': 'Đã sao chép văn bản gốc',
   'pin.top': 'Luôn ở trên cùng',
-  'pin.close': 'Đóng (Esc / nhấp đúp)'
+  'pin.close': 'Đóng (Esc / nhấp chuột phải)',
+  'pin.collapseHint': 'Nhấp đúp để thu nhỏ · Nhấp chuột phải để đóng',
+  'pin.expandHint': 'Nhấp đúp để khôi phục kích thước · Nhấp chuột phải để đóng'
 }
 
 export default vi

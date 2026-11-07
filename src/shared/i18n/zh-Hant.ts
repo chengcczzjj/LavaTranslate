@@ -322,6 +322,8 @@ const zhHant: Messages = {
   'ov.hintExit': '右鍵或 {k} 離開',
   'tb.detecting': '辨識中',
   'tb.auto': '自動偵測',
+  'tb.autoTranslate': '自動翻譯',
+  'tb.autoTranslateFailed': '自動翻譯設定儲存失敗，請重試',
   'tb.settings': '去設定',
   'tb.retry': '重試',
   'tb.overlay': '原位覆蓋',
@@ -379,7 +381,9 @@ const zhHant: Messages = {
   'pin.copyOriginal': '複製原文（Ctrl+C）',
   'pin.copiedOriginal': '已複製原文',
   'pin.top': '永遠在最上層',
-  'pin.close': '關閉（Esc / 按兩下）'
+  'pin.close': '關閉（Esc / 右鍵）',
+  'pin.collapseHint': '按兩下縮小為方塊 · 右鍵關閉',
+  'pin.expandHint': '按兩下恢復原尺寸 · 右鍵關閉'
 }
 
 export default zhHant

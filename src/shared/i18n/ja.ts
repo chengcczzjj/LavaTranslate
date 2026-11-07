@@ -322,6 +322,8 @@ const ja: Messages = {
   'ov.hintExit': '右クリックか {k} で終了',
   'tb.detecting': '認識中',
   'tb.auto': '自動検出',
+  'tb.autoTranslate': '自動翻訳',
+  'tb.autoTranslateFailed': '自動翻訳の設定を保存できませんでした。もう一度お試しください。',
   'tb.settings': '設定',
   'tb.retry': '再試行',
   'tb.overlay': '重ねて表示',
@@ -379,7 +381,9 @@ const ja: Messages = {
   'pin.copyOriginal': '原文をコピー（Ctrl+C）',
   'pin.copiedOriginal': '原文をコピーしました',
   'pin.top': '常に最前面に表示',
-  'pin.close': '閉じる（Esc / ダブルクリック）'
+  'pin.close': '閉じる（Esc / 右クリック）',
+  'pin.collapseHint': 'ダブルクリックで縮小 · 右クリックで閉じる',
+  'pin.expandHint': 'ダブルクリックで元のサイズに戻す · 右クリックで閉じる'
 }
 
 export default ja

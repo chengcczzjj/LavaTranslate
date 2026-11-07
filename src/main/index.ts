@@ -57,6 +57,7 @@ import { langBase, providerName, UI_LANGS } from '../shared/i18n'
 import { focusWindowAt, forceForeground, hwndOf, keyDown, VK_SPACE } from './winapi'
 import { configureMacOverlay, ensureKeyMonitoring, ensureScreenCapture, isMac, macSpaceDown, macSettingsStatus, openMacSettings } from './macos'
 import { acceleratorLabel } from '../shared/hotkeys'
+import { PIN_COMPACT_SIZE, PIN_MARGIN } from '../shared/pin'
 import { macUpdateText } from '../shared/mac-update'
 import { WinSpaceHotkey } from './win-space'
 import { OpenAIEngine, TranslateError, type Engine } from '../core/translator'
@@ -394,6 +395,7 @@ function presentCaptures(caps: DisplayCapture[], refresh = false) {
       cursor: cap.display.id === cursorDisplay.id ? { x: cursor.x - b.x, y: cursor.y - b.y } : null,
       windows: cap.windows,
       targetLang: s.targetLang,
+      autoTranslate: s.autoTranslate,
       displayMode: s.displayMode,
       hotkey: s.hotkey,
       replyAssist: s.replyAssist,
@@ -817,7 +819,6 @@ function roundRect(r: Rect) {
 // ------------------------------------------------------------------ 钉图窗口
 // 钉好后从选区飞到这块屏幕的左上角，一张张错开排；落位后是普通窗口：显示在最上面，
 // 点了别的窗口就会被盖住（钉图上可以打开「始终在最上层」）
-const PIN_MARGIN = 18
 const PIN_INSET = 20
 const PIN_STEP = 32
 const PIN_FLY_MS = 460
@@ -830,6 +831,8 @@ interface PinWin {
   home: { x: number; y: number }
   fly: NodeJS.Timeout | null
   top: boolean
+  /** 收起前的窗口尺寸，包含阴影留白；收起后拖动不改变它。 */
+  expandedSize: { width: number; height: number } | null
 }
 const pins = new Map<number, PinWin>()
 
@@ -911,7 +914,7 @@ ipcMain.on('pin:create', (e, payload: PinPayload) => {
   })
   // 窗口销毁后不能再访问 webContents，先记下 id
   const id = win.webContents.id
-  const pin: PinWin = { win, payload, displayId: display.id, slot: slot.slot, home: { x: slot.x, y: slot.y }, fly: null, top: false }
+  const pin: PinWin = { win, payload, displayId: display.id, slot: slot.slot, home: { x: slot.x, y: slot.y }, fly: null, top: false, expandedSize: null }
   pins.set(id, pin)
   win.on('closed', () => {
     if (pin.fly) clearInterval(pin.fly)
@@ -928,7 +931,7 @@ ipcMain.on('pin:create', (e, payload: PinPayload) => {
     win.showInactive()
     hideOverlays(true)
     // 先在原处停一拍，再飞去左上角
-    setTimeout(() => !win.isDestroyed() && flyPin(pin), 90)
+    setTimeout(() => !win.isDestroyed() && !pin.expandedSize && flyPin(pin), 90)
   })
 })
 
@@ -967,10 +970,31 @@ ipcMain.on('pin:drag', (e, on: boolean) => {
   )
 })
 
+ipcMain.on('pin:compact', (e, on: boolean) => {
+  const pin = pins.get(e.sender.id)
+  if (!pin || pin.win.isDestroyed() || !!pin.expandedSize === on) return
+  clearInterval(drags.get(e.sender.id))
+  drags.delete(e.sender.id)
+  settlePin(pin)
+  const bounds = pin.win.getBounds()
+  if (on) {
+    pin.expandedSize = { width: bounds.width, height: bounds.height }
+    pin.win.setBounds({ ...bounds, width: PIN_COMPACT_SIZE + PIN_MARGIN * 2, height: PIN_COMPACT_SIZE + PIN_MARGIN * 2 })
+  } else {
+    const size = pin.expandedSize!
+    const area = screen.getDisplayMatching(bounds).workArea
+    // 小方块可以拖动；在当前位置展开，靠近屏幕边缘时移回可见区域。
+    const x = Math.max(area.x, Math.min(bounds.x, area.x + area.width - size.width))
+    const y = Math.max(area.y, Math.min(bounds.y, area.y + area.height - size.height))
+    pin.expandedSize = null
+    pin.win.setBounds({ x, y, ...size })
+  }
+})
+
 ipcMain.on('pin:zoom', (e, factor: number) => {
   const win = BrowserWindow.fromWebContents(e.sender)
   const pin = pins.get(e.sender.id)
-  if (!win || !pin) return
+  if (!win || !pin || pin.expandedSize || !Number.isFinite(factor)) return
   if (pin.fly) settlePin(pin)
   const r = pin.payload.screenRect
   const b = win.getBounds()
@@ -1370,6 +1394,9 @@ export const startup = app.whenReady().then(async () => {
     if (next.uiLang !== prev.uiLang) broadcastUiLang()
     updateTray()
     if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('settings:changed', settings.public())
+    if (next.autoTranslate !== prev.autoTranslate) {
+      for (const o of overlays.values()) if (!o.win.isDestroyed()) o.win.webContents.send('settings:changed', settings.public())
+    }
   })
 
   if (process.env.LENS_SHOWTEST) {

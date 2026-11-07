@@ -157,6 +157,7 @@ function captureHarness(permission, capture) {
       screen: { getAllDisplays: () => [display], getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => display }
     },
     '../shared/types': {}, './capture': { captureAll: capture }, './credentials': {}, '../core/detect': {}, '../core/lang': {},
+    '../shared/pin': loadTs('src/shared/pin.ts'),
     '../core/platform': { setPlatform: noop }, './ocr': { PaddleOcr: class {} }, './ocr-language': {}, './pricing': {}, './updater': {},
     './settings': { settings: { get: () => ({ hotkey: 'Command+Shift+2' }) } },
     './offline-survey': { submitOfflineVote: noop }, '../shared/mac-update': { macUpdateText: noop },

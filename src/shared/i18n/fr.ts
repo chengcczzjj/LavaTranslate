@@ -322,6 +322,8 @@ const fr: Messages = {
   'ov.hintExit': 'Clic droit ou {k} pour quitter',
   'tb.detecting': 'Lecture',
   'tb.auto': 'Détection auto',
+  'tb.autoTranslate': 'Traduction automatique',
+  'tb.autoTranslateFailed': 'Impossible d’enregistrer la traduction automatique. Réessayez.',
   'tb.settings': 'Paramètres',
   'tb.retry': 'Réessayer',
   'tb.overlay': 'Superposé',
@@ -379,7 +381,9 @@ const fr: Messages = {
   'pin.copyOriginal': 'Copier le texte original (Ctrl+C)',
   'pin.copiedOriginal': 'Texte original copié',
   'pin.top': 'Toujours au premier plan',
-  'pin.close': 'Fermer (Échap / double-clic)'
+  'pin.close': 'Fermer (Échap / clic droit)',
+  'pin.collapseHint': 'Double-clic pour réduire · Clic droit pour fermer',
+  'pin.expandHint': 'Double-clic pour rétablir la taille · Clic droit pour fermer'
 }
 
 export default fr

@@ -322,6 +322,8 @@ const ko: Messages = {
   'ov.hintExit': '우클릭 또는 {k}로 나가기',
   'tb.detecting': '인식 중',
   'tb.auto': '자동 감지',
+  'tb.autoTranslate': '자동 번역',
+  'tb.autoTranslateFailed': '자동 번역 설정을 저장하지 못했습니다. 다시 시도하세요.',
   'tb.settings': '설정',
   'tb.retry': '다시 시도',
   'tb.overlay': '덮어쓰기',
@@ -379,7 +381,9 @@ const ko: Messages = {
   'pin.copyOriginal': '원문 복사 (Ctrl+C)',
   'pin.copiedOriginal': '원문을 복사했습니다',
   'pin.top': '항상 위에 표시',
-  'pin.close': '닫기 (Esc / 더블클릭)'
+  'pin.close': '닫기 (Esc / 오른쪽 클릭)',
+  'pin.collapseHint': '더블클릭으로 축소 · 오른쪽 클릭으로 닫기',
+  'pin.expandHint': '더블클릭으로 원래 크기 복원 · 오른쪽 클릭으로 닫기'
 }
 
 export default ko

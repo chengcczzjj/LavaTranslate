@@ -22,6 +22,15 @@ body,
   cursor: grabbing;
 }
 
+.pin-compact {
+  border-radius: 9px;
+  background: #202027;
+}
+
+.pin-compact .pin-inner {
+  pointer-events: none;
+}
+
 .pin-inner {
   position: relative;
   transform-origin: 0 0;

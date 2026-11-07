@@ -202,6 +202,7 @@ export interface CaptureFrame {
   /** 可见窗口区域（物理像素，按 z 序从上到下），用于单击选中窗口 */
   windows: Rect[]
   targetLang: string
+  autoTranslate: boolean
   displayMode: Settings['displayMode']
   hotkey: string
   replyAssist: boolean

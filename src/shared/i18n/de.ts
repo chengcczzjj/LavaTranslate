@@ -322,6 +322,8 @@ const de: Messages = {
   'ov.hintExit': 'Rechtsklick oder {k} zum Beenden',
   'tb.detecting': 'Erkenne',
   'tb.auto': 'Automatisch',
+  'tb.autoTranslate': 'Automatisch übersetzen',
+  'tb.autoTranslateFailed': 'Automatische Übersetzung konnte nicht gespeichert werden. Bitte erneut versuchen.',
   'tb.settings': 'Einstellungen',
   'tb.retry': 'Erneut',
   'tb.overlay': 'Überlagert',
@@ -379,7 +381,9 @@ const de: Messages = {
   'pin.copyOriginal': 'Originaltext kopieren (Strg+C)',
   'pin.copiedOriginal': 'Originaltext kopiert',
   'pin.top': 'Immer im Vordergrund',
-  'pin.close': 'Schließen (Esc / Doppelklick)'
+  'pin.close': 'Schließen (Esc / Rechtsklick)',
+  'pin.collapseHint': 'Doppelklick zum Verkleinern · Rechtsklick zum Schließen',
+  'pin.expandHint': 'Doppelklick für ursprüngliche Größe · Rechtsklick zum Schließen'
 }
 
 export default de

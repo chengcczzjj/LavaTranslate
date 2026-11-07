@@ -322,6 +322,8 @@ const en: Messages = {
   'ov.hintExit': 'Right-click or {k} to exit',
   'tb.detecting': 'Reading',
   'tb.auto': 'Auto-detect',
+  'tb.autoTranslate': 'Auto translate',
+  'tb.autoTranslateFailed': 'Could not save auto translate. Please try again.',
   'tb.settings': 'Settings',
   'tb.retry': 'Retry',
   'tb.overlay': 'Overlay',
@@ -379,7 +381,9 @@ const en: Messages = {
   'pin.copyOriginal': 'Copy original text (Ctrl+C)',
   'pin.copiedOriginal': 'Copied original text',
   'pin.top': 'Always on top',
-  'pin.close': 'Close (Esc / double-click)'
+  'pin.close': 'Close (Esc / right-click)',
+  'pin.collapseHint': 'Double-click to shrink · Right-click to close',
+  'pin.expandHint': 'Double-click to restore size · Right-click to close'
 }
 
 export default en

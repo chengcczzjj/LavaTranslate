@@ -375,6 +375,7 @@
 
 /* 复制成图片的那一刻：骨架、提示都不能截进去 */
 .overlay.capturing .tl-skel,
+.overlay.capturing .tb-shortcuts,
 .overlay.capturing .toast {
   display: none;
 }
@@ -557,8 +558,7 @@
   align-items: center;
   gap: 6px;
   padding: 0 4px 0 8px;
-  min-width: 186px;
-  max-width: 340px;
+  min-width: 0;
 }
 
 .tb-icon {
@@ -614,6 +614,7 @@
 
 .tb-lang {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 6px;
   height: 32px;
@@ -626,13 +627,6 @@
 .tb-lang.is-open {
   background: rgba(255, 255, 255, 0.08);
 }
-.tb-src {
-  color: var(--text-2);
-  display: inline-block;
-}
-.tb-arrow {
-  color: var(--text-3);
-}
 .tb-dst {
   font-weight: 600;
 }
@@ -644,8 +638,72 @@
   transform: rotate(180deg);
 }
 
-.tb-count,
-.tb-time {
+.tb-auto {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 32px;
+  border-radius: 9px;
+  transition: background 0.15s;
+}
+.tb-auto:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.tb-auto input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.tb-auto-box {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.12);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  color: rgba(255, 255, 255, 0.92);
+  pointer-events: none;
+  transition: background 0.18s, border-color 0.18s, box-shadow 0.18s, transform 0.15s var(--ease), opacity 0.15s;
+}
+.tb-auto-box svg {
+  opacity: 0;
+  transform: scale(0.65);
+  transition: opacity 0.15s, transform 0.18s var(--ease);
+}
+.tb-auto input:checked + .tb-auto-box {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.07));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 1px 3px rgba(0, 0, 0, 0.16);
+}
+.tb-auto input:checked + .tb-auto-box svg {
+  opacity: 1;
+  transform: scale(1);
+}
+.tb-auto:hover input:not(:disabled) + .tb-auto-box {
+  border-color: rgba(255, 255, 255, 0.52);
+}
+.tb-auto input:active:not(:disabled) + .tb-auto-box {
+  transform: scale(0.9);
+}
+.tb-auto input:focus-visible + .tb-auto-box {
+  outline: 2px solid rgba(255, 255, 255, 0.65);
+  outline-offset: 3px;
+}
+.tb-auto input:disabled {
+  cursor: wait;
+}
+.tb-auto input:disabled + .tb-auto-box {
+  opacity: 0.5;
+}
+
+.tb-count {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--text-3);
@@ -682,34 +740,10 @@
   transform: scale(0.95);
 }
 
-.tb-seg {
-  position: relative;
-  display: flex;
-  padding: 2px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
-  margin-right: 2px;
-}
-.tb-seg-thumb {
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  width: 32px;
-  height: 30px;
-  border-radius: 8px;
+.tb-compare.on,
+.tb-reply.on {
   background: rgba(255, 255, 255, 0.16);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-.tb-seg-btn {
-  position: relative;
-  width: 32px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  color: var(--text-3);
-  transition: color 0.2s;
-}
-.tb-seg-btn.on {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2);
   color: #fff;
 }
 
@@ -760,6 +794,52 @@
   background: rgba(14, 14, 20, 0.94);
   border: 1px solid var(--glass-border);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.tb-help-anchor {
+  display: inline-flex;
+}
+.tb-shortcuts {
+  position: fixed;
+  z-index: 100;
+  width: min(300px, calc(100vw - 16px));
+  padding: 9px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  background: rgba(22, 22, 30, 0.97);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  cursor: default;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+.tb-shortcuts-title {
+  padding-bottom: 6px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--hair);
+  font-size: 11px;
+  font-weight: 600;
+}
+.tb-shortcut {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.tb-shortcut kbd {
+  padding: 0 5px;
+  font-size: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  white-space: nowrap;
 }
 
 /* 语言选择 */

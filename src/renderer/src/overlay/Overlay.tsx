@@ -74,10 +74,11 @@ export function Overlay() {
   const [phase, setPhase] = useState<Phase>('idle')
   const [lang, setLang] = useState<{ code: string; name: string; chat?: boolean } | null>(null)
   const [error, setError] = useState<{ message: string; code?: ErrorCode } | null>(null)
-  const [stats, setStats] = useState<{ ms: number; firstTokenMs?: number; engine: string } | null>(null)
   const [target, setTarget] = useState('zh-Hans')
+  const [autoTranslate, setAutoTranslate] = useState(DEFAULT_SETTINGS.autoTranslate)
+  const [autoTranslateBusy, setAutoTranslateBusy] = useState(false)
+  const autoTranslateSaving = useRef(false)
   const [mode, setMode] = useState<'overlay' | 'side'>('overlay')
-  const [peek, setPeek] = useState(false)
   const [hoverKey, setHoverKey] = useState<string | null>(null)
   const [tipKey, setTipKey] = useState<string | null>(null)
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null)
@@ -137,8 +138,6 @@ export function Overlay() {
     setPhase('idle')
     setLang(null)
     setError(null)
-    setStats(null)
-    setPeek(false)
     setHoverKey(null)
     setTipKey(null)
     setToast(null)
@@ -184,6 +183,7 @@ export function Overlay() {
       setFrameNo((n) => n + 1)
       setMeta({ displayId: f.displayId, width: f.width, height: f.height, scale: f.scale, windows: f.windows })
       setTarget(f.targetLang)
+      setAutoTranslate(f.autoTranslate)
       setMode(f.displayMode)
       setHotkey(f.hotkey)
       setReplyAssist(f.replyAssist)
@@ -256,6 +256,8 @@ export function Overlay() {
     }
   }, [reset, endAlt])
 
+  useEffect(() => window.lens.onSettings((s) => setAutoTranslate(s.autoTranslate)), [])
+
   // ------------------------------------------------------------ 翻译
   const startTranslate = useCallback(
     (rect: Rect, opts: { reuseOcr?: boolean; lang?: string; manual?: boolean } = {}) => {
@@ -275,7 +277,6 @@ export function Overlay() {
       setBlocks([])
       if (!opts.reuseOcr) setColors({})
       setError(null)
-      setStats(null)
       setRecognized(null)
       setLang(null)
       setHoverKey(null)
@@ -318,7 +319,6 @@ export function Overlay() {
         break
       case 'done':
         setPhase('done')
-        setStats({ ms: event.ms, firstTokenMs: event.firstTokenMs, engine: event.engine })
         break
       case 'error':
         setPhase('error')
@@ -549,13 +549,13 @@ export function Overlay() {
 
   /**
    * 双击：像截图工具一样把双击的那块（选区 / 并排面板）按当前看到的样子复制成图片并退出；
-   * 还没有译文、正在看原文（Space / Alt）、或按着 Alt 双击时复制原图。
+   * 还没有译文、正在按住 Alt 看原文、或按着 Alt 双击时复制原图。
    */
   const copyShot = useCallback(
     async (where: 'sel' | 'panel', original: boolean) => {
       if (!sel) return
       const translated = blocks.some((b) => !b.keep)
-      const raw = original || !translated || (where === 'sel' && (mode === 'side' || peek)) || (where === 'panel' && !panel)
+      const raw = original || !translated || (where === 'sel' && (mode === 'side' || altPeek)) || (where === 'panel' && !panel)
       if (raw) await window.lens.copyRaw(selPhys.current)
       else {
         const r = where === 'panel' && panel ? { x: panel.x, y: panel.y, w: sel.w * panel.s, h: sel.h * panel.s } : sel
@@ -563,7 +563,7 @@ export function Overlay() {
       }
       window.lens.close()
     },
-    [sel, blocks, mode, peek, panel, withChromeHidden]
+    [sel, blocks, mode, altPeek, panel, withChromeHidden]
   )
 
   const onDoubleClick = (e: React.MouseEvent) => {
@@ -575,10 +575,10 @@ export function Overlay() {
     void copyShot(inPanel ? 'panel' : 'sel', e.altKey)
   }
 
-  /** 钉在桌面；按着 Alt（或开着看原文）时钉不翻译的原图 */
+  /** 钉在桌面；按着 Alt 看原文时钉不翻译的原图 */
   const pin = useCallback(
     (alt = false) => {
-      const original = alt || altPeek || peek
+      const original = alt || altPeek
       if (!sel || (!blocks.length && !original) || !canvas.current) return
       const o = selPhys.current
       const c = document.createElement('canvas')
@@ -598,12 +598,32 @@ export function Overlay() {
         original
       })
     },
-    [sel, blocks, lines, colors, lang, target, scale, altPeek, peek]
+    [sel, blocks, lines, colors, lang, target, scale, altPeek]
   )
 
   const retry = useCallback(() => {
     if (sel) startTranslate(sel, { reuseOcr: lines.length > 0, manual: true })
   }, [sel, startTranslate, lines.length])
+
+  const changeAutoTranslate = useCallback(async (on: boolean) => {
+    if (autoTranslateSaving.current) return
+    autoTranslateSaving.current = true
+    setAutoTranslateBusy(true)
+    const request = reqId.current
+    try {
+      const saved = await window.lens.setSettings({ autoTranslate: on })
+      setAutoTranslate(saved.autoTranslate)
+      // 保存后才重新处理当前选区：开启即翻译，关闭即只识别。关闭或重选后不重启旧选区。
+      if (request === reqId.current && live.current.stage === 'selected' && sel) {
+        startTranslate(sel, { reuseOcr: true })
+      }
+    } catch {
+      flash(currentI18n().t('tb.autoTranslateFailed'))
+    } finally {
+      autoTranslateSaving.current = false
+      setAutoTranslateBusy(false)
+    }
+  }, [sel, startTranslate])
 
   const changeTarget = useCallback(
     (code: string) => {
@@ -616,7 +636,6 @@ export function Overlay() {
 
   const changeMode = useCallback((m: 'overlay' | 'side') => {
     setMode(m)
-    setPeek(false)
     void window.lens.setSettings({ displayMode: m })
   }, [])
 
@@ -658,7 +677,7 @@ export function Overlay() {
     const down = (e: KeyboardEvent) => {
       if (stage === 'hidden') return
       const el = e.target as HTMLElement
-      if (el.tagName === 'INPUT') return
+      if (el instanceof HTMLInputElement && (el.type !== 'checkbox' || e.key === ' ' || e.key === 'Tab')) return
       // Option+C 在 Mac 上会产生 ç；组合键按物理字母键识别。
       const k = isMac && e.altKey && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : e.key.toLowerCase()
       // 回复框只会把「空白时的空格/Enter/Tab」和 Ctrl 组合键冒泡上来
@@ -873,7 +892,7 @@ export function Overlay() {
   const showAltChip = altPeek && stage === 'selected' && !adjusting && !capturing && !!sel
 
   // 原位覆盖时切换原文 / 译文：和译文从上到下依次切换同步，选区上扫过一道光
-  const viewOriginal = altPeek || peek
+  const viewOriginal = altPeek
   const lastView = useRef(viewOriginal)
   useEffect(() => {
     if (lastView.current === viewOriginal) return
@@ -967,7 +986,7 @@ export function Overlay() {
             width={selPhys.current.w / s}
             height={selPhys.current.h / s}
             targetLang={target}
-            peek={peek || altPeek}
+            peek={altPeek}
             pending={altPeek ? null : pending}
             hoverKey={capturing ? null : hoverKey}
             onHover={setHoverKey}
@@ -1042,7 +1061,7 @@ export function Overlay() {
 
       {/* 原文提示 */}
       <AnimatePresence>
-        {tipBlock && tipRect && !peek && !altPeek && !capturing && (
+        {tipBlock && tipRect && !altPeek && !capturing && (
           <motion.div
             key={tipBlock.key}
             className="orig-tip"
@@ -1085,21 +1104,20 @@ export function Overlay() {
             phase={phase}
             recognized={recognized}
             error={error}
-            lang={lang}
             target={target}
+            autoTranslate={autoTranslate}
+            autoTranslateBusy={autoTranslateBusy}
             progress={progress}
-            stats={stats}
             mode={mode}
-            peek={peek}
             paused={altPeek}
             pickerUp={tbPos!.pickerUp}
             onTarget={changeTarget}
+            onAutoTranslate={changeAutoTranslate}
             onMode={changeMode}
-            onPeek={setPeek}
             onCopy={copyAll}
             onCopySource={copyOriginal}
             onCopyImage={copyImage}
-            onPin={() => pin()}
+            onPin={pin}
             onSave={saveImage}
             onRetry={retry}
             onSettings={() => window.lens.openSettings()}

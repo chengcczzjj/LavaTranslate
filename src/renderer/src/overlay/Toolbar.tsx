@@ -1,6 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react'
 import {
-  ArrowRight,
   Check,
   ChevronDown,
   Columns2,
@@ -8,9 +7,7 @@ import {
   ScanText,
   Languages,
   Download,
-  Eye,
   ImageDown,
-  Layers,
   MessageSquareReply,
   Pause,
   Pin,
@@ -22,6 +19,7 @@ import {
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { LANGUAGES, type ErrorCode, type Phase } from '@shared/types'
 import { Tip } from '../components/Tip'
+import { ShortcutHelp } from './ShortcutHelp'
 import { useI18n } from '../lib/i18n'
 import { isMac, shortcutLabel } from '../lib/desktop'
 
@@ -29,22 +27,21 @@ export interface ToolbarProps {
   phase: Phase
   recognized: 'ocr-only' | 'same-language' | null
   error: { message: string; code?: ErrorCode } | null
-  lang: { code: string; name: string } | null
   target: string
+  autoTranslate: boolean
+  autoTranslateBusy: boolean
   progress: { done: number; total: number }
-  stats: { ms: number; firstTokenMs?: number; engine: string } | null
   mode: 'overlay' | 'side'
-  peek: boolean
   /** 按着 Alt 看原文：翻译暂停 */
   paused: boolean
   pickerUp: boolean
   onTarget: (code: string) => void
+  onAutoTranslate: (on: boolean) => void
   onMode: (m: 'overlay' | 'side') => void
-  onPeek: (on: boolean) => void
   onCopy: () => void
   onCopySource: () => void
   onCopyImage: () => void
-  onPin: () => void
+  onPin: (original: boolean) => void
   onSave: () => void
   onRetry: () => void
   onSettings: () => void
@@ -58,9 +55,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
   const { t } = i
   const [picker, setPicker] = useState(false)
   const targetName = i.langLabel(p.target, LANGUAGES.find((l) => l.code === p.target)?.name)
-  const srcName = p.lang ? i.langLabel(p.lang.code, p.lang.name) : null
   const busy = p.phase === 'ocr' || p.phase === 'translating'
-  const ready = p.phase === 'done'
   const pct = p.phase === 'ocr' ? 0.08 : p.progress.total ? 0.12 + (0.88 * p.progress.done) / p.progress.total : 0.12
 
   useEffect(() => {
@@ -89,29 +84,17 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
       {/* 状态 + 语言 */}
       <div className="tb-status">
         <StatusIcon phase={p.phase} paused={p.paused} />
-        {p.phase === 'error' && p.error ? (
-          <span className="tb-error" title={p.error.message}>
-            {p.error.message}
-          </span>
-        ) : (
-          <button className={`tb-lang${picker ? ' is-open' : ''}`} onClick={() => setPicker((v) => !v)}>
-            <AnimatePresence mode="popLayout" initial={false}>
-              <motion.span
-                key={srcName ?? (p.phase === 'ocr' ? 'ocr' : 'auto')}
-                className="tb-src"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              >
-                {p.recognized ? t(p.recognized === 'ocr-only' ? 'tb.ocrOnly' : 'tb.sameLanguage') : srcName ?? (p.phase === 'ocr' ? t('tb.detecting') : t('tb.auto'))}
-              </motion.span>
-            </AnimatePresence>
-            <ArrowRight size={13} className="tb-arrow" />
-            <span className="tb-dst">{targetName}</span>
-            <ChevronDown size={13} className="tb-chev" />
-          </button>
-        )}
+        <button className={`tb-lang${picker ? ' is-open' : ''}`} aria-label={`${t('lp.placeholder')} ${targetName}`} aria-expanded={picker} onClick={() => setPicker((v) => !v)}>
+          <span className="tb-dst">{targetName}</span>
+          <ChevronDown size={13} className="tb-chev" />
+        </button>
+        <Tip label={t('tb.autoTranslate')} side={p.pickerUp ? 'top' : 'bottom'}>
+          <label className="tb-auto">
+            <input type="checkbox" aria-label={t('tb.autoTranslate')} checked={p.autoTranslate} disabled={p.autoTranslateBusy} onChange={(e) => p.onAutoTranslate(e.target.checked)} />
+            <span className="tb-auto-box" aria-hidden="true"><Check size={12} strokeWidth={2.4} /></span>
+          </label>
+        </Tip>
+        {p.phase === 'error' && p.error && <span className="tb-error" title={p.error.message}>{p.error.message}</span>}
         <AnimatePresence>
           {p.phase === 'translating' && p.progress.total > 0 && (
             <motion.span
@@ -121,11 +104,6 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
               exit={{ opacity: 0, width: 0 }}
             >
               {p.progress.done}/{p.progress.total}
-            </motion.span>
-          )}
-          {ready && p.stats && (
-            <motion.span className="tb-time" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              {(p.stats.ms / 1000).toFixed(1)}s
             </motion.span>
           )}
         </AnimatePresence>
@@ -143,29 +121,19 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
 
       <div className="tb-sep" />
 
-      <div className="tb-seg">
-        <motion.div className="tb-seg-thumb" animate={{ x: p.mode === 'overlay' ? 0 : 32 }} transition={{ type: 'spring', stiffness: 600, damping: 40 }} />
-        <Tip label={t('tb.overlay')} keys="Tab">
-          <button className={`tb-seg-btn${p.mode === 'overlay' ? ' on' : ''}`} onClick={() => p.onMode('overlay')}>
-            <Layers size={16} />
-          </button>
-        </Tip>
-        <Tip label={t('tb.side')} keys="Tab">
-          <button className={`tb-seg-btn${p.mode === 'side' ? ' on' : ''}`} onClick={() => p.onMode('side')}>
-            <Columns2 size={16} />
-          </button>
-        </Tip>
-      </div>
-
-      <Tip label={t('tb.peek')} keys={shortcutLabel('Alt')}>
-        <button
-          className={`tb-btn${p.peek ? ' on' : ''}`}
-          disabled={p.mode === 'side'}
-          onMouseDown={() => p.onPeek(true)}
-          onMouseUp={() => p.onPeek(false)}
-          onMouseLeave={() => p.peek && p.onPeek(false)}
-        >
-          <Eye size={17} />
+      <Tip label={busy ? t('tb.busy') : t(p.recognized === 'ocr-only' ? 'tb.translate' : 'tb.retranslate')} keys={shortcutLabel('Ctrl R')}>
+        <button className="tb-btn tb-translate" disabled={busy} onClick={p.onRetry} aria-label={t(p.recognized === 'ocr-only' ? 'tb.translate' : 'tb.retranslate')}>
+          {p.recognized === 'ocr-only' ? <Languages size={17} /> : <RotateCw size={15} className={p.phase === 'translating' ? 'spin-slow' : ''} />}
+        </button>
+      </Tip>
+      <Tip label={p.reply ? t('tb.replyClose') : t('tb.reply')} keys="R">
+        <button className={`tb-btn tb-reply${p.reply ? ' on' : ''}`} aria-label={t('tb.reply')} aria-pressed={p.reply} onClick={p.onReply}>
+          <MessageSquareReply size={16} />
+        </button>
+      </Tip>
+      <Tip label={t('tb.side')} keys="Tab">
+        <button className={`tb-btn tb-compare${p.mode === 'side' ? ' on' : ''}`} aria-label={t('tb.side')} aria-pressed={p.mode === 'side'} onClick={() => p.onMode(p.mode === 'side' ? 'overlay' : 'side')}>
+          <Columns2 size={16} />
         </button>
       </Tip>
 
@@ -186,8 +154,8 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
           <ImageDown size={17} />
         </button>
       </Tip>
-      <Tip label={p.paused || p.peek ? t('tb.pinOriginal') : t('tb.pin')} keys={isMac ? '⌘ T' : 'F3'}>
-        <button className="tb-btn" disabled={!p.progress.done && !p.paused && !p.peek} onClick={p.onPin}>
+      <Tip label={p.paused ? t('tb.pinOriginal') : t('tb.pin')} keys={isMac ? '⌘ T' : 'F3'}>
+        <button className="tb-btn" disabled={!p.progress.done && !p.paused} onClick={(e) => p.onPin(e.altKey)}>
           <Pin size={16} />
         </button>
       </Tip>
@@ -199,24 +167,12 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps & { style: React.
 
       <div className="tb-sep" />
 
-      <Tip label={p.reply ? t('tb.replyClose') : t('tb.reply')} keys="R">
-        <button className={`tb-btn tb-reply${p.reply ? ' on' : ''}`} onClick={p.onReply}>
-          <MessageSquareReply size={16} />
-        </button>
-      </Tip>
-
-      <div className="tb-sep" />
-
-      <Tip label={busy ? t('tb.busy') : t(p.recognized === 'ocr-only' ? 'tb.translate' : 'tb.retranslate')} keys={shortcutLabel('Ctrl R')}>
-        <button className="tb-btn" disabled={busy} onClick={p.onRetry} aria-label={t(p.recognized === 'ocr-only' ? 'tb.translate' : 'tb.retranslate')}>
-          {p.recognized === 'ocr-only' ? <Languages size={17} /> : <RotateCw size={15} className={p.phase === 'translating' ? 'spin-slow' : ''} />}
-        </button>
-      </Tip>
       <Tip label={t('tb.settingsTip')}>
         <button className="tb-btn" onClick={p.onSettings}>
           <Settings2 size={16} />
         </button>
       </Tip>
+      <ShortcutHelp />
       <Tip label={t('tb.close')} keys="Esc">
         <button className="tb-btn tb-close" onClick={p.onClose}>
           <X size={17} />

@@ -322,6 +322,8 @@ const ru: Messages = {
   'ov.hintExit': 'Правая кнопка или {k} — выход',
   'tb.detecting': 'Распознаю',
   'tb.auto': 'Автоопределение',
+  'tb.autoTranslate': 'Автоперевод',
+  'tb.autoTranslateFailed': 'Не удалось сохранить настройку автоперевода. Попробуйте ещё раз.',
   'tb.settings': 'Настроить',
   'tb.retry': 'Повторить',
   'tb.overlay': 'Поверх',
@@ -379,7 +381,9 @@ const ru: Messages = {
   'pin.copyOriginal': 'Копировать оригинал (Ctrl+C)',
   'pin.copiedOriginal': 'Оригинал скопирован',
   'pin.top': 'Поверх всех окон',
-  'pin.close': 'Закрыть (Esc / двойной щелчок)'
+  'pin.close': 'Закрыть (Esc / правая кнопка мыши)',
+  'pin.collapseHint': 'Двойной щелчок — уменьшить · Правая кнопка — закрыть',
+  'pin.expandHint': 'Двойной щелчок — восстановить размер · Правая кнопка — закрыть'
 }
 
 export default ru

@@ -1,17 +1,17 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { Copy, Eye, Pin as PinIcon, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { PinPayload } from '@shared/types'
+import { PIN_COMPACT_SIZE, PIN_MARGIN } from '@shared/pin'
 import { TranslationLayer } from '../components/TranslationLayer'
 import { useI18n } from '../lib/i18n'
 import { primaryModifier } from '../lib/desktop'
-
-const MARGIN = 18
 
 export function Pin() {
   const { t } = useI18n()
   const [data, setData] = useState<PinPayload | null>(null)
   const [zoom, setZoom] = useState(1)
+  const [compact, setCompact] = useState(false)
   const [peek, setPeek] = useState(false)
   const [hover, setHover] = useState(false)
   const [closing, setClosing] = useState(false)
@@ -20,7 +20,6 @@ export function Pin() {
   /** 刚钉上：飞到左上角的一路上亮着描边，看得出钉好了 */
   const [fresh, setFresh] = useState(true)
   const [top, setTop] = useState(false)
-  const moved = useRef(false)
 
   useEffect(() => window.lens.onPinData(setData), [])
   useEffect(() => {
@@ -47,6 +46,15 @@ export function Pin() {
     setTop(!top)
   }
 
+  const toggleCompact = () => {
+    if (closing) return
+    window.lens.pinCompact(!compact)
+    setCompact(!compact)
+    setPeek(false)
+    setHoverKey(null)
+    setToast(null)
+  }
+
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), 1300)
@@ -69,17 +77,27 @@ export function Pin() {
 
   useEffect(() => {
     const up = () => window.lens.pinDrag(false)
+    const blur = () => { up(); setPeek(false) }
     window.addEventListener('mouseup', up)
-    return () => window.removeEventListener('mouseup', up)
+    window.addEventListener('blur', blur)
+    return () => {
+      window.removeEventListener('mouseup', up)
+      window.removeEventListener('blur', blur)
+    }
   }, [])
 
   if (!data) return null
   const w = data.screenRect.w
   const h = data.screenRect.h
+  const previewScale = compact ? Math.min((PIN_COMPACT_SIZE - 8) / w, (PIN_COMPACT_SIZE - 8) / h) : zoom
 
   return (
     <div
       className="pin-root"
+      onContextMenu={(e) => {
+        e.preventDefault()
+        close()
+      }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => {
         setHover(false)
@@ -87,8 +105,9 @@ export function Pin() {
       }}
     >
       <motion.div
-        className="pin-card"
-        style={{ left: MARGIN, top: MARGIN, width: w * zoom, height: h * zoom }}
+        className={`pin-card${compact ? ' pin-compact' : ''}`}
+        title={t(compact ? 'pin.expandHint' : 'pin.collapseHint')}
+        style={{ left: PIN_MARGIN, top: PIN_MARGIN, width: compact ? PIN_COMPACT_SIZE : w * zoom, height: compact ? PIN_COMPACT_SIZE : h * zoom }}
         initial={{ boxShadow: '0 0 0 1px rgba(255,90,31,0.9), 0 0 0 0 rgba(255,90,31,0.5), 0 2px 6px rgba(0,0,0,0)' }}
         animate={{
           opacity: closing ? 0 : 1,
@@ -100,23 +119,23 @@ export function Pin() {
         transition={{ duration: closing ? 0.15 : 0.35, ease: [0.22, 1, 0.36, 1] }}
         onMouseDown={(e) => {
           if (e.button !== 0 || (e.target as HTMLElement).closest('.pin-tools')) return
-          moved.current = false
           window.lens.pinDrag(true)
         }}
         onDoubleClick={(e) => {
-          if (!(e.target as HTMLElement).closest('.pin-tools')) close()
+          if (!(e.target as HTMLElement).closest('.pin-tools')) toggleCompact()
         }}
         onWheel={(e) => {
+          if (compact || closing) return
           const next = Math.max(0.3, Math.min(4, zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)))
           setZoom(next)
           window.lens.pinZoom(next)
         }}
-        onContextMenu={(e) => {
-          e.preventDefault()
-          close()
-        }}
       >
-        <div className="pin-inner" style={{ width: w, height: h, transform: `scale(${zoom})` }}>
+        <div className="pin-inner" style={{
+          width: w, height: h, transform: `scale(${previewScale})`,
+          left: compact ? (PIN_COMPACT_SIZE - w * previewScale) / 2 : 0,
+          top: compact ? (PIN_COMPACT_SIZE - h * previewScale) / 2 : 0
+        }}>
           <img
             src={data.image}
             width={w}
@@ -145,7 +164,7 @@ export function Pin() {
         </div>
 
         <AnimatePresence>
-          {hover && !closing && (
+          {hover && !closing && !compact && (
             <motion.div
               className="pin-tools"
               initial={{ opacity: 0, y: -4 }}
@@ -179,12 +198,12 @@ export function Pin() {
           )}
         </AnimatePresence>
         <AnimatePresence>
-          {zoom !== 1 && hover && (
+          {zoom !== 1 && hover && !compact && (
             <motion.div className="pin-zoom" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               {Math.round(zoom * 100)}%
             </motion.div>
           )}
-          {toast && (
+          {toast && !compact && (
             <motion.div className="pin-toast" initial={{ opacity: 0, y: 6, x: '-50%' }} animate={{ opacity: 1, y: 0, x: '-50%' }} exit={{ opacity: 0, x: '-50%' }}>
               {toast}
             </motion.div>
