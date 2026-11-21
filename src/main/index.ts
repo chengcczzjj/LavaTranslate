@@ -54,7 +54,7 @@ import { submitOfflineVote } from './offline-survey'
 import { secretLocked } from './secrets'
 import { errorText, t, uiLang } from './i18n'
 import { langBase, providerName, UI_LANGS } from '../shared/i18n'
-import { focusWindowAt, forceForeground, hwndOf, keyDown, VK_SPACE } from './winapi'
+import { ensureTopmost, focusWindowAt, hwndOf, isTopmost, keyDown, promoteOverlay, VK_SPACE } from './winapi'
 import { configureMacOverlay, ensureKeyMonitoring, ensureScreenCapture, isMac, macSpaceDown, macSettingsStatus, openMacSettings } from './macos'
 import { acceleratorLabel } from '../shared/hotkeys'
 import { PIN_COMPACT_SIZE, PIN_MARGIN } from '../shared/pin'
@@ -107,10 +107,14 @@ function loadPage(win: BrowserWindow, page: 'overlay' | 'settings' | 'pin') {
   win.webContents.on('preload-error', (_event, _path, error) => logError(`${page} preload`, error))
   win.webContents.on('render-process-gone', (_event, details) => {
     logError(`${page} renderer`, details.reason)
-    if (page === 'overlay') void hideOverlays(true)
+    if (page === 'overlay') {
+      void hideOverlays(true)
+      recreateOverlayFor(win)
+    }
     if (page === 'settings') void registerHotkey(settings.get().hotkey)
   })
   win.on('unresponsive', () => {
+    logError(`${page} unresponsive`, 'window became unresponsive')
     if (page === 'overlay') void hideOverlays(true)
     if (page === 'settings') void registerHotkey(settings.get().hotkey)
   })
@@ -224,13 +228,55 @@ function engineStatus(): EngineStatus {
 interface Overlay {
   win: BrowserWindow
   displayId: number
+  loaded: boolean
+  ready: Promise<void>
+  markReady: () => void
 }
 const overlays = new Map<number, Overlay>()
+const revealTimers = new Map<number, NodeJS.Timeout>()
 let captures = new Map<number, DisplayCapture>()
 let overlayActive = false
 /** 每次开始 / 取消都换代，防止权限框或截图返回后重新打开已经取消的界面。 */
 let captureGeneration = 0
 let releaseTimer: NodeJS.Timeout | null = null
+
+function isOverlayHealthy(o: Overlay): boolean {
+  if (typeof o.win.isDestroyed === 'function' && o.win.isDestroyed()) return false
+  if (typeof o.win.webContents.isCrashed === 'function' && o.win.webContents.isCrashed()) return false
+  return true
+}
+
+function clearRevealTimer(displayId: number) {
+  const timer = revealTimers.get(displayId)
+  if (!timer) return
+  clearTimeout(timer)
+  revealTimers.delete(displayId)
+}
+
+function destroyOverlay(displayId: number) {
+  clearRevealTimer(displayId)
+  const o = overlays.get(displayId)
+  if (!o) return
+  overlays.delete(displayId)
+  o.markReady()
+  if (typeof o.win.isDestroyed !== 'function' || !o.win.isDestroyed()) o.win.destroy?.()
+}
+
+function recreateOverlayFor(win: BrowserWindow) {
+  for (const [id, o] of overlays) {
+    if (o.win === win) {
+      destroyOverlay(id)
+      if (!quitting) syncOverlays()
+      return
+    }
+  }
+}
+
+function rebuildAllOverlays() {
+  if (quitting || overlayActive) return
+  for (const id of [...overlays.keys()]) destroyOverlay(id)
+  syncOverlays()
+}
 
 function createOverlay(display: Display): Overlay {
   const { x, y, width, height } = display.bounds
@@ -258,6 +304,33 @@ function createOverlay(display: Display): Overlay {
     thickFrame: false,
     webPreferences: { preload, sandbox: false, backgroundThrottling: false, spellcheck: false, offscreen: AUTOTEST }
   })
+  const overlay: Overlay = { win, displayId: display.id, loaded: typeof win.webContents.once !== 'function', ready: Promise.resolve(), markReady: () => {} }
+  if (!overlay.loaded) {
+    overlay.ready = new Promise<void>((resolve) => {
+      let finishTimer: NodeJS.Timeout | null = null
+      let hardTimer: NodeJS.Timeout | null = null
+      const done = () => {
+        if (finishTimer) clearTimeout(finishTimer)
+        if (hardTimer) clearTimeout(hardTimer)
+        finishTimer = null
+        hardTimer = null
+        if (overlay.loaded) return
+        overlay.loaded = true
+        resolve()
+      }
+      overlay.markReady = done
+      win.webContents.once('did-finish-load', () => {
+        if (overlay.loaded || finishTimer) return
+        finishTimer = setTimeout(done, 80)
+        finishTimer.unref?.()
+      })
+      win.webContents.once('did-fail-load', done)
+      win.webContents.once('render-process-gone', done)
+      win.once?.('closed', done)
+      hardTimer = setTimeout(done, 2500)
+      hardTimer.unref?.()
+    })
+  }
   win.setAlwaysOnTop(true, 'screen-saver')
   configureMacOverlay(win)
   if (isMac) win.webContents.on('before-input-event', (_event, input) => {
@@ -271,23 +344,29 @@ function createOverlay(display: Display): Overlay {
       hideOverlays()
     }
   })
+  win.on('closed', () => {
+    clearRevealTimer(display.id)
+    if (overlays.get(display.id)?.win === win) overlays.delete(display.id)
+  })
   loadPage(win, 'overlay')
-  return { win, displayId: display.id }
+  return overlay
 }
 
 function syncOverlays() {
   const displays = screen.getAllDisplays()
   const ids = new Set(displays.map((d) => d.id))
   for (const [id, o] of overlays) {
-    if (!ids.has(id)) {
-      o.win.destroy()
-      overlays.delete(id)
+    if (!ids.has(id) || !isOverlayHealthy(o)) {
+      destroyOverlay(id)
     }
   }
   for (const d of displays) {
     const o = overlays.get(d.id)
     if (!o) overlays.set(d.id, createOverlay(d))
-    else o.win.setBounds(d.bounds)
+    else {
+      o.win.setBounds(d.bounds)
+      if (process.platform === 'win32') o.win.setBounds(d.bounds)
+    }
   }
 }
 
@@ -295,6 +374,10 @@ function overlayOf(wc: WebContents): Overlay | undefined {
   for (const o of overlays.values()) if (o.win.webContents === wc) return o
   return undefined
 }
+
+ipcMain.on('overlay:ready', (e) => {
+  overlayOf(e.sender)?.markReady()
+})
 
 let tHotkey = 0
 /** 连按两次快捷键的间隔上限；比键盘自动重复的延迟（约 500ms）短，按住不放不会误触发 */
@@ -320,9 +403,10 @@ function startQuick() {
     const cursor = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id
     const here = captures.has(cursor) ? cursor : [...captures.keys()][0]
     for (const o of overlays.values()) {
-      if (!captures.has(o.displayId)) continue
+      if (!captures.has(o.displayId) || !isOverlayHealthy(o)) continue
       o.win.webContents.send('overlay:quick', o.displayId === here)
       if (o.displayId === here && o.win.isVisible()) {
+        if (process.platform === 'win32') promoteOverlay(hwndOf(o.win.getNativeWindowHandle()), true)
         o.win.focus()
         o.win.webContents.focus()
       }
@@ -362,6 +446,13 @@ async function startCapture() {
     syncOverlays()
     const caps = await captureAll()
     if (generation !== captureGeneration || !overlayActive) return
+    const pending = caps.map((c) => overlays.get(c.display.id)).filter((o): o is Overlay => !!o && !o.loaded)
+    if (pending.length) {
+      await Promise.all(pending.map((o) => o.ready))
+      if (generation !== captureGeneration || !overlayActive) return
+    }
+    // 冷唤醒或重建遮罩后给渲染首帧续一次启动租期，避免刚展示就被 watchdog 静默关闭
+    if (process.platform === 'win32' && !AUTOTEST) void winSpace.setCaptureSpace(true, 3000)
     if (process.env.LENS_SHOWTEST) console.log('[show] captured', Date.now() - tHotkey, 'ms')
     presentCaptures(caps)
   } catch (e) {
@@ -384,7 +475,7 @@ function presentCaptures(caps: DisplayCapture[], refresh = false) {
   const cursorDisplay = screen.getDisplayNearestPoint(cursor)
   for (const cap of caps) {
     const o = overlays.get(cap.display.id)
-    if (!o) continue
+    if (!o || !isOverlayHealthy(o)) continue
     const b = cap.display.bounds
     const frame: CaptureFrame = {
       displayId: cap.display.id,
@@ -409,17 +500,38 @@ function presentCaptures(caps: DisplayCapture[], refresh = false) {
   framesShown = true
 }
 
+function revealOverlay(o: Overlay, fallback = false) {
+  clearRevealTimer(o.displayId)
+  if (!overlayActive || passthrough || !isOverlayHealthy(o)) return
+  o.win.setOpacity(1)
+  if (process.platform === 'win32') {
+    const hwnd = hwndOf(o.win.getNativeWindowHandle())
+    ensureTopmost(hwnd, false)
+    if (fallback) {
+      logError(
+        'overlay reveal fallback',
+        `display=${o.displayId} visible=${o.win.isVisible()} focused=${o.win.isFocused()} topmost=${isTopmost(hwnd)} bounds=${JSON.stringify(o.win.getBounds())}`
+      )
+    }
+  }
+  if (process.env.LENS_SHOWTEST) {
+    const extra = process.platform === 'win32' ? ` topmost=${isTopmost(hwndOf(o.win.getNativeWindowHandle()))}` : ''
+    console.log('[show] visible display', o.displayId, Date.now() - tHotkey, 'ms', 'focused', o.win.isFocused(), 'bounds', JSON.stringify(o.win.getBounds()), extra)
+  }
+}
+
 /** 渲染进程画好截图后才显示窗口，避免闪出上一帧 */
 ipcMain.on('overlay:frame-ready', (e) => {
   const o = overlayOf(e.sender)
   if (process.env.LENS_SHOWTEST && o) console.log('[show] frame-ready display', o.displayId, Date.now() - tHotkey, 'ms')
-  if (!o || !overlayActive || passthrough) return
+  if (!o || !overlayActive || passthrough || !isOverlayHealthy(o)) return
   if (AUTOTEST) return o.win.webContents.send('overlay:shown')
   const display = screen.getAllDisplays().find((d) => d.id === o.displayId)
   if (display) {
     o.win.setBounds(display.bounds)
     o.win.setBounds(display.bounds)
   }
+  if (typeof o.win.isMinimized === 'function' && o.win.isMinimized()) o.win.restore()
   o.win.setOpacity(0)
   o.win.setIgnoreMouseEvents(false)
   o.win.setAlwaysOnTop(true, 'screen-saver')
@@ -428,14 +540,20 @@ ipcMain.on('overlay:frame-ready', (e) => {
   const activeDisplay = (captures.has(cursorDisplay) ? cursorDisplay : captures.keys().next().value) === o.displayId
   if (activeDisplay) {
     o.win.show()
-    if (process.platform === 'win32') forceForeground(hwndOf(o.win.getNativeWindowHandle()))
+    if (process.platform === 'win32') promoteOverlay(hwndOf(o.win.getNativeWindowHandle()), true)
     else if (isMac && refocus) app.focus({ steal: true })
     refocus = false
     o.win.focus()
     o.win.webContents.focus()
   } else {
     o.win.showInactive()
+    if (process.platform === 'win32') promoteOverlay(hwndOf(o.win.getNativeWindowHandle()), false)
   }
+  // 主进程兜底：渲染进程 rAF 若被节流或暂停，仍确保窗口不会永久停在 opacity=0
+  clearRevealTimer(o.displayId)
+  const timer = setTimeout(() => revealOverlay(o, true), 180)
+  timer.unref?.()
+  revealTimers.set(o.displayId, timer)
   // The first plain Space can go down before the overlay takes keyboard focus.
   const spaceHeld = activeDisplay && process.platform === 'win32' && plainSpaceHeld()
   o.win.webContents.send('overlay:shown')
@@ -444,13 +562,13 @@ ipcMain.on('overlay:frame-ready', (e) => {
 
 ipcMain.on('overlay:visible', (e) => {
   const o = overlayOf(e.sender)
-  if (o && overlayActive && !passthrough) o.win.setOpacity(1)
-  if (process.env.LENS_SHOWTEST && o) console.log('[show] visible display', o.displayId, Date.now() - tHotkey, 'ms', 'focused', o.win.isFocused(), 'bounds', JSON.stringify(o.win.getBounds()))
+  if (o) revealOverlay(o)
 })
 
 ipcMain.on('overlay:focus', (e) => {
   const o = overlayOf(e.sender)
-  if (o) {
+  if (o && isOverlayHealthy(o)) {
+    if (process.platform === 'win32') promoteOverlay(hwndOf(o.win.getNativeWindowHandle()), true)
     o.win.focus()
     o.win.webContents.focus()
   }
@@ -474,6 +592,8 @@ function fadeOut(win: BrowserWindow, ms: number) {
 function hideOverlays(immediate = false) {
   captureGeneration++
   quickPending = false
+  for (const timer of revealTimers.values()) clearTimeout(timer)
+  revealTimers.clear()
   if (process.platform === 'win32') void winSpace.setCaptureSpace(false)
   if (!overlayActive) return hiding ?? Promise.resolve()
   overlayActive = false
@@ -491,18 +611,22 @@ function hideOverlays(immediate = false) {
 async function doHide(immediate: boolean) {
   for (const ctl of translations.values()) ctl.abort()
   translations.clear()
-  const visible = [...overlays.values()].filter((o) => o.win.isVisible())
+  const all = [...overlays.values()].filter((o) => isOverlayHealthy(o))
+  const visible = all.filter((o) => o.win.isVisible())
   await Promise.all(visible.map((o) => (immediate ? Promise.resolve() : fadeOut(o.win, 140))))
-  for (const o of visible) {
-    o.win.hide()
-    o.win.setIgnoreMouseEvents(false)
+  for (const o of all) {
+    if (!isOverlayHealthy(o)) continue
+    if (o.win.isVisible()) o.win.hide()
+    o.win.setIgnoreMouseEvents?.(false)
     o.win.webContents.send('overlay:reset')
   }
   // 截图数据保留片刻，便于连续操作；之后释放内存
+  if (releaseTimer) clearTimeout(releaseTimer)
   releaseTimer = setTimeout(() => {
     captures.clear()
     ocrCache.clear()
   }, 30_000)
+  releaseTimer.unref?.()
 }
 
 ipcMain.on('overlay:close', () => hideOverlays())
@@ -528,11 +652,12 @@ ipcMain.on('overlay:space-editing', (e, editing: boolean) => {
   const now = Date.now()
   overlayHeartbeats.set(e.sender.id, now)
   // Another healthy monitor must not renew input ownership for a frozen renderer.
-  const participants = [...overlays.values()].filter((o) => captures.has(o.displayId))
+  const participants = [...overlays.values()].filter((o) => captures.has(o.displayId) && isOverlayHealthy(o))
+  if (!participants.length) return
   // Preserve the initial hold while monitors deliver their first frame. The
   // independent startup lease still expires if a monitor never responds.
   if (!editingOverlays.size && participants.some((o) => !overlayHeartbeats.has(o.win.webContents.id))) return
-  const responsive = participants.every((o) => now - (overlayHeartbeats.get(o.win.webContents.id) ?? 0) < 1000)
+  const responsive = participants.every((o) => now - (overlayHeartbeats.get(o.win.webContents.id) ?? 0) < 1200)
   void winSpace.setCaptureSpace(responsive && !editingOverlays.size)
 })
 
@@ -801,12 +926,19 @@ ipcMain.handle('image:save', async (e, rect: Rect) => {
   const img = await o.win.webContents.capturePage(roundRect(rect))
   o.win.setAlwaysOnTop(false)
   const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
-  const res = await dialog.showSaveDialog(o.win, {
-    title: t('save.title'),
-    defaultPath: join(app.getPath('pictures'), `LavaTranslate_${stamp}.png`),
-    filters: [{ name: t('save.png'), extensions: ['png'] }]
-  })
-  if (!o.win.isDestroyed()) o.win.setAlwaysOnTop(true, 'screen-saver')
+  let res: Electron.SaveDialogReturnValue
+  try {
+    res = await dialog.showSaveDialog(o.win, {
+      title: t('save.title'),
+      defaultPath: join(app.getPath('pictures'), `LavaTranslate_${stamp}.png`),
+      filters: [{ name: t('save.png'), extensions: ['png'] }]
+    })
+  } finally {
+    if (isOverlayHealthy(o)) {
+      o.win.setAlwaysOnTop(true, 'screen-saver')
+      if (process.platform === 'win32' && overlayActive && o.win.isVisible()) promoteOverlay(hwndOf(o.win.getNativeWindowHandle()), true)
+    }
+  }
   if (res.canceled || !res.filePath) return false
   writeFileSync(res.filePath, img.toPNG())
   return true
@@ -1190,8 +1322,11 @@ const hotkeyLabel = (value: string) => acceleratorLabel(value, process.platform,
 async function registerHotkey(hotkey: string): Promise<boolean> {
   if (registeredHotkey) globalShortcut.unregister(registeredHotkey)
   registeredHotkey = ''
+  if (process.platform === 'win32' && hotkey === 'Super+Space') {
+    await winSpace.setMode(0)
+    return winSpace.setMode(1)
+  }
   void winSpace.setMode(0)
-  if (process.platform === 'win32' && hotkey === 'Super+Space') return winSpace.setMode(1)
   try {
     if (globalShortcut.register(hotkey, onHotkey)) {
       registeredHotkey = hotkey
@@ -1287,6 +1422,12 @@ app.on('second-instance', () => openSettings())
 app.on('activate', () => {
   if (app.isReady() && !overlayActive) openSettings()
 })
+app.on('child-process-gone', (_event, details) => {
+  logError(`child-process-gone (${details.type})`, `${details.reason} exitCode=${details.exitCode}`)
+  if (process.platform === 'win32' && details.type === 'GPU' && !quitting) {
+    void hideOverlays(true).then(() => rebuildAllOverlays())
+  }
+})
 
 function updateMacMenu() {
   if (!isMac) return
@@ -1378,14 +1519,24 @@ export const startup = app.whenReady().then(async () => {
   await winSpace.start((recording) => {
     if (recording) settingsWin?.webContents.send('hotkey:recorded', 'Super+Space')
     else onHotkey()
-  }, requestScrollAtCursor, () => { if (!quitting) void hideOverlays(true) })
+  }, requestScrollAtCursor, () => {
+    if (quitting) return
+    if (overlayActive) logError('overlay expired', `framesShown=${framesShown} heartbeats=${overlayHeartbeats.size}/${captures.size}`)
+    void hideOverlays(true)
+  })
   const ok = await registerHotkey(s.hotkey)
   if (process.platform === 'win32') {
     const releaseInput = () => { void hideOverlays(true); void winSpace.setMode(0) }
     powerMonitor.on('lock-screen', releaseInput)
     powerMonitor.on('suspend', releaseInput)
-    powerMonitor.on('unlock-screen', () => { void registerHotkey(settings.get().hotkey) })
-    powerMonitor.on('resume', () => { void registerHotkey(settings.get().hotkey) })
+    powerMonitor.on('unlock-screen', () => {
+      void registerHotkey(settings.get().hotkey)
+      syncOverlays()
+    })
+    powerMonitor.on('resume', () => {
+      void registerHotkey(settings.get().hotkey)
+      rebuildAllOverlays()
+    })
   }
   settings.onChange((next, prev) => {
     if (next.provider !== prev.provider || JSON.stringify(next.providers[next.provider]) !== JSON.stringify(prev.providers[prev.provider])) buildEngine(next)

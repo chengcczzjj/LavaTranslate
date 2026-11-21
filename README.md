@@ -26,14 +26,16 @@
 
 | Platform | Download | First translation |
 | --- | --- | --- |
-| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.9](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.9/LavaTranslate-Setup-1.4.9.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
+| Windows 10/11 · x64 | [Windows installer (.exe), v1.4.11](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.11/LavaTranslate-Setup-1.4.11.exe) | Press **Win + Space** and drag over text to recognize it. Double-click the tray icon to configure a translation service. |
 | Android 10+ · arm64 | [Android APK, v1.4.7](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.7/LavaTranslate-Android-1.4.7.apk) | Open the app and add an API key. On Android 11+, enable LavaTranslate under Accessibility. Tap the app icon, then **Translate**. On Android 10, use screen sharing. |
-| macOS · Apple Silicon (M-series) | [Mac installer (.dmg), v1.4.9](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.9/LavaTranslate-Mac-1.4.9-arm64.dmg) | Open **Settings** from the menu bar and configure a service. Press **Option + Space**, grant Screen Recording permission, then drag over the text. |
+| macOS · Apple Silicon (M-series) | [Mac installer (.dmg), v1.4.11](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.11/LavaTranslate-Mac-1.4.11-arm64.dmg) | Open **Settings** from the menu bar and configure a service. Press **Option + Space**, grant Screen Recording permission, then drag over the text. |
 
 The Windows installer is unsigned. If SmartScreen shows **Unknown publisher**, use **More info → Run anyway** after checking that the file came from the release linked above.
 
 ### Recent changes
 
+- **Windows and Mac 1.4.11** fix the capture UI failing to appear or sinking behind other windows after staying idle in the background on Windows by re-asserting topmost Z-order after show, adding opacity reveal fallbacks, and self-healing overlays and the shortcut hook across renderer/GPU restarts and sleep/resume. [Release notes](docs/releases/v1.4.11.md)
+- **Windows and Mac 1.4.10** let you double-click pins to collapse them into compact tiles, pin the original image with Alt / Option, streamline the translation toolbar, and add a compact shortcut guide. [Release notes](docs/releases/v1.4.10.md)
 - **Windows and Mac 1.4.9** add the first downloadable Mac packages and enable Mac update checks/downloads. Mac installation remains a manual Finder step. Windows also fixes cancellation of a pending automatic update check. [Release notes](docs/releases/v1.4.9.md)
 
 - **Windows 1.4.8** hardens keyboard/input-method compatibility, releases Space after failures, and adds an interest poll for an optional ~1.13 GB offline translation model. Android remains on 1.4.7. [Release notes](docs/releases/v1.4.8.md)

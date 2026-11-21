@@ -39,6 +39,7 @@ const api = {
   /** 连按两次快捷键：进入输入翻译（show：本屏显示输入框） */
   onQuick: (cb: (show: boolean) => void) => on('overlay:quick', cb),
   frameReady: () => ipcRenderer.send('overlay:frame-ready'),
+  overlayReady: () => ipcRenderer.send('overlay:ready'),
   visible: () => ipcRenderer.send('overlay:visible'),
   focusOverlay: () => ipcRenderer.send('overlay:focus'),
   /** 按住空格：遮罩暂时透明、鼠标穿透，松开后重新截图（只在空格按着时生效） */

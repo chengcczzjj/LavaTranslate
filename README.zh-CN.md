@@ -26,14 +26,16 @@
 
 | 平台 | 下载入口 | 第一次翻译 |
 | --- | --- | --- |
-| Windows 10/11 · x64 | [Windows 安装程序（.exe），v1.4.9](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.9/LavaTranslate-Setup-1.4.9.exe) | 按 **Win + 空格**，拖动框选即可识别文字。双击托盘图标可配置翻译服务。 |
+| Windows 10/11 · x64 | [Windows 安装程序（.exe），v1.4.11](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.11/LavaTranslate-Setup-1.4.11.exe) | 按 **Win + 空格**，拖动框选即可识别文字。双击托盘图标可配置翻译服务。 |
 | 安卓 10 及以上 · arm64 | [安卓安装包（APK），v1.4.7](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.7/LavaTranslate-Android-1.4.7.apk) | 打开应用，填写 API Key。安卓 11 及以上可在「无障碍」中启用 LavaTranslate，再点应用图标 →「翻译」。安卓 10 使用「截屏授权」。 |
-| macOS · Apple Silicon（M 系列） | [Mac 安装包（.dmg），v1.4.9](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.9/LavaTranslate-Mac-1.4.9-arm64.dmg) | 从菜单栏图标打开「设置」，配置翻译服务。按 **Option + 空格**，按提示授予录屏权限后即可框选。 |
+| macOS · Apple Silicon（M 系列） | [Mac 安装包（.dmg），v1.4.11](https://github.com/chengcczzjj/LavaTranslate/releases/download/v1.4.11/LavaTranslate-Mac-1.4.11-arm64.dmg) | 从菜单栏图标打开「设置」，配置翻译服务。按 **Option + 空格**，按提示授予录屏权限后即可框选。 |
 
 Windows 安装程序尚未签名。如果 SmartScreen 显示「未知发布者」，确认文件来自上方发布链接后，可点「更多信息 → 仍要运行」。
 
 ### 近期版本改动
 
+- **Windows 和 Mac 1.4.11** 修复 Windows 后台常驻一段时间后截屏 UI 不显示或层级被压住的问题：显示后主动重建顶置层级，增加全透明恢复兜底，并在渲染/GPU 异常与系统休眠恢复后自动重建遮罩及重装快捷键钩子。[版本说明](docs/releases/v1.4.11.md)
+- **Windows 和 Mac 1.4.10** 支持双击钉图收起为小方块、按住 Alt / Option 钉原图，精简翻译工具条并新增紧凑快捷键提示。[版本说明](docs/releases/v1.4.10.md)
 - **Windows 和 Mac 1.4.9** 补齐 Mac 安装包、应用内检查更新和自动下载；Mac 下载后通过 Finder 手动安装。Windows 同步修复关闭自动更新后仍触发启动检查的问题。[版本说明](docs/releases/v1.4.9.md)
 
 - **Windows 1.4.8** 加固输入法与键盘监听兼容性，异常时自动释放空格，并加入约 1.13 GB 离线翻译包的意向调查。安卓稳定版仍为 1.4.7。[版本说明](docs/releases/v1.4.8.md)

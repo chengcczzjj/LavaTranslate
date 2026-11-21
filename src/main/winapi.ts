@@ -8,10 +8,25 @@ interface User32 {
   GetWindowThreadProcessId: (hwnd: number, pid: null) => number
   AttachThreadInput: (from: number, to: number, attach: number) => number
   SetForegroundWindow: (hwnd: number) => number
+  BringWindowToTop: (hwnd: number) => number
+  SetWindowPos: (hwnd: number, after: number, x: number, y: number, w: number, h: number, flags: number) => number
+  ShowWindow: (hwnd: number, cmd: number) => number
+  IsIconic: (hwnd: number) => number
+  GetWindowLongW: (hwnd: number, index: number) => number
   WindowFromPoint: (point: bigint) => number
   GetAncestor: (hwnd: number, flags: number) => number
   GetCurrentThreadId: () => number
 }
+
+const HWND_TOPMOST = -1
+const HWND_NOTOPMOST = -2
+const SWP_NOSIZE = 0x0001
+const SWP_NOMOVE = 0x0002
+const SWP_NOACTIVATE = 0x0010
+const SWP_SHOWWINDOW = 0x0040
+const SW_RESTORE = 9
+const GWL_EXSTYLE = -20
+const WS_EX_TOPMOST = 0x00000008
 
 let api: User32 | null | undefined
 
@@ -27,6 +42,11 @@ function win32(): User32 | null {
       GetWindowThreadProcessId: u.func('uint32_t __stdcall GetWindowThreadProcessId(intptr_t hWnd, void *lpdwProcessId)'),
       AttachThreadInput: u.func('int __stdcall AttachThreadInput(uint32_t idAttach, uint32_t idAttachTo, int fAttach)'),
       SetForegroundWindow: u.func('int __stdcall SetForegroundWindow(intptr_t hWnd)'),
+      BringWindowToTop: u.func('int __stdcall BringWindowToTop(intptr_t hWnd)'),
+      SetWindowPos: u.func('int __stdcall SetWindowPos(intptr_t hWnd, intptr_t hWndInsertAfter, int x, int y, int cx, int cy, uint32_t uFlags)'),
+      ShowWindow: u.func('int __stdcall ShowWindow(intptr_t hWnd, int nCmdShow)'),
+      IsIconic: u.func('int __stdcall IsIconic(intptr_t hWnd)'),
+      GetWindowLongW: u.func('int32_t __stdcall GetWindowLongW(intptr_t hWnd, int nIndex)'),
       WindowFromPoint: u.func('intptr_t __stdcall WindowFromPoint(int64_t point)'),
       GetAncestor: u.func('intptr_t __stdcall GetAncestor(intptr_t hWnd, uint32_t flags)'),
       GetCurrentThreadId: k.func('uint32_t __stdcall GetCurrentThreadId()')
@@ -51,6 +71,39 @@ export function hwndOf(handle: Buffer): number {
   return handle.readUInt32LE(0)
 }
 
+/** 窗口当前是否带有 WS_EX_TOPMOST 样式 */
+export function isTopmost(hwnd: number): boolean {
+  const u = win32()
+  return !!u && !!hwnd && (u.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) !== 0
+}
+
+/**
+ * 把窗口放到顶置栈最上方。reset=true 时先退回 NOTOPMOST 再置回 TOPMOST，
+ * 绕开 Windows 全屏/Win+D/Win11 置顶降级后单次 HWND_TOPMOST 不生效的问题。
+ */
+export function ensureTopmost(hwnd: number, reset = false) {
+  const u = win32()
+  if (!u || !hwnd) return
+  const flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW
+  if (reset || !isTopmost(hwnd)) u.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, flags)
+  u.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags)
+}
+
+/**
+ * 遮罩显示后统一提层：先从最小化恢复，再重建顶置层级；主屏额外切到前台，
+ * 并在前台锁/高权限窗口拦截焦点后再次确认顶置。
+ */
+export function promoteOverlay(hwnd: number, activate: boolean) {
+  const u = win32()
+  if (!u || !hwnd) return
+  if (u.IsIconic(hwnd)) u.ShowWindow(hwnd, SW_RESTORE)
+  ensureTopmost(hwnd, true)
+  if (activate) {
+    forceForeground(hwnd, true)
+    ensureTopmost(hwnd, false)
+  }
+}
+
 /** Once the overlays are click-through, activate the app beneath the pointer
  * so wheel delivery works even when Windows routes wheels to the focused app. */
 export function focusWindowAt(x: number, y: number, overlayHandles: number[]) {
@@ -65,14 +118,15 @@ export function focusWindowAt(x: number, y: number, overlayHandles: number[]) {
  * 把窗口切到前台。用户刚在别的软件里点过时，这个进程没有收到最近的输入，
  * SetForegroundWindow 会被前台锁拦下；临时挂到前台线程的输入队列上就能切过来。
  */
-export function forceForeground(hwnd: number) {
+export function forceForeground(hwnd: number, bringToTop = false) {
   const u = win32()
-  if (!u) return
+  if (!u || !hwnd) return
   const me = u.GetCurrentThreadId()
   const fg = u.GetForegroundWindow()
   const other = fg ? u.GetWindowThreadProcessId(fg, null) : 0
   const attached = other && other !== me ? u.AttachThreadInput(me, other, 1) : 0
   try {
+    if (bringToTop) u.BringWindowToTop(hwnd)
     u.SetForegroundWindow(hwnd)
   } finally {
     if (attached) u.AttachThreadInput(me, other, 0)

@@ -8,13 +8,24 @@ export class WinSpaceHotkey {
   private worker: Worker | null = null
   private state = new Int32Array(new SharedArrayBuffer(KEY_STATE_SIZE * 4))
   private ready = false
+  private stopped = false
+  private starting: Promise<boolean> | null = null
+  private callbacks: { onPress: (recording: boolean) => void; onScroll?: () => void; onExpired?: () => void } | null = null
   private heartbeat: NodeJS.Timeout | null = null
   private pending = new Map<number, (ok: boolean) => void>()
   private post: ((id: number, msg: number, w: number, l: number) => number) | null = null
 
   async start(onPress: (recording: boolean) => void, onScroll?: () => void, onExpired?: () => void): Promise<boolean> {
     if (process.platform !== 'win32') return false
+    this.stopped = false
+    this.callbacks = { onPress, onScroll, onExpired }
     if (this.worker) return this.ready
+    if (this.starting) return this.starting
+    this.starting = this.spawn(onPress, onScroll, onExpired).finally(() => { this.starting = null })
+    return this.starting
+  }
+
+  private async spawn(onPress: (recording: boolean) => void, onScroll?: () => void, onExpired?: () => void): Promise<boolean> {
     this.state = new Int32Array(new SharedArrayBuffer(KEY_STATE_SIZE * 4))
     try {
       this.post = load('user32.dll').func('int __stdcall PostThreadMessageW(uint32_t id, uint32_t msg, uintptr_t w, intptr_t l)')
@@ -23,7 +34,7 @@ export class WinSpaceHotkey {
       worker.unref()
       this.beat()
       return await new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => { this.stop(); resolve(false) }, 5000)
+        const timer = setTimeout(() => { this.shutdown(false); resolve(false) }, 5000)
         worker.on('message', (message: 'ready' | 'press' | 'record' | 'scroll' | 'expired' | { revision: number; ok: boolean }) => {
           if (this.worker !== worker) return
           if (message === 'ready') {
@@ -60,9 +71,17 @@ export class WinSpaceHotkey {
       })
     } catch (error) {
       console.error('Win+Space hook unavailable', error)
-      this.stop()
+      this.shutdown(false)
       return false
     }
+  }
+
+  private async ensureStarted(): Promise<boolean> {
+    if (process.platform !== 'win32' || this.stopped) return false
+    if (this.ready && this.worker) return true
+    if (this.starting) return this.starting
+    if (!this.callbacks) return false
+    return this.start(this.callbacks.onPress, this.callbacks.onScroll, this.callbacks.onExpired)
   }
 
   private beat() { Atomics.store(this.state, S.mainUntil, deadline(MAIN_LEASE_MS)) }
@@ -89,21 +108,23 @@ export class WinSpaceHotkey {
     })
   }
 
-  setMode(mode: 0 | 1 | 2): Promise<boolean> {
+  async setMode(mode: 0 | 1 | 2): Promise<boolean> {
+    if (mode !== 0 && !this.ready && !(await this.ensureStarted())) return false
     Atomics.store(this.state, S.mode, mode)
     if (!mode) Atomics.add(this.state, S.reset, 1)
     return this.apply()
   }
 
   /** Only a live renderer renews this lease; the main heartbeat cannot extend it. */
-  setCaptureSpace(enabled: boolean, lease = CAPTURE_LEASE_MS): Promise<boolean> {
+  async setCaptureSpace(enabled: boolean, lease = CAPTURE_LEASE_MS): Promise<boolean> {
+    if (enabled && !this.ready && !(await this.ensureStarted())) return false
     Atomics.store(this.state, S.captureUntil, enabled ? deadline(lease) : 0)
     const previous = Atomics.exchange(this.state, S.capture, Number(enabled))
     if (!enabled) {
       Atomics.store(this.state, S.held, 0)
       Atomics.add(this.state, S.reset, 1)
     }
-    if (previous === Number(enabled)) return Promise.resolve(this.ready)
+    if (previous === Number(enabled)) return this.ready
     return this.apply()
   }
 
@@ -117,13 +138,19 @@ export class WinSpaceHotkey {
     this.pending.clear()
   }
 
-  stop() {
+  private shutdown(permanent: boolean) {
+    if (permanent) this.stopped = true
     Atomics.store(this.state, S.mode, 0)
     Atomics.store(this.state, S.capture, 0)
     Atomics.store(this.state, S.held, 0)
     Atomics.store(this.state, S.mainUntil, 0)
     Atomics.store(this.state, S.stop, 1)
     this.clear()
+    this.worker = null
     try { this.wake(0x0012) } catch (error) { console.error('Win+Space hook shutdown', error) }
+  }
+
+  stop() {
+    this.shutdown(true)
   }
 }

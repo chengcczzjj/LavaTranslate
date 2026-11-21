@@ -162,7 +162,30 @@ export function Overlay() {
   }, [])
 
   useEffect(() => {
+    let revealTimer = 0
+    let raf1 = 0
+    let raf2 = 0
+    const cancelReveal = () => {
+      if (revealTimer) {
+        clearTimeout(revealTimer)
+        revealTimer = 0
+      }
+      if (raf1) {
+        cancelAnimationFrame(raf1)
+        raf1 = 0
+      }
+      if (raf2) {
+        cancelAnimationFrame(raf2)
+        raf2 = 0
+      }
+    }
+    const syncViewport = () => {
+      setVw(window.innerWidth)
+      setVh(window.innerHeight)
+    }
+    window.addEventListener('resize', syncViewport)
     const offFrame = window.lens.onFrame((f: CaptureFrame) => {
+      cancelReveal()
       // 按住空格操作完软件回来：这块屏上原来的选区留着；选区里的画面没变，译文也原样保留
       const prev = live.current
       const keep = f.refresh && !f.quick && prev.meta?.width === f.width && prev.meta.height === f.height && prev.meta.scale === f.scale
@@ -174,12 +197,16 @@ export function Overlay() {
       if (!same) reset()
       else endAlt()
       pixels.current = f.pixels
-      const c = canvas.current!
-      c.width = f.width
-      c.height = f.height
-      const ctx = c.getContext('2d', { alpha: false })!
-      const view = new Uint8ClampedArray(f.pixels.buffer as ArrayBuffer, f.pixels.byteOffset, f.pixels.byteLength)
-      ctx.putImageData(new ImageData(view, f.width, f.height), 0, 0)
+      const c = canvas.current
+      if (c) {
+        c.width = f.width
+        c.height = f.height
+        const ctx = c.getContext('2d', { alpha: false }) ?? c.getContext('2d')
+        if (ctx) {
+          const view = new Uint8ClampedArray(f.pixels.buffer as ArrayBuffer, f.pixels.byteOffset, f.pixels.byteLength)
+          ctx.putImageData(new ImageData(view, f.width, f.height), 0, 0)
+        }
+      }
       setFrameNo((n) => n + 1)
       setMeta({ displayId: f.displayId, width: f.width, height: f.height, scale: f.scale, windows: f.windows })
       setTarget(f.targetLang)
@@ -188,8 +215,7 @@ export function Overlay() {
       setHotkey(f.hotkey)
       setReplyAssist(f.replyAssist)
       setReplyTone(f.replyTone)
-      setVw(window.innerWidth)
-      setVh(window.innerHeight)
+      syncViewport()
       quickDraft.current = ''
       if (f.quick) {
         setStage('quick')
@@ -218,12 +244,25 @@ export function Overlay() {
       setTimeout(() => window.lens.frameReady(), 0)
     })
     const offShown = window.lens.onShown(() => {
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          window.lens.visible()
-          setShown(true)
+      cancelReveal()
+      syncViewport()
+      let done = false
+      const reveal = () => {
+        if (done) return
+        done = true
+        cancelReveal()
+        window.lens.visible()
+        setShown(true)
+      }
+      // 休眠唤醒、能效模式或窗口被遮挡时 rAF 可能停滞；超时兜底防止永远卡在 opacity=0
+      revealTimer = window.setTimeout(reveal, 120)
+      raf1 = requestAnimationFrame(() => {
+        raf1 = 0
+        raf2 = requestAnimationFrame(() => {
+          raf2 = 0
+          reveal()
         })
-      )
+      })
     })
     const offQuick = window.lens.onQuick((here) => {
       reqId.current++
@@ -235,10 +274,12 @@ export function Overlay() {
       setQuickHere(here)
     })
     const offPassing = window.lens.onPassing((rect) => {
+      cancelReveal()
       scrollSelection.current = live.current.stage === 'idle' ? rect : null
       setPassing(true)
     })
     const offReset = window.lens.onReset(() => {
+      cancelReveal()
       reset()
       pixels.current = null
       const c = canvas.current
@@ -247,7 +288,10 @@ export function Overlay() {
         c.height = 1
       }
     })
+    window.lens.overlayReady?.()
     return () => {
+      cancelReveal()
+      window.removeEventListener('resize', syncViewport)
       offFrame()
       offShown()
       offQuick()
