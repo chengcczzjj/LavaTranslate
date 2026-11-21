@@ -1,0 +1,137 @@
+name: Publish Release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (e.g. v1.4.11)
+        required: true
+        type: string
+      title:
+        description: Release title
+        required: true
+        type: string
+      notes_file:
+        description: Path to release notes markdown file
+        required: true
+        type: string
+      target_commit:
+        description: Target commit SHA for the release tag (defaults to current workflow commit)
+        required: false
+        default: ''
+        type: string
+      win_run_id:
+        description: Workflow run ID for Build Windows x64
+        required: true
+        type: string
+      mac_run_id:
+        description: Workflow run ID for Build Mac arm64
+        required: true
+        type: string
+      retain_android_from:
+        description: Release tag to retain latest-android.json from (or "latest"; empty to skip)
+        required: false
+        default: latest
+        type: string
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Download verified Windows, Mac, and retained Android assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          NOTES_FILE: ${{ inputs.notes_file }}
+          WIN_RUN_ID: ${{ inputs.win_run_id }}
+          MAC_RUN_ID: ${{ inputs.mac_run_id }}
+          RETAIN_ANDROID_FROM: ${{ inputs.retain_android_from }}
+        run: |
+          set -euo pipefail
+          test -f "$NOTES_FILE"
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          [[ "$WIN_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$MAC_RUN_ID" =~ ^[0-9]+$ ]]
+
+          win_conclusion="$(gh run view "$WIN_RUN_ID" --json conclusion -q .conclusion)"
+          mac_conclusion="$(gh run view "$MAC_RUN_ID" --json conclusion -q .conclusion)"
+          test "$win_conclusion" = "success"
+          test "$mac_conclusion" = "success"
+
+          rm -rf release-assets && mkdir -p release-assets
+          gh run download "$WIN_RUN_ID" -n win-x64-release -D release-assets
+          gh run download "$MAC_RUN_ID" -n mac-arm64-release -D release-assets
+
+          if [ -n "$RETAIN_ANDROID_FROM" ]; then
+            if [ "$RETAIN_ANDROID_FROM" = "latest" ]; then
+              gh release download --pattern latest-android.json -D release-assets
+            else
+              gh release download "$RETAIN_ANDROID_FROM" --pattern latest-android.json -D release-assets
+            fi
+          fi
+          ls -lh release-assets
+      - name: Verify checksums and update manifests
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          python3 - <<'EOF'
+          import base64, hashlib, os, re
+
+          expected_version = os.environ['TAG'].lstrip('v')
+          d = 'release-assets'
+
+          def sha256(p):
+              h = hashlib.sha256()
+              with open(p, 'rb') as f:
+                  for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          def sha512_b64(p):
+              h = hashlib.sha512()
+              with open(p, 'rb') as f:
+                  for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                      h.update(chunk)
+              return base64.b64encode(h.digest()).decode()
+
+          for sumfile in ['SHA256SUMS-Windows.txt', 'SHA256SUMS-Mac.txt']:
+              with open(os.path.join(d, sumfile)) as f:
+                  lines = [line.strip() for line in f if line.strip()]
+              assert lines, f'{sumfile} is empty'
+              for line in lines:
+                  expected, path = re.split(r'\s+', line, maxsplit=1)
+                  fname = os.path.basename(path)
+                  actual = sha256(os.path.join(d, fname))
+                  assert actual == expected, f'{fname}: {actual} != {expected}'
+                  print(f'SHA256 OK: {fname}')
+
+          for yml in ['latest.yml', 'latest-mac.yml']:
+              txt = open(os.path.join(d, yml)).read()
+              ver = re.search(r'^version:\s*(\S+)', txt, re.M)
+              assert ver and ver.group(1) == expected_version, f'{yml} version mismatch: {ver and ver.group(1)} != {expected_version}'
+              matches = list(re.finditer(r'url:\s*(\S+)\s*\n\s*sha512:\s*(\S+)\s*\n\s*size:\s*(\d+)', txt))
+              assert matches, f'No file entries found in {yml}'
+              for m in matches:
+                  fname, expected_sha512, expected_size = m.groups()
+                  fp = os.path.join(d, fname)
+                  assert os.path.getsize(fp) == int(expected_size), f'{fname} size mismatch'
+                  assert sha512_b64(fp) == expected_sha512, f'{fname} sha512 mismatch'
+                  print(f'SHA512+SIZE OK ({yml}): {fname}')
+          EOF
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          TITLE: ${{ inputs.title }}
+          NOTES_FILE: ${{ inputs.notes_file }}
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+        run: |
+          set -euo pipefail
+          target="${TARGET_COMMIT:-${GITHUB_SHA}}"
+          gh release create "$TAG" release-assets/* \
+            --target "$target" \
+            --title "$TITLE" \
+            --notes-file "$NOTES_FILE"
